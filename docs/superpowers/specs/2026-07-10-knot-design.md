@@ -31,6 +31,7 @@ knot は Cosense のエクスポート JSON を無加工で取り込み、いつ
 - ページの閲覧（SSR）、編集（CodeMirror 6）、作成、タイトル変更、削除、複製、ピン留め
 - Scrapbox 記法のパースとレンダリング
 - リンクグラフ（1-hop リンク、2-hop リンク、空リンク、逆リンク）
+- テロメア（行ごとの編集の新しさの可視化、未読の強調、行 permalink）
 - 日本語対応の全文検索と、インクリメンタルなあいまいタイトル検索
 - Cosense エクスポート JSON のインポートと、Cosense 互換 JSON のエクスポート
 - Cosense の読み取り API と同一形状の HTTP API
@@ -114,6 +115,7 @@ pages       (id, project_id, title, title_lc, version, pinned, deleted, image, c
 lines       (id, page_id, ord, text, created, updated, user_id)
 commits     (id, page_id, version, user_id, created, ops)
 title_history (page_id, old_title, old_title_lc, started, ended)
+page_visits (user_id, page_id, visited)
 links       (project_id, source_page_id, target_title_lc)
 attachments (id, project_id, filename, content_type, size, sha256, user_id, created)
 sessions    (id, user_id, expires, created)
@@ -127,6 +129,7 @@ pages_fts   (FTS5 仮想テーブル、tokenize='trigram')
 - `commits.ops` は行操作の JSON 配列。追記のみで、v1 では読み取る UI を持たない。
 - `pages.image` は**代表画像**（ページ内の最初の画像 URL、なければ空）である。コミット適用時に AST から導出して保存し、ページ一覧のカード、読み取り API の image フィールド、リンク先のプレビューに使う。一覧 API の descriptions（冒頭数行）は lines から都度取得する。
 - `title_history` はタイトル変更コミットの適用時に、旧タイトルとその有効期間を追記する。v1 では書くだけで読む UI を持たない。旧タイトルからのリダイレクト（「将来拡張」の節を参照）の材料である。
+- `page_visits` はページ閲覧時に「そのユーザーがいつそのページを見たか」を upsert する。テロメアの未読判定に使い、アクセス履歴方式の旧タイトルリダイレクト（将来拡張）の材料を兼ねる。
 - `links` はページ保存のたびに AST から抽出して張り直す導出テーブル。
 - links、pages_fts、pages.image は lines から再構築できる導出データである。`knot reindex` コマンドで全導出データを作り直せるようにする。索引の破損対策であると同時に、リンク抽出やレンダリングのロジックを変更したときの再適用手段を兼ねる。
 - `pages_fts` はタイトルと全行を連結したテキストを索引する。trigram トークナイザにより日本語の部分一致検索が成立する。ただし trigram は 3 文字未満のクエリでは索引を引けず、エラーではなく 0 件を返す（実測で確認）。日本語は 2 文字の語が多いため、クエリが短い場合は `lines.text` への LIKE 走査にフォールバックする。この分岐は storage の検索メソッドの内側に閉じる。
@@ -295,6 +298,23 @@ CodeMirror 6 を使い、Scrapbox 記法のプレーンテキストを編集す�
 Cosense の「常に編集モード」（閲覧と編集の区別がない UI）は v1 では再現せず、閲覧画面と編集画面を分ける。
 編集画面内の体験（保存操作が存在しない、記法が即座に装飾される）で Cosense の感覚を近似する。
 
+### テロメア
+
+各行の左端に、その行の更新の新しさを可視化するバー（Cosense の**テロメア**）を表示する。
+可視化するのは 2 つの情報である。
+
+- **行の新旧**：新しい行ほどバーを太く描画し、古い行ほど細らせる。
+- **既読と未読**：自分が前回そのページを訪れた後に更新された行は、バーを青で描画する。この判定のために page_visits を閲覧時に upsert する。
+
+テロメアにポインタを載せると相対時刻と編集者を表示し、クリックで詳細な時刻を表示する。
+
+テロメアは**行 permalink** を兼ねる。
+`/:project/:title#行ID` の URL でその行までスクロールして強調表示し、リンク記法 `[ページ名#行ID]` も同じ場所を指す（ページ名に `#` を含むタイトルと曖昧な場合は、完全一致するタイトルを優先して解決する）。
+
+行が第一級で id、updated、user_id を持つ knot のデータモデルは、この機能に必要な情報をすでに全行に持っている。
+Cosense からインポートしたページでも、過去の編集時刻と行 ID がそのまま反映される。
+エディタでは CodeMirror の gutter として同じ情報を表示する。
+
 ### 検索 UI
 
 検索はインクリメンタル（打鍵ごとに結果を更新）とし、対象によって実装を分ける。
@@ -365,7 +385,7 @@ WebSocket エンドポイントを追加し、適用済みコミットをペー�
 
 knot の title_history は有効期間（started、ended）を記録しているので、「一定時間以上そのページのタイトルであり続けたタイトル」だけをリダイレクト対象にする方針を第一候補とする。
 編集途中の一時タイトルは数秒しか存続しないため、この条件で除外できる。
-精度が足りない場合の代替として、Cosense と同じアクセス履歴方式（閲覧時に title_lc と page_id の対応を記録し、404 時に引く）へ切り替えられる。
+精度が足りない場合の代替として、Cosense と同じアクセス履歴方式へ切り替えられる。テロメアのために v1 から記録する page_visits と title_history を突き合わせれば、「そのタイトルであった期間に実際に閲覧されたことのあるタイトル」だけをリダイレクト対象にできる。
 どちらの方式でも、v1 の 404 ハンドラ（新規作成を促す画面）が単一の差し込み点になる。
 
 ### 外部エディタ同期 CLI（v2）
