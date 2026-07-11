@@ -100,5 +100,52 @@ test('プロパティ: ローカルの全編集が生き残り、他者だけの
           `latest-only line ${r.id} lost in round ${round}`);
       }
     }
+    for (const r of latest) {
+      const b = base.find((x) => x.id === r.id);
+      const l = local.find((x) => x.id === r.id);
+      if (b && b.text !== r.text && l && l.text === b.text) {
+        assert.ok(merged.some((m) => m.id === r.id && m.text === r.text),
+          `latest edit ${r.id} lost in round ${round}`);
+      }
+    }
+    for (const b of base) {
+      if (!local.some((l) => l.id === b.id)) {
+        assert.ok(!merged.some((m) => m.id === b.id),
+          `locally deleted ${b.id} still present in round ${round}`);
+      }
+    }
+  }
+});
+
+test('プロパティ: 同一行を両者が触る競合が規則どおりに解決される', () => {
+  const rnd = lcg(7113);
+  for (let round = 0; round < 30; round++) {
+    const base: Line[] = [];
+    for (let i = 0; i < 4; i++) {
+      base.push({ id: `B${i}`, text: `line${i}`, created: 1, updated: 1, updatedVersion: 1, userId: 'u' });
+    }
+    const target = Math.floor(rnd() * base.length);
+    const localKind = rnd() < 0.5 ? 'update' : 'delete';
+    const latestKind = rnd() < 0.5 ? 'update' : 'delete';
+    const local = base.map((l) => ({ ...l }));
+    if (localKind === 'update') local[target] = { ...local[target], text: 'mine' };
+    else local.splice(target, 1);
+    const latest = base.map((l) => ({ ...l }));
+    if (latestKind === 'update') latest[target] = { ...latest[target], text: 'theirs' };
+    else latest.splice(target, 1);
+    const merged = apply(latest, rebase(base, local, latest));
+    const found = merged.find((m) => m.id === `B${target}`);
+    if (localKind === 'delete') {
+      assert.equal(found, undefined, `round ${round}: 自分の削除が勝つ`);
+    } else {
+      assert.ok(found !== undefined && found.text === 'mine',
+        `round ${round}: 自分の更新が勝つ（相手が${latestKind === 'delete' ? '削除' : '更新'}でも）`);
+    }
+    for (const b of base) {
+      if (b.id !== `B${target}`) {
+        assert.ok(merged.some((m) => m.id === b.id && m.text === b.text),
+          `round ${round}: 触っていない行 ${b.id} が変化した`);
+      }
+    }
   }
 });
