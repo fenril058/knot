@@ -35,3 +35,13 @@ test('代表画像は最初の画像 URL', () => {
 test('画像がなければ null', () => {
   assert.equal(extractRefs('タイトル\n本文だけ').image, null);
 });
+
+test('ULID 形式の行 ID も除去され、リンク先は重複しない', () => {
+  const src = 'タイトル\n[ページ#01HZXW3E8PJQK5M2N4R6T8V0AB] [ページ]';
+  assert.deepEqual(extractRefs(src).linkTargets, ['ページ']);
+});
+
+test('タイトル中の # は保持し、末尾の行 ID だけを除去する', () => {
+  const src = 'タイトル\n[C#の話#61f23df197c291000066c1cf]';
+  assert.deepEqual(extractRefs(src).linkTargets, ['c#の話']);
+});

@@ -1,4 +1,4 @@
-import { parse } from '@progfay/scrapbox-parser';
+import { parse, type Node } from '@progfay/scrapbox-parser';
 import { titleLc } from './title.ts';
 import { classifyUrl } from './media.ts';
 
@@ -16,24 +16,17 @@ export function extractRefs(text: string): PageRefs {
   const targets = new Set<string>();
   let image: string | null = null;
 
-  const visit = (node: unknown): void => {
-    const n = node as {
-      type?: string;
-      pathType?: string;
-      href?: string;
-      path?: string;
-      nodes?: unknown[];
-    };
-    if (n.type === 'link' && n.pathType === 'relative' && n.href) {
-      targets.add(titleLc(stripLineId(n.href)));
-    } else if (n.type === 'hashTag' && n.href) {
-      targets.add(titleLc(n.href));
-    } else if (n.type === 'link' && n.pathType === 'absolute' && n.href) {
-      if (image === null && classifyUrl(n.href) === 'image') image = n.href;
-    } else if (n.type === 'icon' && n.pathType === 'relative' && n.path) {
-      targets.add(titleLc(n.path));
+  const visit = (node: Node): void => {
+    if (node.type === 'link' && node.pathType === 'relative') {
+      targets.add(titleLc(stripLineId(node.href)));
+    } else if (node.type === 'hashTag') {
+      targets.add(titleLc(node.href));
+    } else if (node.type === 'link' && node.pathType === 'absolute') {
+      if (image === null && classifyUrl(node.href) === 'image') image = node.href;
+    } else if (node.type === 'icon' && node.pathType === 'relative') {
+      targets.add(titleLc(node.path));
     }
-    for (const child of n.nodes ?? []) visit(child);
+    if ('nodes' in node) for (const child of node.nodes) visit(child);
   };
 
   for (const block of parse(text)) {
