@@ -8,7 +8,9 @@ test('小文字化と空白のアンダースコア化', () => {
 });
 
 test('Unicode NFC 正規化（結合文字と合成済み文字を同一視）', () => {
-  assert.equal(titleLc('ガ'), titleLc('ガ'));
+  // 分解形 (カ U+30AB + 結合濁点 U+3099) と合成済み形 (ガ U+30AC)。
+  // エディタ等の正規化で潰れないよう Unicode エスケープで記述する。
+  assert.equal(titleLc('\u30AB\u3099'), titleLc('\u30AC'));
 });
 
 test('特殊文字を含むタイトルの URL 往復', () => {
