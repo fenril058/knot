@@ -63,7 +63,6 @@ export function diffLines(oldLines: Line[], newTexts: string[], makeId: () => st
       ops.push({ type: 'insert', id, after: a, text: adds[p] });
       a = id;
     }
-    if (pairs > 0) anchor = dels[pairs - 1].id;
   }
   return ops;
 }

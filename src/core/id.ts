@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 
 const ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 
+/** ULID を生成する。now はミリ秒（Date.now() 互換）。Unix 秒を渡すと時刻順が壊れる。 */
 export function ulid(now: number = Date.now()): string {
   let ts = '';
   let t = now;

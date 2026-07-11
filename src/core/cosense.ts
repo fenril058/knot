@@ -20,6 +20,7 @@ export type CosenseExport = {
   pages: CosensePage[];
 };
 
+/** メタデータが null の行は、インポート時にインポート時刻とインポート実行ユーザーで埋める約束（storage 層が担う）。 */
 export type NormalizedLine = {
   id: string | null;
   text: string;

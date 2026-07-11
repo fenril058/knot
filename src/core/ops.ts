@@ -12,7 +12,12 @@ export type LineOp =
   | { type: 'update'; id: string; text: string }
   | { type: 'delete'; id: string };
 
-export class OpsError extends Error {}
+export class OpsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'OpsError';
+  }
+}
 
 export function validateOps(lines: Line[], ops: LineOp[]): void {
   if (ops.length === 0) throw new OpsError('ops must not be empty');

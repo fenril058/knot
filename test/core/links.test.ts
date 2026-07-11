@@ -36,6 +36,30 @@ test('画像がなければ null', () => {
   assert.equal(extractRefs('タイトル\n本文だけ').image, null);
 });
 
+test('ブラケットの .png URL だけのページは image ノードとして拾われる', () => {
+  const src = 'タイトル\n[https://example.com/b.png]';
+  assert.equal(extractRefs(src).image, 'https://example.com/b.png');
+});
+
+test('実物形式の Gyazo ハッシュ URL は image ノードとして拾われる', () => {
+  // パーサが src を thumb URL に書き換える（実測値）。
+  const src = 'タイトル\n[https://gyazo.com/0204f06d4ed4af1554dc3c2a87a806b2]';
+  assert.equal(
+    extractRefs(src).image,
+    'https://gyazo.com/0204f06d4ed4af1554dc3c2a87a806b2/thumb/1000',
+  );
+});
+
+test('[[...]] の strongImage 記法も代表画像になる', () => {
+  const src = 'タイトル\n[[https://example.com/b.png]]';
+  assert.equal(extractRefs(src).image, 'https://example.com/b.png');
+});
+
+test('table 記法の中のリンクも linkTargets に入る', () => {
+  const src = 'タイトル\ntable:名前\n\t[TableLink]\tcell2';
+  assert.deepEqual(extractRefs(src).linkTargets, ['tablelink']);
+});
+
 test('ULID 形式の行 ID も除去され、リンク先は重複しない', () => {
   const src = 'タイトル\n[ページ#01HZXW3E8PJQK5M2N4R6T8V0AB] [ページ]';
   assert.deepEqual(extractRefs(src).linkTargets, ['ページ']);

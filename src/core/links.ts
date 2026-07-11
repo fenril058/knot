@@ -25,12 +25,18 @@ export function extractRefs(text: string): PageRefs {
       if (image === null && classifyUrl(node.href) === 'image') image = node.href;
     } else if (node.type === 'icon' && node.pathType === 'relative') {
       targets.add(titleLc(node.path));
+    } else if (node.type === 'image' || node.type === 'strongImage') {
+      if (image === null) image = node.src;
     }
     if ('nodes' in node) for (const child of node.nodes) visit(child);
   };
 
   for (const block of parse(text)) {
-    if (block.type === 'line') for (const node of block.nodes) visit(node);
+    if (block.type === 'line') {
+      for (const node of block.nodes) visit(node);
+    } else if (block.type === 'table') {
+      for (const row of block.cells) for (const cell of row) for (const node of cell) visit(node);
+    }
   }
   return { linkTargets: [...targets], image };
 }

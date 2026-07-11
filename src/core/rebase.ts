@@ -24,6 +24,7 @@ export function rebase(base: Line[], local: Line[], latest: Line[]): LineOp[] {
         anchor = l.id;
       }
     } else {
+      // 前提: local にしか無い行 ID は latest に存在しない（再送の冪等性は storage 層の ops_hash で解決済みであること）。
       ops.push({ type: 'insert', id: l.id, after: anchor, text: l.text });
       anchor = l.id;
     }

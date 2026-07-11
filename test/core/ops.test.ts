@@ -32,6 +32,17 @@ test('同一コミット内で削除済みの行をアンカーにする insert 
   );
 });
 
+test('新規 insert 同士の ID 重複も OpsError', () => {
+  assert.throws(
+    () =>
+      validateOps([line('a')], [
+        { type: 'insert', id: 'x', after: '_head', text: 't1' },
+        { type: 'insert', id: 'x', after: '_head', text: 't2' },
+      ]),
+    OpsError,
+  );
+});
+
 test('正しい ops 列は例外を投げない', () => {
   validateOps([line('a')], [
     { type: 'insert', id: 'b', after: 'a', text: 't' },
