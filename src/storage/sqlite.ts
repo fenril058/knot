@@ -1,7 +1,11 @@
 import { DatabaseSync } from 'node:sqlite';
-import type { Line } from '../core/ops.ts';
+import { OpsError, type Line, type LineOp } from '../core/ops.ts';
+import { applyOps } from '../core/apply.ts';
+import { titleLc } from '../core/title.ts';
 import { ulid } from '../core/id.ts';
+import { opsHash } from './hash.ts';
 import {
+  BadCommitError,
   StorageError,
   type CommitInput,
   type CommitResult,
@@ -160,8 +164,96 @@ export class SqliteStorage implements Storage {
     return rows.map((r) => this.#pageRowToMeta(r));
   }
 
-  async commit(_input: CommitInput): Promise<CommitResult> {
-    throw new Error('not implemented: commit (Task 3)');
+  async commit(input: CommitInput): Promise<CommitResult> {
+    return this.#tx(() => this.#applyCommit(input));
+  }
+
+  #applyCommit(input: CommitInput): CommitResult {
+    const { projectId, pageId, commitId, baseVersion, ops, userId, now } = input;
+
+    const row = this.#db.prepare('SELECT * FROM pages WHERE id = ?').get(pageId) as PageRow | undefined;
+    if (!row && baseVersion !== 0) throw new BadCommitError(`unknown page: ${pageId}`);
+    if (row && row.project_id !== projectId) {
+      throw new BadCommitError(`page ${pageId} is not in project ${projectId}`);
+    }
+    if (row && row.deleted === 1) throw new BadCommitError(`page ${pageId} is deleted`);
+    if (row && baseVersion !== row.version) {
+      return { kind: 'conflict', reason: 'version', page: this.#snapshot(row) };
+    }
+
+    const currentLines = row ? this.#getLines(pageId) : [];
+    const version = baseVersion + 1;
+    let newLines: Line[];
+    try {
+      newLines = applyOps(currentLines, ops, { userId, now, version });
+    } catch (e) {
+      if (e instanceof OpsError) throw new BadCommitError(e.message);
+      throw e;
+    }
+
+    const deleted = newLines.length === 0;
+    const newTitle = deleted ? (row ? row.title : '') : newLines[0].text;
+    const newTitleLc = titleLc(newTitle);
+
+    if (!deleted && (!row || newTitleLc !== row.title_lc)) {
+      const clash = this.#db
+        .prepare('SELECT * FROM pages WHERE project_id = ? AND title_lc = ? AND deleted = 0 AND id != ?')
+        .get(projectId, newTitleLc, pageId) as PageRow | undefined;
+      if (clash) return { kind: 'conflict', reason: 'title', page: this.#snapshot(clash) };
+    }
+
+    if (!row) {
+      this.#db
+        .prepare(
+          `INSERT INTO pages (id, project_id, title, title_lc, version, pinned, deleted, image, created, updated)
+           VALUES (?, ?, ?, ?, ?, 0, ?, NULL, ?, ?)`,
+        )
+        .run(pageId, projectId, newTitle, newTitleLc, version, deleted ? 1 : 0, now, now);
+    } else {
+      if (!deleted && newTitle !== row.title) {
+        const started = this.#db
+          .prepare('SELECT COALESCE(MAX(ended), ?) AS s FROM title_history WHERE page_id = ?')
+          .get(row.created, pageId) as { s: number };
+        this.#db
+          .prepare('INSERT INTO title_history (page_id, old_title, old_title_lc, started, ended) VALUES (?, ?, ?, ?, ?)')
+          .run(pageId, row.title, row.title_lc, started.s, now);
+      }
+      this.#db
+        .prepare('UPDATE pages SET title = ?, title_lc = ?, version = ?, deleted = ?, updated = ? WHERE id = ?')
+        .run(newTitle, newTitleLc, version, deleted ? 1 : 0, now, pageId);
+    }
+
+    this.#writeLines(pageId, newLines);
+    this.#insertCommit(commitId, pageId, baseVersion, version, userId, now, ops);
+    return { kind: 'applied', version };
+  }
+
+  #writeLines(pageId: string, lines: Line[]): void {
+    this.#db.prepare('DELETE FROM lines WHERE page_id = ?').run(pageId);
+    const st = this.#db.prepare(
+      `INSERT INTO lines (id, page_id, ord, text, created, updated, updated_version, user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    lines.forEach((l, ord) => {
+      st.run(l.id, pageId, ord, l.text, l.created, l.updated, l.updatedVersion, l.userId);
+    });
+  }
+
+  #insertCommit(
+    commitId: string,
+    pageId: string,
+    baseVersion: number,
+    version: number,
+    userId: string,
+    now: number,
+    ops: LineOp[],
+  ): void {
+    this.#db
+      .prepare(
+        `INSERT INTO commits (id, page_id, base_version, version, user_id, created, ops, ops_hash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(commitId, pageId, baseVersion, version, userId, now, JSON.stringify(ops), opsHash(pageId, baseVersion, ops));
   }
 
   async importPage(_input: ImportPageInput): Promise<ImportPageResult> {
