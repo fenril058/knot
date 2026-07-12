@@ -171,6 +171,16 @@ export class SqliteStorage implements Storage {
   #applyCommit(input: CommitInput): CommitResult {
     const { projectId, pageId, commitId, baseVersion, ops, userId, now } = input;
 
+    const prior = this.#db
+      .prepare('SELECT version, ops_hash FROM commits WHERE id = ?')
+      .get(commitId) as { version: number; ops_hash: string } | undefined;
+    if (prior) {
+      if (prior.ops_hash !== opsHash(pageId, baseVersion, ops)) {
+        throw new BadCommitError(`commit ${commitId} was already applied with different content`);
+      }
+      return { kind: 'applied', version: prior.version };
+    }
+
     const row = this.#db.prepare('SELECT * FROM pages WHERE id = ?').get(pageId) as PageRow | undefined;
     if (!row && baseVersion !== 0) throw new BadCommitError(`unknown page: ${pageId}`);
     if (row && row.project_id !== projectId) {
