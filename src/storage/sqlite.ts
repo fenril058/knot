@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { OpsError, type Line, type LineOp } from '../core/ops.ts';
 import { applyOps } from '../core/apply.ts';
+import { extractRefs } from '../core/links.ts';
 import { titleLc } from '../core/title.ts';
 import { ulid } from '../core/id.ts';
 import { opsHash } from './hash.ts';
@@ -235,7 +236,27 @@ export class SqliteStorage implements Storage {
 
     this.#writeLines(pageId, newLines);
     this.#insertCommit(commitId, pageId, baseVersion, version, userId, now, ops);
+    this.#updateDerived(projectId, pageId, newLines, deleted);
     return { kind: 'applied', version };
+  }
+
+  #updateDerived(projectId: string, pageId: string, lines: Line[], deleted: boolean): void {
+    this.#db.prepare('DELETE FROM links WHERE source_page_id = ?').run(pageId);
+    this.#db.prepare('DELETE FROM pages_fts WHERE page_id = ?').run(pageId);
+    if (deleted) {
+      this.#db.prepare('UPDATE pages SET image = NULL WHERE id = ?').run(pageId);
+      return;
+    }
+    const text = lines.map((l) => l.text).join('\n');
+    const refs = extractRefs(text);
+    const insertLink = this.#db.prepare(
+      'INSERT OR IGNORE INTO links (project_id, source_page_id, target_title_lc) VALUES (?, ?, ?)',
+    );
+    for (const target of refs.linkTargets) insertLink.run(projectId, pageId, target);
+    this.#db.prepare('UPDATE pages SET image = ? WHERE id = ?').run(refs.image, pageId);
+    this.#db
+      .prepare('INSERT INTO pages_fts (page_id, project_id, content) VALUES (?, ?, ?)')
+      .run(pageId, projectId, text);
   }
 
   #writeLines(pageId: string, lines: Line[]): void {
