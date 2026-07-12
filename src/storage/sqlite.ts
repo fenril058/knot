@@ -11,6 +11,7 @@ import {
   type CommitInput,
   type CommitResult,
   type DisplayUser,
+  type ImportLine,
   type ImportPageInput,
   type ImportPageResult,
   type PageMeta,
@@ -291,8 +292,66 @@ export class SqliteStorage implements Storage {
       .run(commitId, pageId, baseVersion, version, userId, now, JSON.stringify(ops), opsHash(pageId, baseVersion, ops));
   }
 
-  async importPage(_input: ImportPageInput): Promise<ImportPageResult> {
-    throw new Error('not implemented: importPage (Task 8)');
+  async importPage(input: ImportPageInput): Promise<ImportPageResult> {
+    return this.#tx(() => {
+      const { projectId, page, lines, userId, now, onConflict } = input;
+      if (lines.length === 0) throw new StorageError(`page "${page.title}" has no lines`);
+      const seen = new Set<string>();
+      for (const line of lines) {
+        if (seen.has(line.id)) throw new StorageError(`duplicate line id in page "${page.title}": ${line.id}`);
+        seen.add(line.id);
+      }
+      const lcValue = titleLc(page.title);
+      const existing = this.#db
+        .prepare('SELECT * FROM pages WHERE project_id = ? AND title_lc = ? AND deleted = 0')
+        .get(projectId, lcValue) as PageRow | undefined;
+
+      if (existing && onConflict === 'skip') return { kind: 'skipped' as const, pageId: existing.id };
+
+      const insertOps: LineOp[] = lines.map((l, i) => ({
+        type: 'insert' as const,
+        id: l.id,
+        after: i === 0 ? '_head' : lines[i - 1].id,
+        text: l.text,
+      }));
+
+      if (existing) {
+        const deleteOps: LineOp[] = this.#getLines(existing.id).map((l) => ({ type: 'delete' as const, id: l.id }));
+        const version = existing.version + 1;
+        this.#writeImportedLines(existing.id, lines, version);
+        this.#db
+          .prepare('UPDATE pages SET title = ?, version = ?, updated = ? WHERE id = ?')
+          .run(page.title, version, now, existing.id);
+        this.#insertCommit(ulid(now * 1000), existing.id, existing.version, version, userId, now, [
+          ...deleteOps,
+          ...insertOps,
+        ]);
+        this.#updateDerived(projectId, existing.id, this.#getLines(existing.id), false);
+        return { kind: 'overwritten' as const, pageId: existing.id };
+      }
+
+      const idTaken = this.#db.prepare('SELECT 1 AS x FROM pages WHERE id = ?').get(page.id) !== undefined;
+      const pageId = idTaken ? ulid(now * 1000) : page.id;
+      this.#db
+        .prepare(
+          `INSERT INTO pages (id, project_id, title, title_lc, version, pinned, deleted, image, created, updated)
+           VALUES (?, ?, ?, ?, 1, 0, 0, NULL, ?, ?)`,
+        )
+        .run(pageId, projectId, page.title, lcValue, page.created, page.updated);
+      this.#writeImportedLines(pageId, lines, 1);
+      this.#insertCommit(ulid(now * 1000), pageId, 0, 1, userId, now, insertOps);
+      this.#updateDerived(projectId, pageId, this.#getLines(pageId), false);
+      return { kind: 'created' as const, pageId };
+    });
+  }
+
+  #writeImportedLines(pageId: string, lines: ImportLine[], version: number): void {
+    this.#db.prepare('DELETE FROM lines WHERE page_id = ?').run(pageId);
+    const st = this.#db.prepare(
+      `INSERT INTO lines (id, page_id, ord, text, created, updated, updated_version, user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    lines.forEach((l, ord) => st.run(l.id, pageId, ord, l.text, l.created, l.updated, version, l.userId));
   }
 
   async search(projectId: string, query: string): Promise<SearchHit[]> {
