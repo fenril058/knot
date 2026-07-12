@@ -142,6 +142,9 @@ test('overwrite は既存ページを新しいコミットとして置き換え�
   assert.equal(page.version, 2);
   assert.equal(page.lines[1].text, '書き換えた行');
   assert.equal(page.lines[1].updated, 1755000000);
+  // 上書きはインポート元のページメタデータを保持する（バックアップ復元の round-trip）
+  assert.equal(page.created, 1750000000);
+  assert.equal(page.updated, 1750001000);
   // 上書きも commits に残る（delete + insert の ops）
   const commits = db
     .prepare('SELECT ops FROM commits WHERE page_id = ? ORDER BY version')

@@ -262,3 +262,20 @@ test('存在しないページ・別プロジェクトのページ・削除済�
   );
   await storage.close();
 });
+
+test('新規作成コミットの結果が空になるのは BadCommitError（生まれつき削除済みページを作らない）', async () => {
+  const { storage, project } = await setup();
+  await assert.rejects(
+    storage.commit({
+      projectId: project.id, pageId: 'pgX', commitId: 'cx', baseVersion: 0,
+      ops: [
+        { type: 'insert', id: 'x1', after: '_head', text: 'T' },
+        { type: 'delete', id: 'x1' },
+      ],
+      userId: 'u1', now: 2000,
+    }),
+    BadCommitError,
+  );
+  assert.equal(await storage.getPageById('pgX'), null);
+  await storage.close();
+});

@@ -35,6 +35,11 @@ export type CommitInput = {
   now: number;
 };
 
+/**
+ * conflict の page は、reason 'version' では対象ページの最新スナップショット（リベースの入力）、
+ * reason 'title' ではそのタイトルを占有している別ページ（新規作成の衝突では対象ページが存在しないため）。
+ * リベースと再送の対象は reason 'version' だけである。
+ */
 export type CommitResult =
   | { kind: 'applied'; version: number }
   | { kind: 'conflict'; reason: 'version' | 'title'; page: PageSnapshot };

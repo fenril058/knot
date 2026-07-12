@@ -58,4 +58,10 @@ test('CLI 実行ファイルとして通しで動く（spawn）', () => {
   assert.equal((JSON.parse(out) as { pages: unknown[] }).pages.length, 3);
   // 未知コマンドは exit code 1
   assert.throws(() => execFileSync(process.execPath, [MAIN, 'bogus', '--data', dir], { stdio: 'pipe' }));
+  // 余分な positional 引数は黙って無視せず拒否する
+  assert.throws(() =>
+    execFileSync(process.execPath, [MAIN, 'import', '--data', dir, '--project', 'sandbox', FIXTURE, FIXTURE], {
+      stdio: 'pipe',
+    }),
+  );
 });

@@ -208,6 +208,8 @@ export class SqliteStorage implements Storage {
     }
 
     const deleted = newLines.length === 0;
+    // 新規作成はタイトル行が残る最初のコミットでなければならない（スペック「行操作とコミット」）
+    if (!row && deleted) throw new BadCommitError('page creation must leave at least one line');
     const newTitle = deleted ? (row ? row.title : '') : newLines[0].text;
     const newTitleLc = titleLc(newTitle);
 
@@ -320,8 +322,8 @@ export class SqliteStorage implements Storage {
         const version = existing.version + 1;
         this.#writeImportedLines(existing.id, lines, version);
         this.#db
-          .prepare('UPDATE pages SET title = ?, version = ?, updated = ? WHERE id = ?')
-          .run(page.title, version, now, existing.id);
+          .prepare('UPDATE pages SET title = ?, version = ?, created = ?, updated = ? WHERE id = ?')
+          .run(page.title, version, page.created, page.updated, existing.id);
         this.#insertCommit(ulid(now * 1000), existing.id, existing.version, version, userId, now, [
           ...deleteOps,
           ...insertOps,

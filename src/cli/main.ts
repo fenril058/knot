@@ -25,21 +25,25 @@ async function main(argv: string[]): Promise<string> {
   if (command === undefined || data === undefined) throw new CliError(USAGE);
   switch (command) {
     case 'init':
+      if (positionals.length !== 0) throw new CliError(USAGE);
       return runInit(data);
     case 'import': {
       const file = positionals[0];
-      if (values.project === undefined || file === undefined) throw new CliError(USAGE);
+      if (values.project === undefined || file === undefined || positionals.length !== 1) {
+        throw new CliError(USAGE);
+      }
       const onConflict = values['on-conflict'] ?? 'skip';
       if (onConflict !== 'skip' && onConflict !== 'overwrite') throw new CliError(USAGE);
       return runImport(data, values.project, file, onConflict);
     }
     case 'export': {
-      if (values.project === undefined) throw new CliError(USAGE);
+      if (values.project === undefined || positionals.length !== 0) throw new CliError(USAGE);
       const format = values.format ?? 'full';
       if (format !== 'full' && format !== 'import') throw new CliError(USAGE);
       return runExport(data, values.project, format, values.out ?? null);
     }
     case 'reindex':
+      if (positionals.length !== 0) throw new CliError(USAGE);
       return runReindex(data, values.project ?? null);
     default:
       throw new CliError(USAGE);
