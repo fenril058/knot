@@ -45,6 +45,10 @@ type LineRow = {
   user_id: string;
 };
 
+function escapeLike(s: string): string {
+  return s.replaceAll(/[\\%_]/g, (m) => `\\${m}`);
+}
+
 export class SqliteStorage implements Storage {
   #db: DatabaseSync;
 
@@ -291,8 +295,41 @@ export class SqliteStorage implements Storage {
     throw new Error('not implemented: importPage (Task 8)');
   }
 
-  async search(_projectId: string, _query: string): Promise<SearchHit[]> {
-    throw new Error('not implemented: search (Task 6)');
+  async search(projectId: string, query: string): Promise<SearchHit[]> {
+    if (query === '') return [];
+    const pages =
+      [...query].length >= 3 ? this.#searchFts(projectId, query) : this.#searchLike(projectId, query);
+    const likePattern = `%${escapeLike(query)}%`;
+    const matchedLines = this.#db.prepare(
+      `SELECT text FROM lines WHERE page_id = ? AND text LIKE ? ESCAPE '\\' ORDER BY ord`,
+    );
+    return pages.map((p) => ({
+      pageId: p.id,
+      title: p.title,
+      lines: (matchedLines.all(p.id, likePattern) as { text: string }[]).map((r) => r.text),
+    }));
+  }
+
+  #searchFts(projectId: string, query: string): { id: string; title: string }[] {
+    const phrase = `"${query.replaceAll('"', '""')}"`;
+    return this.#db
+      .prepare(
+        `SELECT p.id, p.title FROM pages_fts JOIN pages p ON p.id = pages_fts.page_id
+         WHERE pages_fts MATCH ? AND pages_fts.project_id = ? AND p.deleted = 0
+         ORDER BY pages_fts.rank`,
+      )
+      .all(phrase, projectId) as { id: string; title: string }[];
+  }
+
+  #searchLike(projectId: string, query: string): { id: string; title: string }[] {
+    const pattern = `%${escapeLike(query)}%`;
+    return this.#db
+      .prepare(
+        `SELECT DISTINCT p.id, p.title, p.updated FROM pages p JOIN lines l ON l.page_id = p.id
+         WHERE p.project_id = ? AND p.deleted = 0 AND l.text LIKE ? ESCAPE '\\'
+         ORDER BY p.updated DESC`,
+      )
+      .all(projectId, pattern) as { id: string; title: string }[];
   }
 
   async reindex(_projectId?: string): Promise<{ pages: number }> {
