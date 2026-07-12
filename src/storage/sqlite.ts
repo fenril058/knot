@@ -332,8 +332,18 @@ export class SqliteStorage implements Storage {
       .all(projectId, pattern) as { id: string; title: string }[];
   }
 
-  async reindex(_projectId?: string): Promise<{ pages: number }> {
-    throw new Error('not implemented: reindex (Task 7)');
+  async reindex(projectId?: string): Promise<{ pages: number }> {
+    return this.#tx(() => {
+      const rows = (
+        projectId === undefined
+          ? this.#db.prepare('SELECT * FROM pages').all()
+          : this.#db.prepare('SELECT * FROM pages WHERE project_id = ?').all(projectId)
+      ) as PageRow[];
+      for (const row of rows) {
+        this.#updateDerived(row.project_id, row.id, this.#getLines(row.id), row.deleted === 1);
+      }
+      return { pages: rows.length };
+    });
   }
 
   async close(): Promise<void> {
