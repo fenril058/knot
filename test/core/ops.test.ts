@@ -16,8 +16,11 @@ test('既存 ID と重複する insert は OpsError', () => {
   );
 });
 
-test('存在しない行への update / delete は OpsError', () => {
+test('存在しない行への update は OpsError', () => {
   assert.throws(() => validateOps([line('a')], [{ type: 'update', id: 'zz', text: 't' }]), OpsError);
+});
+
+test('存在しない行への delete は OpsError', () => {
   assert.throws(() => validateOps([line('a')], [{ type: 'delete', id: 'zz' }]), OpsError);
 });
 

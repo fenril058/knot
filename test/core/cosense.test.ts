@@ -31,3 +31,51 @@ test('pages が無い・行が空・title 欠落は拒否する', () => {
   assert.throws(() => parseExportFile({ pages: [{ title: 'p', lines: [] }] }), /lines/);
   assert.throws(() => parseExportFile({ pages: [{ lines: ['x'] }] }), /title/);
 });
+
+test('行メタデータの型不正を拒否する', () => {
+  assert.throws(
+    () => parseExportFile({ pages: [{ title: 'p', lines: [{ text: 'p', created: '10' }] }] }),
+    /pages\[0\].*created/,
+  );
+  assert.throws(
+    () => parseExportFile({ pages: [{ title: 'p', lines: [{ text: 'p', updated: '20' }] }] }),
+    /pages\[0\].*updated/,
+  );
+  assert.throws(
+    () => parseExportFile({ pages: [{ title: 'p', lines: [{ text: 'p', id: 123 }] }] }),
+    /pages\[0\].*id/,
+  );
+  assert.throws(
+    () => parseExportFile({ pages: [{ title: 'p', lines: [{ text: 'p', userId: 5 }] }] }),
+    /pages\[0\].*userId/,
+  );
+});
+
+test('ページメタデータの型不正を拒否する', () => {
+  assert.throws(
+    () => parseExportFile({ pages: [{ title: 'p', created: 'x', lines: ['p'] }] }),
+    /pages\[0\]\.created/,
+  );
+  assert.throws(
+    () => parseExportFile({ pages: [{ title: 'p', id: 9, lines: ['p'] }] }),
+    /pages\[0\]\.id/,
+  );
+});
+
+test('users の要素に id と name が必須', () => {
+  assert.throws(
+    () => parseExportFile({ users: [{ name: 'alice' }], pages: [{ title: 'p', lines: ['p'] }] }),
+    /users\[0\]/,
+  );
+});
+
+test('ページでない要素は位置と理由つきで拒否する', () => {
+  assert.throws(() => parseExportFile({ pages: ['x'] }), /pages\[0\] must be an object/);
+});
+
+test('返り値は入力から独立したコピーである', () => {
+  const data = { pages: [{ title: 'p', lines: ['p'] }] };
+  const out = parseExportFile(data);
+  out.pages[0].title = 'changed';
+  assert.equal(data.pages[0].title, 'p');
+});
