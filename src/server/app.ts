@@ -7,6 +7,7 @@ import { clientIp, jsonError, type ApiEnv } from './http.ts';
 import { verifyPassword } from './password.ts';
 import { RateLimiter } from './ratelimit.ts';
 import { registerReadRoutes } from './routes/read.ts';
+import { registerWriteRoutes } from './routes/write.ts';
 
 export type AppDeps = { storage: Storage; config: ServerConfig; now?: () => number };
 
@@ -103,6 +104,7 @@ export function createApp(deps: AppDeps): Hono<ApiEnv> {
   });
 
   registerReadRoutes(app, deps);
+  registerWriteRoutes(app, deps);
 
   return app;
 }
