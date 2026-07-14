@@ -2,6 +2,7 @@ import type { Hono } from 'hono';
 import type { Context } from 'hono';
 import { ulid } from '../../core/id.ts';
 import { applyOps } from '../../core/apply.ts';
+import { diffLines } from '../../core/diff.ts';
 import { OpsError, type LineOp } from '../../core/ops.ts';
 import { titleLc } from '../../core/title.ts';
 import { BadCommitError, type CommitResult } from '../../storage/types.ts';
@@ -76,6 +77,51 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
         projectId: project.id, pageId, commitId, baseVersion, ops,
         userId: c.get('userId'), now: now(),
       });
+      return commitResultToResponse(c, result);
+    } catch (e) {
+      if (e instanceof BadCommitError) return jsonError(c, 400, 'bad_commit', { message: e.message });
+      throw e;
+    }
+  });
+
+  app.put('/api/knot/pages/:project/:title/text', async (c) => {
+    const project = await resolveProject(storage, c);
+    if (!project) return jsonError(c, 404, 'not_found');
+    const body = await readJson(c);
+    if (!body) return jsonError(c, 400, 'bad_request', { message: 'invalid JSON' });
+    const { baseVersion, text } = body;
+    if (
+      typeof baseVersion !== 'number' || !Number.isInteger(baseVersion) || baseVersion < 0 ||
+      typeof text !== 'string' || text === ''
+    ) {
+      return jsonError(c, 400, 'bad_request', { message: 'baseVersion and non-empty text required' });
+    }
+
+    const rawTitle = safeDecode(c.req.param('title'));
+    if (rawTitle === null) return jsonError(c, 404, 'not_found');
+    const urlTitleLc = titleLc(rawTitle);
+    const newTexts = text.split('\n');
+    const page = await storage.getPageByTitle(project.id, urlTitleLc);
+    if (!page && baseVersion !== 0) return jsonError(c, 404, 'not_found');
+    if (!page && titleLc(newTexts[0]) !== urlTitleLc) {
+      return jsonError(c, 400, 'bad_request', { message: 'first line must match the URL title' });
+    }
+    if (page && baseVersion !== page.version) {
+      return jsonError(c, 409, 'conflict', { reason: 'version', page: pageToJson(page) });
+    }
+
+    const currentLines = page ? page.lines : [];
+    const ops = diffLines(currentLines, newTexts, () => ulid(now() * 1000));
+    if (ops.length === 0) return c.json({ version: page!.version, commitId: null });
+
+    const commitId = ulid(now() * 1000);
+    try {
+      const result = await storage.commit({
+        projectId: project.id,
+        pageId: page ? page.id : ulid(now() * 1000),
+        commitId, baseVersion, ops, userId: c.get('userId'), now: now(),
+      });
+      if (result.kind === 'applied') return c.json({ version: result.version, commitId });
       return commitResultToResponse(c, result);
     } catch (e) {
       if (e instanceof BadCommitError) return jsonError(c, 400, 'bad_commit', { message: e.message });
