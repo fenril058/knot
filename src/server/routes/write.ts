@@ -36,6 +36,15 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
   const { storage } = deps;
   const now = deps.now ?? ((): number => Math.floor(Date.now() / 1000));
 
+  app.delete('/api/knot/pages/:project/:title', async (c) => {
+    const project = await resolveProject(storage, c);
+    if (!project) return jsonError(c, 404, 'not_found');
+    const page = await resolvePage(storage, project.id, c);
+    if (!page) return jsonError(c, 404, 'not_found');
+    const { version } = await storage.deletePage(project.id, page.id, c.get('userId'), now());
+    return c.json({ deleted: true, version });
+  });
+
   app.post('/api/knot/pages/:project/:title/rename', async (c) => {
     const project = await resolveProject(storage, c);
     if (!project) return jsonError(c, 404, 'not_found');

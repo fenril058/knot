@@ -410,6 +410,20 @@ export class SqliteStorage implements Storage {
     return this.#tx(() => this.#applyCommit(input));
   }
 
+  async deletePage(projectId: string, pageId: string, userId: string, now: number): Promise<{ version: number }> {
+    return this.#tx(() => {
+      const row = this.#db.prepare('SELECT * FROM pages WHERE id = ?').get(pageId) as PageRow | undefined;
+      if (!row || row.deleted === 1) throw new BadCommitError(`unknown page: ${pageId}`);
+      if (row.project_id !== projectId) throw new BadCommitError(`page ${pageId} is not in project ${projectId}`);
+      const ops: LineOp[] = this.#getLines(pageId).map((l) => ({ type: 'delete' as const, id: l.id }));
+      const result = this.#applyCommit({
+        projectId, pageId, commitId: ulid(now * 1000), baseVersion: row.version, ops, userId, now,
+      });
+      if (result.kind !== 'applied') throw new StorageError('unexpected conflict in deletePage');
+      return { version: result.version };
+    });
+  }
+
   async renamePage(input: RenameInput): Promise<RenameResult> {
     const { projectId, pageId, baseVersion, newTitle, rewriteLinks, userId, now } = input;
     return this.#tx(() => {

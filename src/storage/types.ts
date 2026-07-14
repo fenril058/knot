@@ -177,6 +177,8 @@ export interface Storage {
   /** 全ページのタイトルと前方リンク（原文タイトル）。search/titles と 2-hop・補完のデータ源 */
   listPageTitles(projectId: string): Promise<TitleEntry[]>;
   commit(input: CommitInput): Promise<CommitResult>;
+  /** 全行 delete のコミットとしてページを削除する。不在・削除済みは BadCommitError */
+  deletePage(projectId: string, pageId: string, userId: string, now: number): Promise<{ version: number }>;
   /** タイトル変更 + 任意でリンク元書き換え。単一トランザクションで全部成功か全部失敗 */
   renamePage(input: RenameInput): Promise<RenameResult>;
   importPage(input: ImportPageInput): Promise<ImportPageResult>;
