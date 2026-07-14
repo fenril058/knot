@@ -48,6 +48,10 @@ export type PageMeta = {
 
 export type PageSnapshot = PageMeta & { lines: Line[] };
 
+export type PageSummary = PageMeta & { descriptions: string[]; linked: number };
+export type PageSort = 'updated' | 'created' | 'linked' | 'title';
+export type ListPageSummariesOptions = { skip: number; limit: number; sort: PageSort };
+
 export type CommitInput = {
   projectId: string;
   pageId: string;
@@ -121,6 +125,10 @@ export interface Storage {
   getPageByTitle(projectId: string, titleLcValue: string): Promise<PageSnapshot | null>;
   getPageById(pageId: string): Promise<PageSnapshot | null>;
   listPages(projectId: string): Promise<PageMeta[]>;
+  listPageSummaries(
+    projectId: string,
+    opts: ListPageSummariesOptions,
+  ): Promise<{ count: number; pages: PageSummary[] }>;
   commit(input: CommitInput): Promise<CommitResult>;
   importPage(input: ImportPageInput): Promise<ImportPageResult>;
   search(projectId: string, query: string): Promise<SearchHit[]>;

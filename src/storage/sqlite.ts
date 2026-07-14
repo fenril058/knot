@@ -16,9 +16,12 @@ import {
   type ImportLine,
   type ImportPageInput,
   type ImportPageResult,
+  type ListPageSummariesOptions,
   type NewUser,
   type PageMeta,
+  type PageSort,
   type PageSnapshot,
+  type PageSummary,
   type Project,
   type SearchHit,
   type Session,
@@ -261,6 +264,40 @@ export class SqliteStorage implements Storage {
       .prepare('SELECT * FROM pages WHERE project_id = ? AND deleted = 0 ORDER BY updated DESC, id')
       .all(projectId) as PageRow[];
     return rows.map((r) => this.#pageRowToMeta(r));
+  }
+
+  async listPageSummaries(
+    projectId: string,
+    opts: ListPageSummariesOptions,
+  ): Promise<{ count: number; pages: PageSummary[] }> {
+    const orderBy: Record<PageSort, string> = {
+      updated: 'p.updated DESC, p.id',
+      created: 'p.created DESC, p.id',
+      linked: 'linked DESC, p.updated DESC, p.id',
+      title: 'p.title_lc ASC',
+    };
+    const count = (
+      this.#db.prepare('SELECT COUNT(*) AS n FROM pages WHERE project_id = ? AND deleted = 0').get(projectId) as { n: number }
+    ).n;
+    const rows = this.#db
+      .prepare(
+        `SELECT p.*, (
+           SELECT COUNT(*) FROM links l WHERE l.project_id = p.project_id AND l.target_title_lc = p.title_lc
+         ) AS linked
+         FROM pages p WHERE p.project_id = ? AND p.deleted = 0
+         ORDER BY ${orderBy[opts.sort]}
+         LIMIT ? OFFSET ?`,
+      )
+      .all(projectId, opts.limit, opts.skip) as (PageRow & { linked: number })[];
+    const descriptions = this.#db.prepare(
+      "SELECT text FROM lines WHERE page_id = ? AND ord > 0 AND text <> '' ORDER BY ord LIMIT 5",
+    );
+    const pages = rows.map((r) => ({
+      ...this.#pageRowToMeta(r),
+      linked: r.linked,
+      descriptions: (descriptions.all(r.id) as { text: string }[]).map((d) => d.text),
+    }));
+    return { count, pages };
   }
 
   async commit(input: CommitInput): Promise<CommitResult> {

@@ -6,6 +6,7 @@ import type { ServerConfig } from './config.ts';
 import { clientIp, jsonError, type ApiEnv } from './http.ts';
 import { verifyPassword } from './password.ts';
 import { RateLimiter } from './ratelimit.ts';
+import { registerReadRoutes } from './routes/read.ts';
 
 export type AppDeps = { storage: Storage; config: ServerConfig; now?: () => number };
 
@@ -101,11 +102,7 @@ export function createApp(deps: AppDeps): Hono<ApiEnv> {
     return c.json({ ok: true });
   });
 
-  app.get('/api/pages/:project', async (c) => {
-    const project = await storage.getProject(c.req.param('project'));
-    if (!project) return jsonError(c, 404, 'not_found');
-    return c.json({ projectName: project.name });
-  });
+  registerReadRoutes(app, deps);
 
   return app;
 }
