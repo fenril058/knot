@@ -52,6 +52,27 @@ export type PageSummary = PageMeta & { descriptions: string[]; linked: number };
 export type PageSort = 'updated' | 'created' | 'linked' | 'title';
 export type ListPageSummariesOptions = { skip: number; limit: number; sort: PageSort };
 
+export type RelatedPage = {
+  id: string;
+  title: string;
+  titleLc: string;
+  image: string | null;
+  descriptions: string[];
+  linksLc: string[];
+  linked: number;
+  updated: number;
+};
+
+/** linked は対象ページ自身の被リンク数（ページ本体応答の linked フィールド用） */
+export type RelatedPages = {
+  links1hop: RelatedPage[];
+  links2hop: RelatedPage[];
+  hasBackLinks: boolean;
+  linked: number;
+};
+
+export type TitleEntry = { id: string; title: string; hasIcon: boolean; updated: number; links: string[] };
+
 export type CommitInput = {
   projectId: string;
   pageId: string;
@@ -129,6 +150,18 @@ export interface Storage {
     projectId: string,
     opts: ListPageSummariesOptions,
   ): Promise<{ count: number; pages: PageSummary[] }>;
+  /**
+   * links1hop: このページの前方リンク先として存在するページ ∪ このページへ張っているページ。
+   * links2hop: このページの前方リンク先（赤リンク含む）へ張っている他のページ（自分と 1hop を除く）。
+   *            その entry の linksLc は共有しているリンク先の lc。
+   * 1hop の linksLc はそのページ自身の前方リンク lc。
+   * hasBackLinks: extractRefs は [X.icon] もリンクとして links に記録するため、
+   * これは「逆リンクまたはアイコン参照の有無」に一致し、応答フィールド
+   * hasBackLinksOrIcons の意味をそのまま満たす。
+   */
+  getRelatedPages(projectId: string, pageId: string, titleLcValue: string): Promise<RelatedPages>;
+  /** 全ページのタイトルと前方リンク（原文タイトル）。search/titles と 2-hop・補完のデータ源 */
+  listPageTitles(projectId: string): Promise<TitleEntry[]>;
   commit(input: CommitInput): Promise<CommitResult>;
   importPage(input: ImportPageInput): Promise<ImportPageResult>;
   search(projectId: string, query: string): Promise<SearchHit[]>;

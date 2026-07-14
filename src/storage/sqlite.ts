@@ -23,9 +23,12 @@ import {
   type PageSnapshot,
   type PageSummary,
   type Project,
+  type RelatedPage,
+  type RelatedPages,
   type SearchHit,
   type Session,
   type Storage,
+  type TitleEntry,
 } from './types.ts';
 
 const PROJECT_NAME_RE = /^[a-z0-9-]+$/;
@@ -298,6 +301,107 @@ export class SqliteStorage implements Storage {
       descriptions: (descriptions.all(r.id) as { text: string }[]).map((d) => d.text),
     }));
     return { count, pages };
+  }
+
+  #relatedDescriptions(pageId: string): string[] {
+    return (
+      this.#db
+        .prepare("SELECT text FROM lines WHERE page_id = ? AND ord > 0 AND text <> '' ORDER BY ord LIMIT 5")
+        .all(pageId) as { text: string }[]
+    ).map((r) => r.text);
+  }
+
+  #linkedCount(projectId: string, titleLcValue: string): number {
+    return (
+      this.#db
+        .prepare('SELECT COUNT(*) AS n FROM links WHERE project_id = ? AND target_title_lc = ?')
+        .get(projectId, titleLcValue) as { n: number }
+    ).n;
+  }
+
+  #outboundLc(pageId: string): string[] {
+    return (
+      this.#db.prepare('SELECT target_title_lc FROM links WHERE source_page_id = ?').all(pageId) as {
+        target_title_lc: string;
+      }[]
+    ).map((r) => r.target_title_lc);
+  }
+
+  #toRelatedPage(row: PageRow, linksLc: string[]): RelatedPage {
+    return {
+      id: row.id,
+      title: row.title,
+      titleLc: row.title_lc,
+      image: row.image,
+      descriptions: this.#relatedDescriptions(row.id),
+      linksLc,
+      linked: this.#linkedCount(row.project_id, row.title_lc),
+      updated: row.updated,
+    };
+  }
+
+  async getRelatedPages(projectId: string, pageId: string, titleLcValue: string): Promise<RelatedPages> {
+    const targets = this.#outboundLc(pageId);
+    const placeholders = targets.map(() => '?').join(', ');
+
+    const forward =
+      targets.length === 0
+        ? []
+        : (this.#db
+            .prepare(
+              `SELECT * FROM pages WHERE project_id = ? AND deleted = 0 AND id != ? AND title_lc IN (${placeholders})`,
+            )
+            .all(projectId, pageId, ...targets) as PageRow[]);
+
+    const back = this.#db
+      .prepare(
+        `SELECT p.* FROM pages p JOIN links l ON l.source_page_id = p.id
+         WHERE l.project_id = ? AND l.target_title_lc = ? AND p.id != ? AND p.deleted = 0`,
+      )
+      .all(projectId, titleLcValue, pageId) as PageRow[];
+
+    const oneHop = new Map<string, PageRow>();
+    for (const row of [...forward, ...back]) oneHop.set(row.id, row);
+    const links1hop = [...oneHop.values()].map((row) => this.#toRelatedPage(row, this.#outboundLc(row.id)));
+
+    let links2hop: RelatedPage[] = [];
+    if (targets.length > 0) {
+      const rows = this.#db
+        .prepare(
+          `SELECT p.*, l.target_title_lc AS shared FROM pages p JOIN links l ON l.source_page_id = p.id
+           WHERE l.project_id = ? AND l.target_title_lc IN (${placeholders}) AND p.deleted = 0`,
+        )
+        .all(projectId, ...targets) as (PageRow & { shared: string })[];
+      const byPage = new Map<string, { row: PageRow; shared: string[] }>();
+      for (const row of rows) {
+        if (row.id === pageId || oneHop.has(row.id)) continue;
+        const entry = byPage.get(row.id) ?? { row, shared: [] };
+        entry.shared.push(row.shared);
+        byPage.set(row.id, entry);
+      }
+      links2hop = [...byPage.values()].map(({ row, shared }) => this.#toRelatedPage(row, shared));
+    }
+
+    return {
+      links1hop,
+      links2hop,
+      hasBackLinks: back.length > 0,
+      linked: this.#linkedCount(projectId, titleLcValue),
+    };
+  }
+
+  async listPageTitles(projectId: string): Promise<TitleEntry[]> {
+    const rows = this.#db
+      .prepare('SELECT * FROM pages WHERE project_id = ? AND deleted = 0 ORDER BY updated DESC, id')
+      .all(projectId) as PageRow[];
+    const linksStmt = this.#db.prepare('SELECT target_title FROM links WHERE source_page_id = ?');
+    return rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      hasIcon: r.image !== null,
+      updated: r.updated,
+      links: (linksStmt.all(r.id) as { target_title: string }[]).map((l) => l.target_title),
+    }));
   }
 
   async commit(input: CommitInput): Promise<CommitResult> {
