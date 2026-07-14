@@ -9,6 +9,7 @@ import {
   BadCommitError,
   StorageError,
   type AddUserResult,
+  type Attachment,
   type AuthUser,
   type CommitInput,
   type CommitResult,
@@ -66,6 +67,17 @@ type LineRow = {
   updated: number;
   updated_version: number;
   user_id: string;
+};
+
+type AttachmentRow = {
+  id: string;
+  project_id: string;
+  filename: string;
+  content_type: string;
+  size: number;
+  sha256: string;
+  user_id: string;
+  created: number;
 };
 
 function escapeLike(s: string): string {
@@ -217,6 +229,49 @@ export class SqliteStorage implements Storage {
 
   async deleteSession(id: string): Promise<void> {
     this.#db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
+  }
+
+  async createAttachment(attachment: Attachment): Promise<void> {
+    this.#db
+      .prepare(
+        `INSERT INTO attachments (id, project_id, filename, content_type, size, sha256, user_id, created)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        attachment.id,
+        attachment.projectId,
+        attachment.filename,
+        attachment.contentType,
+        attachment.size,
+        attachment.sha256,
+        attachment.userId,
+        attachment.created,
+      );
+  }
+
+  #attachmentRowToAttachment(row: AttachmentRow): Attachment {
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      filename: row.filename,
+      contentType: row.content_type,
+      size: row.size,
+      sha256: row.sha256,
+      userId: row.user_id,
+      created: row.created,
+    };
+  }
+
+  async getAttachment(id: string): Promise<Attachment | null> {
+    const row = this.#db.prepare('SELECT * FROM attachments WHERE id = ?').get(id) as AttachmentRow | undefined;
+    return row ? this.#attachmentRowToAttachment(row) : null;
+  }
+
+  async findAttachmentBySha256(projectId: string, sha256: string): Promise<Attachment | null> {
+    const row = this.#db
+      .prepare('SELECT * FROM attachments WHERE project_id = ? AND sha256 = ?')
+      .get(projectId, sha256) as AttachmentRow | undefined;
+    return row ? this.#attachmentRowToAttachment(row) : null;
   }
 
   #pageRowToMeta(r: PageRow): PageMeta {

@@ -17,10 +17,10 @@ export type TestServer = {
   request(path: string, init?: RequestInit, cookie?: string): Promise<Response>;
 };
 
-export async function makeServer(): Promise<TestServer> {
+export async function makeServer(overrides?: { dataDir?: string }): Promise<TestServer> {
   const storage: Storage = new SqliteStorage(openDatabase(':memory:'));
   const clock = { t: 1_700_000_000, now: (): number => clock.t };
-  const config = { ...defaultConfig('/nonexistent'), secureCookie: false };
+  const config = { ...defaultConfig(overrides?.dataDir ?? '/nonexistent'), secureCookie: false };
   const app = createApp({ storage, config, now: clock.now });
 
   const addUser = async (name: string, password: string, isAdmin = false): Promise<string> => {

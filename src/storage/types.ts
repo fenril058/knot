@@ -33,6 +33,17 @@ export type AddUserResult = { kind: 'created' | 'claimed'; id: string };
 
 export type Session = { id: string; userId: string; expires: number; created: number };
 
+export type Attachment = {
+  id: string;
+  projectId: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  sha256: string;
+  userId: string;
+  created: number;
+};
+
 export type PageMeta = {
   id: string;
   projectId: string;
@@ -157,6 +168,10 @@ export interface Storage {
   getSession(id: string, now: number): Promise<Session | null>;
   refreshSession(id: string, expires: number): Promise<void>;
   deleteSession(id: string): Promise<void>;
+  createAttachment(attachment: Attachment): Promise<void>;
+  getAttachment(id: string): Promise<Attachment | null>;
+  /** 再利用はプロジェクト単位とし、別プロジェクトの ID やメタデータを返さない。 */
+  findAttachmentBySha256(projectId: string, sha256: string): Promise<Attachment | null>;
   getPageByTitle(projectId: string, titleLcValue: string): Promise<PageSnapshot | null>;
   getPageById(pageId: string): Promise<PageSnapshot | null>;
   listPages(projectId: string): Promise<PageMeta[]>;
