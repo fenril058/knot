@@ -23,6 +23,7 @@ export async function exportCosense(
     pages.push({ id: page.id, title: page.title, created: page.created, updated: page.updated, lines });
   }
 
+  // 現在の行だけでなく、履歴上のコミットから参照されるユーザーも含む。
   const users = await storage.listUsersForProject(project.id);
   return {
     name: project.name,

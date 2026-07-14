@@ -5,6 +5,7 @@ import { makeStorage } from '../helpers/storage.ts';
 import { importCosense } from '../../src/storage/import.ts';
 import { exportCosense } from '../../src/storage/export.ts';
 import { normalizeLines, parseExportFile, type CosenseLine } from '../../src/core/cosense.ts';
+import { ulid } from '../../src/core/id.ts';
 
 const FIXTURE_URL = new URL('../fixtures/cosense-export.json', import.meta.url);
 const loadFixture = () => JSON.parse(readFileSync(FIXTURE_URL, 'utf8')) as unknown;
@@ -94,5 +95,37 @@ test('削除済みページはエクスポートに含まれない', async () =>
 test('存在しないプロジェクトのエクスポートは拒否する', async () => {
   const { storage } = makeStorage();
   await assert.rejects(exportCosense(storage, 'nope', 'full', 1), /unknown project/);
+  await storage.close();
+});
+
+test('行を持たないが commits に残るユーザーも export の users に含まれる', async () => {
+  const { storage } = makeStorage();
+  const now = 1700000000;
+  const project = await storage.ensureProject('proj', now);
+  await storage.upsertDisplayUser({ id: 'U1', name: 'u1', displayName: 'U1' }, now);
+  await storage.upsertDisplayUser({ id: 'U2', name: 'u2', displayName: 'U2' }, now);
+  const pageId = ulid(now * 1000);
+  const lineId = ulid(now * 1000);
+  await storage.commit({
+    projectId: project.id,
+    pageId,
+    commitId: ulid(now * 1000),
+    baseVersion: 0,
+    ops: [{ type: 'insert', id: lineId, after: '_head', text: 'T' }],
+    userId: 'U1',
+    now,
+  });
+  await storage.commit({
+    projectId: project.id,
+    pageId,
+    commitId: ulid(now * 1000),
+    baseVersion: 1,
+    ops: [{ type: 'update', id: lineId, text: 'T2' }],
+    userId: 'U2',
+    now,
+  });
+  const exp = await exportCosense(storage, 'proj', 'full', now);
+  const names = (exp.users ?? []).map((u) => u.name).sort();
+  assert.deepEqual(names, ['u1', 'u2']);
   await storage.close();
 });

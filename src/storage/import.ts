@@ -17,15 +17,23 @@ export async function importCosense(storage: Storage, data: unknown, options: Im
   const now = options.now ?? Math.floor(Date.now() / 1000);
   const onConflict = options.onConflict ?? 'skip';
   const project = await storage.ensureProject(options.projectName, now);
+  if (exp.displayName !== undefined && exp.displayName !== '') {
+    await storage.setProjectDisplayName(project.id, exp.displayName, now);
+  }
 
+  const users = exp.users ?? [];
+  const effectiveUserId = new Map<string, string>();
+  for (const user of users) {
+    const effective = await storage.upsertDisplayUser(
+      { id: user.id, name: user.name, displayName: user.displayName ?? user.name },
+      now,
+    );
+    effectiveUserId.set(user.id, effective);
+  }
   const importerId = await storage.upsertDisplayUser(
     { id: ulid(now * 1000), name: IMPORTER_USER_NAME, displayName: IMPORTER_USER_NAME },
     now,
   );
-  const users = exp.users ?? [];
-  for (const user of users) {
-    await storage.upsertDisplayUser({ id: user.id, name: user.name, displayName: user.displayName ?? user.name }, now);
-  }
 
   const summary: ImportSummary = { created: 0, overwritten: 0, skipped: 0, users: users.length };
   for (const page of exp.pages) {
@@ -34,7 +42,7 @@ export async function importCosense(storage: Storage, data: unknown, options: Im
       text: line.text,
       created: line.created ?? now,
       updated: line.updated ?? now,
-      userId: line.userId ?? importerId,
+      userId: line.userId !== null ? (effectiveUserId.get(line.userId) ?? line.userId) : importerId,
     }));
     const result = await storage.importPage({
       projectId: project.id,

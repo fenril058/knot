@@ -95,6 +95,12 @@ export class SqliteStorage implements Storage {
     return this.#getProjectRow(name);
   }
 
+  async setProjectDisplayName(projectId: string, displayName: string, now: number): Promise<void> {
+    this.#db
+      .prepare('UPDATE projects SET display_name = ?, updated = ? WHERE id = ?')
+      .run(displayName, now, projectId);
+  }
+
   async upsertDisplayUser(user: DisplayUser, now: number): Promise<string> {
     this.#db
       .prepare('INSERT OR IGNORE INTO users (id, name, display_name, created) VALUES (?, ?, ?, ?)')
@@ -108,13 +114,15 @@ export class SqliteStorage implements Storage {
   async listUsersForProject(projectId: string): Promise<DisplayUser[]> {
     const rows = this.#db
       .prepare(
-        `SELECT DISTINCT u.id, u.name, u.display_name FROM users u
-         JOIN lines l ON l.user_id = u.id
-         JOIN pages p ON p.id = l.page_id
-         WHERE p.project_id = ?
+        `SELECT u.id, u.name, u.display_name FROM users u
+         WHERE u.id IN (
+           SELECT l.user_id FROM lines l JOIN pages p ON p.id = l.page_id WHERE p.project_id = ?
+           UNION
+           SELECT c.user_id FROM commits c JOIN pages p ON p.id = c.page_id WHERE p.project_id = ?
+         )
          ORDER BY u.name`,
       )
-      .all(projectId) as { id: string; name: string; display_name: string }[];
+      .all(projectId, projectId) as { id: string; name: string; display_name: string }[];
     return rows.map((r) => ({ id: r.id, name: r.name, displayName: r.display_name }));
   }
 

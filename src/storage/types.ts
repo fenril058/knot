@@ -77,6 +77,8 @@ export class StorageError extends Error {
 export interface Storage {
   ensureProject(name: string, now: number): Promise<Project>;
   getProject(name: string): Promise<Project | null>;
+  /** インポート時にエクスポート元の displayName を反映する。 */
+  setProjectDisplayName(projectId: string, displayName: string, now: number): Promise<void>;
   /** name 一致の既存ユーザーがいればそれを優先し、実際に有効なユーザー ID を返す。 */
   upsertDisplayUser(user: DisplayUser, now: number): Promise<string>;
   listUsersForProject(projectId: string): Promise<DisplayUser[]>;

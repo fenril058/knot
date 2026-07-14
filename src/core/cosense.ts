@@ -54,6 +54,7 @@ export function parseExportFile(data: unknown): CosenseExport {
     throw new Error('invalid export: pages array is required');
   }
   const raw = data as CosenseExport;
+  checkOptional(raw.displayName, 'string', 'displayName');
   (raw.users ?? []).forEach((user, i) => {
     if (typeof user !== 'object' || user === null || typeof user.id !== 'string' || typeof user.name !== 'string') {
       throw new Error(`invalid export: users[${i}] must have id and name`);

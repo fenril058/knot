@@ -183,3 +183,45 @@ test('不正な JSON と重複行 ID は拒否する', async () => {
   assert.equal(await storage.getPageByTitle(project.id, 'メタデータ付きページ'), null);
   await storage.close();
 });
+
+test('同名別 ID のユーザーは既存 ID に統合され、行の userId も再マップされる', async () => {
+  const { storage } = makeStorage();
+  const now = 1700000000;
+  await storage.upsertDisplayUser({ id: 'A1', name: 'alice', displayName: 'Alice' }, now);
+  const data = {
+    name: 'proj',
+    displayName: 'Proj',
+    exported: now,
+    users: [{ id: 'A2', name: 'alice', displayName: 'Alice' }],
+    pages: [{
+      id: '0'.repeat(24),
+      title: 'P',
+      created: now,
+      updated: now,
+      lines: [{ id: '1'.repeat(24), text: 'P', userId: 'A2', created: now, updated: now }],
+    }],
+  };
+  await importCosense(storage, data, { projectName: 'proj', now });
+  const project = await storage.getProject('proj');
+  assert.ok(project);
+  const page = await storage.getPageByTitle(project.id, 'p');
+  assert.ok(page);
+  assert.equal(page.lines[0].userId, 'A1');
+  await storage.close();
+});
+
+test('エクスポート元の displayName がプロジェクトに反映される', async () => {
+  const { storage } = makeStorage();
+  const now = 1700000000;
+  const data = {
+    name: 'proj',
+    displayName: '素敵なプロジェクト',
+    exported: now,
+    pages: [{ title: 'P', lines: ['P'] }],
+  };
+  await importCosense(storage, data, { projectName: 'proj', now });
+  const project = await storage.getProject('proj');
+  assert.ok(project);
+  assert.equal(project.displayName, '素敵なプロジェクト');
+  await storage.close();
+});
