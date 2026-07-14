@@ -92,6 +92,20 @@ export type CommitResult =
   | { kind: 'applied'; version: number }
   | { kind: 'conflict'; reason: 'version' | 'title'; page: PageSnapshot };
 
+export type RenameInput = {
+  projectId: string;
+  pageId: string;
+  baseVersion: number;
+  newTitle: string;
+  rewriteLinks: boolean;
+  userId: string;
+  now: number;
+};
+
+export type RenameResult =
+  | { kind: 'applied'; version: number; rewritten: { pageId: string; title: string; version: number }[] }
+  | { kind: 'conflict'; reason: 'version' | 'title'; page: PageSnapshot };
+
 export type ImportLine = { id: string; text: string; created: number; updated: number; userId: string };
 
 export type ImportPageInput = {
@@ -163,6 +177,8 @@ export interface Storage {
   /** 全ページのタイトルと前方リンク（原文タイトル）。search/titles と 2-hop・補完のデータ源 */
   listPageTitles(projectId: string): Promise<TitleEntry[]>;
   commit(input: CommitInput): Promise<CommitResult>;
+  /** タイトル変更 + 任意でリンク元書き換え。単一トランザクションで全部成功か全部失敗 */
+  renamePage(input: RenameInput): Promise<RenameResult>;
   importPage(input: ImportPageInput): Promise<ImportPageResult>;
   search(projectId: string, query: string): Promise<SearchHit[]>;
   reindex(projectId?: string): Promise<{ pages: number }>;

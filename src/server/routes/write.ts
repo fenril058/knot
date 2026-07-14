@@ -7,7 +7,7 @@ import { OpsError, type LineOp } from '../../core/ops.ts';
 import { titleLc } from '../../core/title.ts';
 import { BadCommitError, type CommitResult } from '../../storage/types.ts';
 import type { AppDeps } from '../app.ts';
-import { jsonError, pageToJson, resolveProject, safeDecode, type ApiEnv } from '../http.ts';
+import { jsonError, pageToJson, resolvePage, resolveProject, safeDecode, type ApiEnv } from '../http.ts';
 
 function isLineOp(op: unknown): op is LineOp {
   if (typeof op !== 'object' || op === null) return false;
@@ -35,6 +35,38 @@ function commitResultToResponse(c: Context, result: CommitResult): Response {
 export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
   const { storage } = deps;
   const now = deps.now ?? ((): number => Math.floor(Date.now() / 1000));
+
+  app.post('/api/knot/pages/:project/:title/rename', async (c) => {
+    const project = await resolveProject(storage, c);
+    if (!project) return jsonError(c, 404, 'not_found');
+    const page = await resolvePage(storage, project.id, c);
+    if (!page) return jsonError(c, 404, 'not_found');
+    const body = await readJson(c);
+    if (
+      !body || typeof body.newTitle !== 'string' ||
+      typeof body.baseVersion !== 'number' || !Number.isInteger(body.baseVersion) || body.baseVersion < 0
+    ) {
+      return jsonError(c, 400, 'bad_request', { message: 'baseVersion and newTitle required' });
+    }
+    const rewriteLinks = body.rewriteLinks === true;
+    try {
+      const result = await storage.renamePage({
+        projectId: project.id, pageId: page.id, baseVersion: body.baseVersion, newTitle: body.newTitle,
+        rewriteLinks, userId: c.get('userId'), now: now(),
+      });
+      if (result.kind === 'conflict') {
+        return jsonError(c, 409, 'conflict', { reason: result.reason, page: pageToJson(result.page) });
+      }
+      return c.json({
+        title: body.newTitle,
+        version: result.version,
+        rewritten: result.rewritten.map((r) => ({ id: r.pageId, title: r.title, version: r.version })),
+      });
+    } catch (e) {
+      if (e instanceof BadCommitError) return jsonError(c, 400, 'bad_request', { message: e.message });
+      throw e;
+    }
+  });
 
   app.post('/api/knot/pages/:project/:title/commits', async (c) => {
     const project = await resolveProject(storage, c);

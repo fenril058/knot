@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { OpsError, type Line, type LineOp } from '../core/ops.ts';
 import { applyOps } from '../core/apply.ts';
-import { extractRefs } from '../core/links.ts';
+import { extractRefs, rewritePageLinks } from '../core/links.ts';
 import { titleLc } from '../core/title.ts';
 import { ulid } from '../core/id.ts';
 import { opsHash } from './hash.ts';
@@ -25,6 +25,8 @@ import {
   type Project,
   type RelatedPage,
   type RelatedPages,
+  type RenameInput,
+  type RenameResult,
   type SearchHit,
   type Session,
   type Storage,
@@ -406,6 +408,58 @@ export class SqliteStorage implements Storage {
 
   async commit(input: CommitInput): Promise<CommitResult> {
     return this.#tx(() => this.#applyCommit(input));
+  }
+
+  async renamePage(input: RenameInput): Promise<RenameResult> {
+    const { projectId, pageId, baseVersion, newTitle, rewriteLinks, userId, now } = input;
+    return this.#tx(() => {
+      const row = this.#db.prepare('SELECT * FROM pages WHERE id = ?').get(pageId) as PageRow | undefined;
+      if (!row || row.deleted === 1) throw new BadCommitError(`unknown page: ${pageId}`);
+      if (row.project_id !== projectId) throw new BadCommitError(`page ${pageId} is not in project ${projectId}`);
+      if (newTitle === '') throw new BadCommitError('title must not be empty');
+      if (newTitle === row.title) throw new BadCommitError('title is unchanged');
+      if (baseVersion !== row.version) {
+        return { kind: 'conflict' as const, reason: 'version' as const, page: this.#snapshot(row) };
+      }
+      const oldTitleLc = row.title_lc;
+
+      const lines = this.#getLines(pageId);
+      const titleCommit = this.#applyCommit({
+        projectId, pageId, commitId: ulid(now * 1000), baseVersion,
+        ops: [{ type: 'update', id: lines[0].id, text: newTitle }], userId, now,
+      });
+      if (titleCommit.kind === 'conflict') {
+        return { kind: 'conflict' as const, reason: 'title' as const, page: titleCommit.page };
+      }
+
+      const rewritten: { pageId: string; title: string; version: number }[] = [];
+      if (rewriteLinks && titleLc(newTitle) !== oldTitleLc) {
+        const sources = this.#db
+          .prepare(
+            `SELECT DISTINCT p.id FROM pages p JOIN links l ON l.source_page_id = p.id
+             WHERE l.project_id = ? AND l.target_title_lc = ? AND p.id != ? AND p.deleted = 0`,
+          )
+          .all(projectId, oldTitleLc, pageId) as { id: string }[];
+        for (const source of sources) {
+          const srcRow = this.#db.prepare('SELECT * FROM pages WHERE id = ?').get(source.id) as PageRow;
+          const srcLines = this.#getLines(source.id);
+          const changes = rewritePageLinks(srcLines.map((l) => l.text), oldTitleLc, newTitle);
+          const ops: LineOp[] = [];
+          changes.forEach((text, i) => {
+            if (text !== null) ops.push({ type: 'update', id: srcLines[i].id, text });
+          });
+          if (ops.length === 0) continue;
+          const result = this.#applyCommit({
+            projectId, pageId: source.id, commitId: ulid(now * 1000), baseVersion: srcRow.version, ops, userId, now,
+          });
+          if (result.kind !== 'applied') {
+            throw new StorageError(`link rewrite conflict on page ${source.id}`);
+          }
+          rewritten.push({ pageId: source.id, title: srcRow.title, version: result.version });
+        }
+      }
+      return { kind: 'applied' as const, version: titleCommit.version, rewritten };
+    });
   }
 
   #applyCommit(input: CommitInput): CommitResult {
