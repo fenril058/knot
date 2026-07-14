@@ -8,21 +8,35 @@ import { opsHash } from './hash.ts';
 import {
   BadCommitError,
   StorageError,
+  type AddUserResult,
+  type AuthUser,
   type CommitInput,
   type CommitResult,
   type DisplayUser,
   type ImportLine,
   type ImportPageInput,
   type ImportPageResult,
+  type NewUser,
   type PageMeta,
   type PageSnapshot,
   type Project,
   type SearchHit,
+  type Session,
   type Storage,
 } from './types.ts';
 
 const PROJECT_NAME_RE = /^[a-z0-9-]+$/;
 const RESERVED_PROJECT_NAMES = new Set(['api', 'login', 'files', 'assets']);
+
+type UserRow = {
+  id: string;
+  name: string;
+  display_name: string;
+  email: string | null;
+  password_hash: string | null;
+  is_admin: number;
+  created: number;
+};
 
 type PageRow = {
   id: string;
@@ -124,6 +138,77 @@ export class SqliteStorage implements Storage {
       )
       .all(projectId, projectId) as { id: string; name: string; display_name: string }[];
     return rows.map((r) => ({ id: r.id, name: r.name, displayName: r.display_name }));
+  }
+
+  #userRowToAuthUser(r: UserRow): AuthUser {
+    return {
+      id: r.id,
+      name: r.name,
+      displayName: r.display_name,
+      email: r.email,
+      passwordHash: r.password_hash,
+      isAdmin: r.is_admin === 1,
+      created: r.created,
+    };
+  }
+
+  async addUser(user: NewUser, now: number): Promise<AddUserResult> {
+    return this.#tx(() => {
+      const existing = this.#db
+        .prepare('SELECT id, password_hash FROM users WHERE name = ?')
+        .get(user.name) as { id: string; password_hash: string | null } | undefined;
+      if (existing) {
+        if (existing.password_hash !== null) {
+          throw new StorageError(`user already exists: ${user.name}`);
+        }
+        this.#db
+          .prepare('UPDATE users SET display_name = ?, email = ?, password_hash = ?, is_admin = ? WHERE id = ?')
+          .run(user.displayName, user.email ?? null, user.passwordHash, user.isAdmin ? 1 : 0, existing.id);
+        return { kind: 'claimed' as const, id: existing.id };
+      }
+      this.#db
+        .prepare(
+          'INSERT INTO users (id, name, display_name, email, password_hash, is_admin, created) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(user.id, user.name, user.displayName, user.email ?? null, user.passwordHash, user.isAdmin ? 1 : 0, now);
+      return { kind: 'created' as const, id: user.id };
+    });
+  }
+
+  async getUserByName(name: string): Promise<AuthUser | null> {
+    const r = this.#db.prepare('SELECT * FROM users WHERE name = ?').get(name) as UserRow | undefined;
+    return r ? this.#userRowToAuthUser(r) : null;
+  }
+
+  async getUserById(id: string): Promise<AuthUser | null> {
+    const r = this.#db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined;
+    return r ? this.#userRowToAuthUser(r) : null;
+  }
+
+  async createSession(session: Session): Promise<void> {
+    this.#db
+      .prepare('INSERT INTO sessions (id, user_id, expires, created) VALUES (?, ?, ?, ?)')
+      .run(session.id, session.userId, session.expires, session.created);
+  }
+
+  async getSession(id: string, now: number): Promise<Session | null> {
+    const r = this.#db.prepare('SELECT id, user_id, expires, created FROM sessions WHERE id = ?').get(id) as
+      | { id: string; user_id: string; expires: number; created: number }
+      | undefined;
+    if (!r) return null;
+    if (r.expires <= now) {
+      this.#db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
+      return null;
+    }
+    return { id: r.id, userId: r.user_id, expires: r.expires, created: r.created };
+  }
+
+  async refreshSession(id: string, expires: number): Promise<void> {
+    this.#db.prepare('UPDATE sessions SET expires = ? WHERE id = ?').run(expires, id);
+  }
+
+  async deleteSession(id: string): Promise<void> {
+    this.#db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
   }
 
   #pageRowToMeta(r: PageRow): PageMeta {

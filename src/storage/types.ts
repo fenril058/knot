@@ -10,6 +10,29 @@ export type Project = {
 
 export type DisplayUser = { id: string; name: string; displayName: string };
 
+export type AuthUser = {
+  id: string;
+  name: string;
+  displayName: string;
+  email: string | null;
+  passwordHash: string | null;
+  isAdmin: boolean;
+  created: number;
+};
+
+export type NewUser = {
+  id: string;
+  name: string;
+  displayName: string;
+  email?: string;
+  passwordHash: string;
+  isAdmin: boolean;
+};
+
+export type AddUserResult = { kind: 'created' | 'claimed'; id: string };
+
+export type Session = { id: string; userId: string; expires: number; created: number };
+
 export type PageMeta = {
   id: string;
   projectId: string;
@@ -82,6 +105,19 @@ export interface Storage {
   /** name 一致の既存ユーザーがいればそれを優先し、実際に有効なユーザー ID を返す。 */
   upsertDisplayUser(user: DisplayUser, now: number): Promise<string>;
   listUsersForProject(projectId: string): Promise<DisplayUser[]>;
+  /**
+   * ログインユーザーを追加する。同名ユーザーが password_hash なしで存在する場合
+   * （インポートで作られた表示ユーザー）はパスワードを付与して昇格する（claimed）。
+   * password_hash ありの同名ユーザーが既にいれば StorageError。
+   */
+  addUser(user: NewUser, now: number): Promise<AddUserResult>;
+  getUserByName(name: string): Promise<AuthUser | null>;
+  getUserById(id: string): Promise<AuthUser | null>;
+  createSession(session: Session): Promise<void>;
+  /** 期限切れ（expires <= now）のセッションは削除して null を返す。 */
+  getSession(id: string, now: number): Promise<Session | null>;
+  refreshSession(id: string, expires: number): Promise<void>;
+  deleteSession(id: string): Promise<void>;
   getPageByTitle(projectId: string, titleLcValue: string): Promise<PageSnapshot | null>;
   getPageById(pageId: string): Promise<PageSnapshot | null>;
   listPages(projectId: string): Promise<PageMeta[]>;
