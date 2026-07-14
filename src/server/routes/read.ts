@@ -1,6 +1,8 @@
 import type { Hono } from 'hono';
+import { parse } from '@progfay/scrapbox-parser';
 import type { AppDeps } from '../app.ts';
-import { jsonError, resolvePage, resolveProject, type ApiEnv } from '../http.ts';
+import { jsonError, resolvePage, resolveProject, safeDecode, type ApiEnv } from '../http.ts';
+import { titleLc } from '../../core/title.ts';
 import type { PageSummary, PageSort, RelatedPage } from '../../storage/types.ts';
 
 const SORTS = new Set<string>(['updated', 'created', 'linked', 'title']);
@@ -46,6 +48,48 @@ export function registerReadRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     const project = await resolveProject(storage, c);
     if (!project) return jsonError(c, 404, 'not_found');
     return c.json(await storage.listPageTitles(project.id));
+  });
+
+  app.get('/api/pages/:project/search/query', async (c) => {
+    const project = await resolveProject(storage, c);
+    if (!project) return jsonError(c, 404, 'not_found');
+    const q = c.req.query('q');
+    if (q === undefined || q.trim() === '') {
+      return jsonError(c, 400, 'bad_request', { message: 'q required' });
+    }
+    const hits = await storage.search(project.id, q);
+    const words = q.split(/\s+/).filter((word) => word !== '');
+    return c.json({
+      projectName: project.name,
+      searchQuery: q,
+      query: { words, excludes: [] },
+      limit: 100,
+      count: hits.length,
+      existsExactTitleMatch: hits.some((hit) => titleLc(hit.title) === titleLc(q)),
+      pages: hits.slice(0, 100).map((hit) => ({
+        id: hit.pageId,
+        title: hit.title,
+        image: hit.image,
+        words,
+        lines: hit.lines,
+      })),
+    });
+  });
+
+  app.get('/api/code/:project/:title/:filename', async (c) => {
+    const project = await resolveProject(storage, c);
+    if (!project) return jsonError(c, 404, 'not_found');
+    const page = await resolvePage(storage, project.id, c);
+    if (!page) return jsonError(c, 404, 'not_found');
+    const filename = safeDecode(c.req.param('filename'));
+    if (filename === null) return jsonError(c, 404, 'not_found');
+    const blocks = parse(page.lines.map((line) => line.text).join('\n'), { hasTitle: true });
+    const contents: string[] = [];
+    for (const block of blocks) {
+      if (block.type === 'codeBlock' && block.fileName === filename) contents.push(block.content);
+    }
+    if (contents.length === 0) return jsonError(c, 404, 'not_found');
+    return c.text(contents.join('\n'));
   });
 
   app.get('/api/pages/:project/:title/text', async (c) => {

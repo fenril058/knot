@@ -105,7 +105,7 @@ export type ImportPageInput = {
 
 export type ImportPageResult = { kind: 'created' | 'overwritten' | 'skipped'; pageId: string };
 
-export type SearchHit = { pageId: string; title: string; lines: string[] };
+export type SearchHit = { pageId: string; title: string; image: string | null; lines: string[] };
 
 /** 400 系: 再送しても直らないクライアント不正。409（conflict）とは区別する。 */
 export class BadCommitError extends Error {

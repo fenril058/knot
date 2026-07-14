@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeStorage } from '../helpers/storage.ts';
+import { seedPage } from '../helpers/pages.ts';
 
 async function setup() {
   const { db, storage } = makeStorage();
@@ -71,4 +72,15 @@ test('空クエリは 0 件、削除済みページはヒットしない', async
   });
   assert.deepEqual(await storage.search(project.id, '設計書'), []);
   await storage.close();
+});
+
+test('SearchHit に image が含まれる', async () => {
+  const { storage } = makeStorage();
+  const now = 1700000000;
+  const project = await storage.ensureProject('proj', now);
+  await seedPage(storage, project.id, 'With Image', ['needle here', 'https://i.gyazo.com/x.png'], now);
+  await seedPage(storage, project.id, 'No Image', ['needle too'], now + 1);
+  const hits = await storage.search(project.id, 'needle');
+  assert.equal(hits.find((h) => h.title === 'With Image')!.image, 'https://i.gyazo.com/x.png');
+  assert.equal(hits.find((h) => h.title === 'No Image')!.image, null);
 });

@@ -601,30 +601,31 @@ export class SqliteStorage implements Storage {
     return pages.map((p) => ({
       pageId: p.id,
       title: p.title,
+      image: p.image,
       lines: (matchedLines.all(p.id, likePattern) as { text: string }[]).map((r) => r.text),
     }));
   }
 
-  #searchFts(projectId: string, query: string): { id: string; title: string }[] {
+  #searchFts(projectId: string, query: string): { id: string; title: string; image: string | null }[] {
     const phrase = `"${query.replaceAll('"', '""')}"`;
     return this.#db
       .prepare(
-        `SELECT p.id, p.title FROM pages_fts JOIN pages p ON p.id = pages_fts.page_id
+        `SELECT p.id, p.title, p.image FROM pages_fts JOIN pages p ON p.id = pages_fts.page_id
          WHERE pages_fts MATCH ? AND pages_fts.project_id = ? AND p.deleted = 0
          ORDER BY pages_fts.rank`,
       )
-      .all(phrase, projectId) as { id: string; title: string }[];
+      .all(phrase, projectId) as { id: string; title: string; image: string | null }[];
   }
 
-  #searchLike(projectId: string, query: string): { id: string; title: string }[] {
+  #searchLike(projectId: string, query: string): { id: string; title: string; image: string | null }[] {
     const pattern = `%${escapeLike(query)}%`;
     return this.#db
       .prepare(
-        `SELECT DISTINCT p.id, p.title, p.updated FROM pages p JOIN lines l ON l.page_id = p.id
+        `SELECT DISTINCT p.id, p.title, p.image, p.updated FROM pages p JOIN lines l ON l.page_id = p.id
          WHERE p.project_id = ? AND p.deleted = 0 AND l.text LIKE ? ESCAPE '\\'
          ORDER BY p.updated DESC`,
       )
-      .all(projectId, pattern) as { id: string; title: string }[];
+      .all(projectId, pattern) as { id: string; title: string; image: string | null }[];
   }
 
   async reindex(projectId?: string): Promise<{ pages: number }> {
