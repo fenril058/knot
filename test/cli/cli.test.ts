@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runExport, runImport, runInit, runReindex } from '../../src/cli/commands.ts';
+import { CliError, runExport, runImport, runInit, runReindex, runUserAdd } from '../../src/cli/commands.ts';
 
 const FIXTURE = fileURLToPath(new URL('../fixtures/cosense-export.json', import.meta.url));
 const MAIN = fileURLToPath(new URL('../../src/cli/main.ts', import.meta.url));
@@ -46,6 +46,21 @@ test('export --out はファイルに書き、reindex は未知プロジェク�
   ) as { pages: { lines: unknown[] }[] };
   assert.equal(typeof exp.pages[0].lines[0], 'string');
   await assert.rejects(runReindex(dir, 'nope'), /unknown project/);
+});
+
+test('user add がユーザーを作り、同名の再実行は失敗する', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'knot-cli-'));
+  await runInit(dir);
+  const out = await runUserAdd(dir, 'alice', 'Alice', true, 'pw12345678');
+  assert.match(out, /alice/);
+  await assert.rejects(runUserAdd(dir, 'alice', null, false, 'other-pass'), /already exists/);
+});
+
+test('user add は短いパスワードと不正な名前を拒否する', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'knot-cli-'));
+  await runInit(dir);
+  await assert.rejects(runUserAdd(dir, 'alice', null, false, 'short'), CliError);
+  await assert.rejects(runUserAdd(dir, 'Bad Name!', null, false, 'pw12345678'), CliError);
 });
 
 test('CLI 実行ファイルとして通しで動く（spawn）', () => {

@@ -1,5 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { ulid } from '../core/id.ts';
+import { hashPassword } from '../server/password.ts';
 import { openDatabase } from '../storage/db.ts';
 import { SqliteStorage } from '../storage/sqlite.ts';
 import { importCosense } from '../storage/import.ts';
@@ -15,6 +17,9 @@ export class CliError extends Error {
 function openStorage(dataDir: string): SqliteStorage {
   return new SqliteStorage(openDatabase(join(dataDir, 'knot.db')));
 }
+
+const USER_NAME_RE = /^[a-z0-9_-]+$/;
+const MIN_PASSWORD_LENGTH = 8;
 
 export async function runInit(dataDir: string): Promise<string> {
   mkdirSync(join(dataDir, 'files'), { recursive: true });
@@ -68,6 +73,32 @@ export async function runReindex(dataDir: string, projectName: string | null): P
     }
     const { pages } = await storage.reindex(projectId);
     return `reindexed ${pages} pages`;
+  } finally {
+    await storage.close();
+  }
+}
+
+export async function runUserAdd(
+  dataDir: string,
+  name: string,
+  displayName: string | null,
+  isAdmin: boolean,
+  password: string,
+): Promise<string> {
+  if (!USER_NAME_RE.test(name)) throw new CliError(`invalid user name: ${name} (must match ${USER_NAME_RE})`);
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    throw new CliError(`password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const storage = openStorage(dataDir);
+  try {
+    const result = await storage.addUser(
+      { id: ulid(now * 1000), name, displayName: displayName ?? name, passwordHash: hashPassword(password), isAdmin },
+      now,
+    );
+    return result.kind === 'claimed'
+      ? `claimed existing user ${name} (${result.id})`
+      : `created user ${name} (${result.id})`;
   } finally {
     await storage.close();
   }

@@ -1,12 +1,21 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
-import { CliError, runExport, runImport, runInit, runReindex } from './commands.ts';
+import { CliError, runExport, runImport, runInit, runReindex, runUserAdd } from './commands.ts';
 
 const USAGE = `usage:
   knot init    --data <dir>
   knot import  --data <dir> --project <name> [--on-conflict skip|overwrite] <file.json>
   knot export  --data <dir> --project <name> [--format import] [--out <file.json>]
-  knot reindex --data <dir> [--project <name>]`;
+  knot reindex --data <dir> [--project <name>]
+  knot user add --data <dir> --name <name> [--display-name <name>] [--admin]
+                (パスワードは標準入力から読む: echo -n 'pass' | knot user add ...)`;
+
+async function readStdin(): Promise<string> {
+  let data = '';
+  process.stdin.setEncoding('utf8');
+  for await (const chunk of process.stdin) data += chunk;
+  return data;
+}
 
 async function main(argv: string[]): Promise<string> {
   const [command, ...rest] = argv;
@@ -19,6 +28,9 @@ async function main(argv: string[]): Promise<string> {
       'on-conflict': { type: 'string' },
       format: { type: 'string' },
       out: { type: 'string' },
+      name: { type: 'string' },
+      'display-name': { type: 'string' },
+      admin: { type: 'boolean' },
     },
   });
   const data = values.data;
@@ -45,6 +57,13 @@ async function main(argv: string[]): Promise<string> {
     case 'reindex':
       if (positionals.length !== 0) throw new CliError(USAGE);
       return runReindex(data, values.project ?? null);
+    case 'user': {
+      if (positionals[0] !== 'add' || positionals.length !== 1 || values.name === undefined) {
+        throw new CliError(USAGE);
+      }
+      const password = (await readStdin()).replace(/\n$/, '');
+      return runUserAdd(data, values.name, values['display-name'] ?? null, values.admin === true, password);
+    }
     default:
       throw new CliError(USAGE);
   }
