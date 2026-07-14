@@ -2,7 +2,9 @@
   "name": "knot",
   "version": "0.0.0",
   "private": true,
-  "bin": { "knot": "src/cli/main.ts" },
+  "bin": {
+    "knot": "src/cli/main.ts"
+  },
   "type": "module",
   "engines": {
     "node": ">=24"
@@ -12,7 +14,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@progfay/scrapbox-parser": "10.1.1"
+    "@hono/node-server": "^2.0.8",
+    "@progfay/scrapbox-parser": "10.1.1",
+    "hono": "^4.12.30"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
