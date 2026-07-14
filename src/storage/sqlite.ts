@@ -265,9 +265,9 @@ export class SqliteStorage implements Storage {
     const text = lines.map((l) => l.text).join('\n');
     const refs = extractRefs(text);
     const insertLink = this.#db.prepare(
-      'INSERT OR IGNORE INTO links (project_id, source_page_id, target_title_lc) VALUES (?, ?, ?)',
+      'INSERT OR IGNORE INTO links (project_id, source_page_id, target_title_lc, target_title) VALUES (?, ?, ?, ?)',
     );
-    for (const target of refs.linkTargets) insertLink.run(projectId, pageId, target);
+    for (const target of refs.linkTargets) insertLink.run(projectId, pageId, target.titleLc, target.title);
     this.#db.prepare('UPDATE pages SET image = ? WHERE id = ?').run(refs.image, pageId);
     this.#db
       .prepare('INSERT INTO pages_fts (page_id, project_id, content) VALUES (?, ?, ?)')

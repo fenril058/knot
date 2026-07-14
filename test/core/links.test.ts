@@ -4,22 +4,22 @@ import { extractRefs } from '../../src/core/links.ts';
 
 test('ブラケットリンクとハッシュタグを title_lc で集める', () => {
   const { linkTargets } = extractRefs('タイトル\n[Foo Bar] と #tag と [foo_bar]');
-  assert.deepEqual(linkTargets.sort(), ['foo_bar', 'tag']);
+  assert.deepEqual(linkTargets.map((t) => t.titleLc).sort(), ['foo_bar', 'tag']);
 });
 
 test('装飾の入れ子の中のリンクも拾う', () => {
   const { linkTargets } = extractRefs('タイトル\n[* [Nested]]');
-  assert.deepEqual(linkTargets, ['nested']);
+  assert.deepEqual(linkTargets.map((t) => t.titleLc), ['nested']);
 });
 
 test('行 permalink の行 ID を除いてページ名にする', () => {
   const { linkTargets } = extractRefs('タイトル\n[テロメア#61f23df197c291000066c1cf]');
-  assert.deepEqual(linkTargets, ['テロメア'.toLowerCase()]);
+  assert.deepEqual(linkTargets.map((t) => t.titleLc), ['テロメア'.toLowerCase()]);
 });
 
 test('アイコン記法はそのページへのリンクになる', () => {
   const { linkTargets } = extractRefs('タイトル\n[alice.icon]');
-  assert.deepEqual(linkTargets, ['alice']);
+  assert.deepEqual(linkTargets.map((t) => t.titleLc), ['alice']);
 });
 
 test('外部 URL・他プロジェクトリンク・コードブロックはリンク対象外', () => {
@@ -57,15 +57,23 @@ test('[[...]] の strongImage 記法も代表画像になる', () => {
 
 test('table 記法の中のリンクも linkTargets に入る', () => {
   const src = 'タイトル\ntable:名前\n\t[TableLink]\tcell2';
-  assert.deepEqual(extractRefs(src).linkTargets, ['tablelink']);
+  assert.deepEqual(extractRefs(src).linkTargets.map((t) => t.titleLc), ['tablelink']);
 });
 
 test('ULID 形式の行 ID も除去され、リンク先は重複しない', () => {
   const src = 'タイトル\n[ページ#01HZXW3E8PJQK5M2N4R6T8V0AB] [ページ]';
-  assert.deepEqual(extractRefs(src).linkTargets, ['ページ']);
+  assert.deepEqual(extractRefs(src).linkTargets.map((t) => t.titleLc), ['ページ']);
 });
 
 test('タイトル中の # は保持し、末尾の行 ID だけを除去する', () => {
   const src = 'タイトル\n[C#の話#61f23df197c291000066c1cf]';
-  assert.deepEqual(extractRefs(src).linkTargets, ['c#の話']);
+  assert.deepEqual(extractRefs(src).linkTargets.map((t) => t.titleLc), ['c#の話']);
+});
+
+test('linkTargets は原文タイトルと lc 形の組を返す', () => {
+  const refs = extractRefs('タイトル\n[Foo Bar] と #TagName と [foo bar]');
+  assert.deepEqual(refs.linkTargets, [
+    { title: 'Foo Bar', titleLc: 'foo_bar' },
+    { title: 'TagName', titleLc: 'tagname' },
+  ]);
 });

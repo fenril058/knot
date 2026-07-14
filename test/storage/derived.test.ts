@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { ulid } from '../../src/core/id.ts';
 import { makeStorage } from '../helpers/storage.ts';
 
 async function setup() {
@@ -97,4 +98,27 @@ test('ページ削除で links と fts が消え image が NULL になる', asyn
   assert.equal((db.prepare('SELECT count(*) AS c FROM pages_fts WHERE page_id = ?').get('pg1') as { c: number }).c, 0);
   assert.equal((db.prepare('SELECT image FROM pages WHERE id = ?').get('pg1') as { image: string | null }).image, null);
   await storage.close();
+});
+
+test('links テーブルに原文タイトルが保存される', async () => {
+  const { storage, db } = makeStorage();
+  const now = 1700000000;
+  const project = await storage.ensureProject('proj', now);
+  const pageId = ulid(now * 1000);
+  const titleId = ulid(now * 1000);
+  await storage.commit({
+    projectId: project.id, pageId, commitId: ulid(now * 1000), baseVersion: 0,
+    ops: [
+      { type: 'insert', id: titleId, after: '_head', text: 'P' },
+      { type: 'insert', id: ulid(now * 1000), after: titleId, text: 'see [Foo Bar]' },
+    ], userId: 'u', now,
+  });
+  const rows = db
+    .prepare('SELECT target_title_lc, target_title FROM links WHERE source_page_id = ?')
+    .all(pageId) as { target_title_lc: string; target_title: string }[];
+  // DB 行は null プロトタイプなので plain object に詰め替えて比較する
+  assert.deepEqual(
+    rows.map((r) => ({ lc: r.target_title_lc, title: r.target_title })),
+    [{ lc: 'foo_bar', title: 'Foo Bar' }],
+  );
 });

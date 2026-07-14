@@ -4,7 +4,8 @@ import { classifyUrl } from './media.ts';
 
 export const LINE_ID_RE = /^([0-9a-f]{24}|[0-9A-HJKMNP-TV-Z]{26})$/;
 
-export type PageRefs = { linkTargets: string[]; image: string | null };
+export type LinkTarget = { title: string; titleLc: string };
+export type PageRefs = { linkTargets: LinkTarget[]; image: string | null };
 
 function stripLineId(href: string): string {
   const i = href.lastIndexOf('#');
@@ -13,18 +14,23 @@ function stripLineId(href: string): string {
 }
 
 export function extractRefs(text: string): PageRefs {
-  const targets = new Set<string>();
+  const targets = new Map<string, string>();
   let image: string | null = null;
+
+  const add = (title: string): void => {
+    const lc = titleLc(title);
+    if (!targets.has(lc)) targets.set(lc, title);
+  };
 
   const visit = (node: Node): void => {
     if (node.type === 'link' && node.pathType === 'relative') {
-      targets.add(titleLc(stripLineId(node.href)));
+      add(stripLineId(node.href));
     } else if (node.type === 'hashTag') {
-      targets.add(titleLc(node.href));
+      add(node.href);
     } else if (node.type === 'link' && node.pathType === 'absolute') {
       if (image === null && classifyUrl(node.href) === 'image') image = node.href;
     } else if (node.type === 'icon' && node.pathType === 'relative') {
-      targets.add(titleLc(node.path));
+      add(node.path);
     } else if (node.type === 'image' || node.type === 'strongImage') {
       if (image === null) image = node.src;
     }
@@ -38,5 +44,5 @@ export function extractRefs(text: string): PageRefs {
       for (const row of block.cells) for (const cell of row) for (const node of cell) visit(node);
     }
   }
-  return { linkTargets: [...targets], image };
+  return { linkTargets: [...targets].map(([lc, title]) => ({ title, titleLc: lc })), image };
 }
