@@ -5,7 +5,10 @@ import { applyOps } from '../../core/apply.ts';
 import { diffLines } from '../../core/diff.ts';
 import { OpsError, type LineOp } from '../../core/ops.ts';
 import { titleLc } from '../../core/title.ts';
-import { BadCommitError, type CommitResult } from '../../storage/types.ts';
+import { InvalidExportError } from '../../core/cosense.ts';
+import { exportCosense } from '../../storage/export.ts';
+import { importCosense } from '../../storage/import.ts';
+import { BadCommitError, StorageError, type CommitResult } from '../../storage/types.ts';
 import type { AppDeps } from '../app.ts';
 import { jsonError, pageToJson, resolvePage, resolveProject, safeDecode, type ApiEnv } from '../http.ts';
 
@@ -35,6 +38,40 @@ function commitResultToResponse(c: Context, result: CommitResult): Response {
 export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
   const { storage } = deps;
   const now = deps.now ?? ((): number => Math.floor(Date.now() / 1000));
+
+  app.post('/api/knot/projects/:project/import', async (c) => {
+    const onConflict = c.req.query('onConflict') ?? 'skip';
+    if (onConflict !== 'skip' && onConflict !== 'overwrite') {
+      return jsonError(c, 400, 'bad_request', { message: `invalid onConflict: ${onConflict}` });
+    }
+    let data: unknown;
+    try {
+      data = await c.req.json();
+    } catch {
+      return jsonError(c, 400, 'bad_request', { message: 'invalid JSON' });
+    }
+    try {
+      const summary = await importCosense(storage, data, {
+        projectName: c.req.param('project'), onConflict, now: now(),
+      });
+      return c.json(summary);
+    } catch (e) {
+      if (e instanceof StorageError || e instanceof InvalidExportError) {
+        return jsonError(c, 400, 'bad_request', { message: e.message });
+      }
+      throw e;
+    }
+  });
+
+  app.get('/api/knot/projects/:project/export', async (c) => {
+    const format = c.req.query('format') ?? 'full';
+    if (format !== 'full' && format !== 'import') {
+      return jsonError(c, 400, 'bad_request', { message: `invalid format: ${format}` });
+    }
+    const project = await resolveProject(storage, c);
+    if (!project) return jsonError(c, 404, 'not_found');
+    return c.json(await exportCosense(storage, project.name, format, now()));
+  });
 
   app.delete('/api/knot/pages/:project/:title', async (c) => {
     const project = await resolveProject(storage, c);
