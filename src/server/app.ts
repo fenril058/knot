@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { Hono, type Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
+import { serveStatic } from '@hono/node-server/serve-static';
 import type { Storage } from '../storage/types.ts';
 import type { ServerConfig } from './config.ts';
 import { clientIp, jsonError, type ApiEnv } from './http.ts';
@@ -75,6 +76,8 @@ export function createApp(deps: AppDeps): Hono<ApiEnv> {
     c.set('userId', session.userId);
     return next();
   });
+
+  app.use('/assets/*', serveStatic({ root: './public', rewriteRequestPath: (p) => p.replace(/^\/assets/, '') }));
 
   app.get('/login', (c) => c.text('login placeholder'));
 
