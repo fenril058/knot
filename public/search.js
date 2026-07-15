@@ -2,6 +2,7 @@ const script = document.currentScript;
 const project = script.dataset.project;
 let titles = null;
 let debounceTimer = null;
+let latestSeq = 0;
 
 async function loadTitles() {
   if (titles !== null) return titles;
@@ -33,18 +34,22 @@ function renderHits(el, items, formatLabel) {
 document.getElementById('search-box').addEventListener('input', async (e) => {
   const q = e.target.value.trim();
   const resultsEl = document.getElementById('search-results');
+  const seq = ++latestSeq;
   clearTimeout(debounceTimer);
   if (q === '') {
-    renderHits(resultsEl, [], () => '');
+    resultsEl.replaceChildren();
+    resultsEl.hidden = true;
     return;
   }
   const all = await loadTitles();
+  if (seq !== latestSeq) return;
   const lc = q.toLowerCase();
   renderHits(resultsEl, all.filter((t) => t.title.toLowerCase().includes(lc)).slice(0, 20), (t) => t.title);
 
   debounceTimer = setTimeout(async () => {
     const res = await fetch(`/api/pages/${encodeURIComponent(project)}/search/query?q=${encodeURIComponent(q)}`);
     const body = await res.json();
+    if (seq !== latestSeq) return;
     renderHits(resultsEl, body.pages, (p) => `${p.title}: ${p.lines[0] ?? ''}`);
   }, 200);
 });
