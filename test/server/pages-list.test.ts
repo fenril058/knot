@@ -50,3 +50,15 @@ test('未ログインは /login へリダイレクト', async () => {
   assert.equal(res.status, 302);
   assert.equal(res.headers.get('location'), '/login');
 });
+
+test('検索ボックスと script タグが一覧ページに含まれる', async () => {
+  const s = await makeServer();
+  const cookie = await login(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'A', ['x'], s.clock.t);
+  const res = await s.request('/proj', {}, cookie);
+  const body = await res.text();
+  assert.match(body, /id="search-box"/);
+  assert.match(body, /<script src="\/assets\/search\.js"[^>]*data-project="proj"/);
+  assert.doesNotMatch(body, /<script>/);
+});
