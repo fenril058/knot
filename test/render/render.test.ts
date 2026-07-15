@@ -81,3 +81,48 @@ test('テーブルも複数物理行を 1 ブロックとして消費する', ()
   assert.equal(out.length, 4);
   assert.match(String(out[2]!.html), /<table>/);
 });
+
+test('画像URL(拡張子)は img、Gyazoホストも img', () => {
+  assert.match(renderOne('https://i.gyazo.com/abc.png'), /<img src="https:\/\/i\.gyazo\.com\/abc\.png"/);
+  assert.match(renderOne('https://example.com/a.png'), /<img src="https:\/\/example\.com\/a\.png"/);
+});
+
+test('動画URLは video controls、音声は audio controls', () => {
+  assert.match(
+    renderOne('https://example.com/a.mp4'),
+    /<video controls><source src="https:\/\/example\.com\/a\.mp4"><\/video>/,
+  );
+  assert.match(
+    renderOne('https://example.com/a.mp3'),
+    /<audio controls><source src="https:\/\/example\.com\/a\.mp3"><\/audio>/,
+  );
+});
+
+test('YouTube等は既定で埋め込まず通常リンク（iframe は生成しない）', () => {
+  const out = renderOne('https://www.youtube.com/watch?v=abc');
+  assert.doesNotMatch(out, /<iframe/);
+  assert.match(
+    out,
+    /<a href="https:\/\/www\.youtube\.com\/watch\?v=abc" rel="noopener noreferrer">https:\/\/www\.youtube\.com\/watch\?v=abc<\/a>/,
+  );
+});
+
+test('非http(s)スキームのメディアURLはリンク化・img化されず平文のまま', () => {
+  const out = renderOne('file:///etc/passwd.png');
+  assert.doesNotMatch(out, /<img|<a |<video|<audio/);
+  assert.match(out, /file:\/\/\/etc\/passwd\.png/);
+});
+
+test('[Name.icon] は known page に image があれば img で表示する', () => {
+  const lines = [
+    { id: 'title', text: 'Title' },
+    { id: 'l1', text: '[Foo.icon]' },
+  ];
+  const map = new Map([['foo', { title: 'Foo', image: 'https://i.gyazo.com/icon.png' }]]);
+  const out = renderLines(lines, map, 'proj', cfg);
+  const result = String(out[1]!.html);
+  assert.match(
+    result,
+    /<a href="\/proj\/Foo" class="icon-link"><img src="https:\/\/i\.gyazo\.com\/icon\.png" alt="Foo" class="icon-img"><\/a>/,
+  );
+});
