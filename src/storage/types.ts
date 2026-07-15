@@ -84,6 +84,8 @@ export type RelatedPages = {
 
 export type TitleEntry = { id: string; title: string; hasIcon: boolean; updated: number; links: string[] };
 
+export type Visit = { visited: number; lastSeenVersion: number };
+
 export type CommitInput = {
   projectId: string;
   pageId: string;
@@ -199,5 +201,8 @@ export interface Storage {
   importPage(input: ImportPageInput): Promise<ImportPageResult>;
   search(projectId: string, query: string): Promise<SearchHit[]>;
   reindex(projectId?: string): Promise<{ pages: number }>;
+  /** 前回訪問を上書きする前に呼ぶこと。未訪問は null */
+  getVisit(userId: string, pageId: string): Promise<Visit | null>;
+  recordVisit(userId: string, pageId: string, visitedAt: number, lastSeenVersion: number): Promise<void>;
   close(): Promise<void>;
 }

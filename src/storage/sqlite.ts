@@ -32,6 +32,7 @@ import {
   type Session,
   type Storage,
   type TitleEntry,
+  type Visit,
 } from './types.ts';
 
 const PROJECT_NAME_RE = /^[a-z0-9-]+$/;
@@ -459,6 +460,22 @@ export class SqliteStorage implements Storage {
       updated: r.updated,
       links: (linksStmt.all(r.id) as { target_title: string }[]).map((l) => l.target_title),
     }));
+  }
+
+  async getVisit(userId: string, pageId: string): Promise<Visit | null> {
+    const row = this.#db
+      .prepare('SELECT visited, last_seen_version FROM page_visits WHERE user_id = ? AND page_id = ?')
+      .get(userId, pageId) as { visited: number; last_seen_version: number } | undefined;
+    return row ? { visited: row.visited, lastSeenVersion: row.last_seen_version } : null;
+  }
+
+  async recordVisit(userId: string, pageId: string, visitedAt: number, lastSeenVersion: number): Promise<void> {
+    this.#db
+      .prepare(
+        `INSERT INTO page_visits (user_id, page_id, visited, last_seen_version) VALUES (?, ?, ?, ?)
+         ON CONFLICT (user_id, page_id) DO UPDATE SET visited = excluded.visited, last_seen_version = excluded.last_seen_version`,
+      )
+      .run(userId, pageId, visitedAt, lastSeenVersion);
   }
 
   async commit(input: CommitInput): Promise<CommitResult> {
