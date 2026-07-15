@@ -11,3 +11,14 @@ test('limit 回までは許可、超過は拒否、窓が過ぎればまた許�
   assert.equal(rl.allow('other', 1003), true);
   assert.equal(rl.allow('k', 1000 + 601), true);
 });
+
+test('多数の期限切れキーを sweep で解放する', () => {
+  const rl = new RateLimiter(3, 600);
+  for (let i = 0; i < 2000; i += 1) {
+    assert.equal(rl.allow(`key-${i}`, 1000), true);
+  }
+  const sizeBeforeSweep = rl.size;
+
+  assert.equal(rl.allow('new-key', 1601), true);
+  assert.ok(rl.size < sizeBeforeSweep);
+});

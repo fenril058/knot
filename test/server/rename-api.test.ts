@@ -39,6 +39,14 @@ test('rewriteLinks 省略時は書き換えない', async () => {
   assert.equal(src!.lines[1].text, '[Old]');
 });
 
+test('rewriteLinks が boolean でなければ 400', async () => {
+  const { s, project, rename } = await setup();
+  await seedPage(s.storage, project.id, 'Old', ['x'], s.clock.t);
+  const res = await rename('Old', { baseVersion: 1, newTitle: 'New', rewriteLinks: 'true' });
+  assert.equal(res.status, 400);
+  assert.deepEqual(await res.json(), { error: 'bad_request', message: 'rewriteLinks must be a boolean' });
+});
+
 test('占有タイトルへの rename は 409 reason title、baseVersion 不一致は 409 reason version', async () => {
   const { s, project, rename } = await setup();
   await seedPage(s.storage, project.id, 'Taken', ['x'], s.clock.t);

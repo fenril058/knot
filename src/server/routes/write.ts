@@ -104,6 +104,9 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     ) {
       return jsonError(c, 400, 'bad_request', { message: 'baseVersion and newTitle required' });
     }
+    if (body.rewriteLinks !== undefined && typeof body.rewriteLinks !== 'boolean') {
+      return jsonError(c, 400, 'bad_request', { message: 'rewriteLinks must be a boolean' });
+    }
     const rewriteLinks = body.rewriteLinks === true;
     try {
       const result = await storage.renamePage({

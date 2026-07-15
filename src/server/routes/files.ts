@@ -60,7 +60,12 @@ export function registerFileRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     const declared = Number(c.req.header('content-length') ?? '0');
     if (declared > config.maxUploadBytes + 64 * 1024) return jsonError(c, 413, 'too_large');
 
-    const form = await c.req.parseBody();
+    let form: Awaited<ReturnType<typeof c.req.parseBody>>;
+    try {
+      form = await c.req.parseBody();
+    } catch {
+      return jsonError(c, 400, 'bad_request', { message: 'invalid multipart body' });
+    }
     const file = form.file;
     const projectName = form.project;
     if (!(file instanceof File) || typeof projectName !== 'string') {

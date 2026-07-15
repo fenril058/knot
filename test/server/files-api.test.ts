@@ -102,6 +102,21 @@ test('Content-Length 超過は multipart 解析前に 413', async () => {
   assert.deepEqual(await res.json(), { error: 'too_large' });
 });
 
+test('不正な multipart body は 400', async () => {
+  const { s, cookie } = await setup();
+  const res = await s.app.request('/api/knot/files', {
+    method: 'POST',
+    headers: {
+      cookie,
+      'content-type': 'multipart/form-data; boundary=xxx',
+      'x-knot-client': 'test',
+    },
+    body: 'not multipart',
+  });
+  assert.equal(res.status, 400);
+  assert.deepEqual(await res.json(), { error: 'bad_request', message: 'invalid multipart body' });
+});
+
 test('project 欠落・不在は 400、未認証の配信は 401', async () => {
   const { s, cookie, upload } = await setup();
   const form = new FormData();
