@@ -7,8 +7,9 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     body: JSON.stringify({ name: form.get('name'), password: form.get('password') }),
   });
   if (res.ok) {
-    const params = new URLSearchParams(location.search);
-    location.href = params.get('next') ?? '/';
+    const next = new URLSearchParams(location.search).get('next');
+    const isSafeNext = typeof next === 'string' && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\');
+    location.href = isSafeNext ? next : '/';
     return;
   }
   const msg = res.status === 429 ? '試行回数が多すぎます。しばらく待ってください。' : 'ユーザー名またはパスワードが違います。';
