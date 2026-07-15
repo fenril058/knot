@@ -10,6 +10,7 @@ import { RateLimiter } from './ratelimit.ts';
 import { registerReadRoutes } from './routes/read.ts';
 import { registerFileRoutes } from './routes/files.ts';
 import { registerWriteRoutes } from './routes/write.ts';
+import { registerPageRoutes } from './routes/pages.ts';
 
 export type AppDeps = { storage: Storage; config: ServerConfig; now?: () => number };
 
@@ -79,8 +80,6 @@ export function createApp(deps: AppDeps): Hono<ApiEnv> {
 
   app.use('/assets/*', serveStatic({ root: './public', rewriteRequestPath: (p) => p.replace(/^\/assets/, '') }));
 
-  app.get('/login', (c) => c.text('login placeholder'));
-
   app.post('/api/knot/session', async (c) => {
     let body: { name?: unknown; password?: unknown };
     try {
@@ -119,6 +118,7 @@ export function createApp(deps: AppDeps): Hono<ApiEnv> {
   registerReadRoutes(app, deps);
   registerWriteRoutes(app, deps);
   registerFileRoutes(app, deps);
+  registerPageRoutes(app, deps);
 
   return app;
 }
