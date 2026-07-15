@@ -68,7 +68,9 @@ export function createApp(deps: AppDeps): Hono<ApiEnv> {
     if (session === null) {
       const isApiOrFiles = c.req.path.startsWith('/api/') || c.req.path.startsWith('/files/');
       if (isApiOrFiles) return jsonError(c, 401, 'unauthorized');
-      return c.redirect('/login', 302);
+      const requestUrl = new URL(c.req.url);
+      const next = `${requestUrl.pathname}${requestUrl.search}`;
+      return c.redirect(`/login?next=${encodeURIComponent(next)}`, 302);
     }
     if (session.expires - now() < config.sessionTtlSeconds - REFRESH_MARGIN_SECONDS) {
       await storage.refreshSession(session.id, now() + config.sessionTtlSeconds);

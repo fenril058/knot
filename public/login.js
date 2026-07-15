@@ -8,8 +8,12 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
   });
   if (res.ok) {
     const next = new URLSearchParams(location.search).get('next');
-    const isSafeNext = typeof next === 'string' && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\');
-    location.href = isSafeNext ? next : '/';
+    let target = '/';
+    if (typeof next === 'string') {
+      const resolved = new URL(next, location.origin);
+      if (resolved.origin === location.origin) target = resolved.pathname + resolved.search + resolved.hash;
+    }
+    location.href = target;
     return;
   }
   const msg = res.status === 429 ? '試行回数が多すぎます。しばらく待ってください。' : 'ユーザー名またはパスワードが違います。';

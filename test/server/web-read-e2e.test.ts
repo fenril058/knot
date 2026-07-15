@@ -14,7 +14,7 @@ test('login → 一覧 → 閲覧 → 再訪問 → 404 の一気通貫でイン
 
   const unauthenticated = await s.request('/proj');
   assert.equal(unauthenticated.status, 302);
-  assert.equal(unauthenticated.headers.get('location'), '/login');
+  assert.equal(unauthenticated.headers.get('location'), '/login?next=%2Fproj');
 
   const loginPage = await s.request('/login');
   assert.equal(loginPage.status, 200);

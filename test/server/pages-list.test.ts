@@ -48,7 +48,7 @@ test('未ログインは /login へリダイレクト', async () => {
   const res = await s.request('/proj');
 
   assert.equal(res.status, 302);
-  assert.equal(res.headers.get('location'), '/login');
+  assert.match(res.headers.get('location') ?? '', /^\/login\?next=/);
 });
 
 test('検索ボックスと script タグが一覧ページに含まれる', async () => {
