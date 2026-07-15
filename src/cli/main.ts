@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
-import { CliError, runExport, runImport, runInit, runReindex, runUserAdd } from './commands.ts';
+import { CliError, runExport, runImport, runInit, runReindex, runServe, runUserAdd } from './commands.ts';
 
 const USAGE = `usage:
   knot init    --data <dir>
   knot import  --data <dir> --project <name> [--on-conflict skip|overwrite] <file.json>
   knot export  --data <dir> --project <name> [--format import] [--out <file.json>]
   knot reindex --data <dir> [--project <name>]
+  knot serve   --data <dir> [--port <n>] [--hostname <s>]
   knot user add --data <dir> --name <name> [--display-name <name>] [--admin]
                 (パスワードは標準入力から読む: echo -n 'pass' | knot user add ...)`;
 
@@ -31,6 +32,8 @@ async function main(argv: string[]): Promise<string> {
       name: { type: 'string' },
       'display-name': { type: 'string' },
       admin: { type: 'boolean' },
+      port: { type: 'string' },
+      hostname: { type: 'string' },
     },
   });
   const data = values.data;
@@ -57,6 +60,12 @@ async function main(argv: string[]): Promise<string> {
     case 'reindex':
       if (positionals.length !== 0) throw new CliError(USAGE);
       return runReindex(data, values.project ?? null);
+    case 'serve': {
+      if (positionals.length !== 0) throw new CliError(USAGE);
+      const port = values.port === undefined ? 3000 : Number(values.port);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) throw new CliError(USAGE);
+      return runServe(data, port, values.hostname ?? '127.0.0.1');
+    }
     case 'user': {
       if (positionals[0] !== 'add' || positionals.length !== 1 || values.name === undefined) {
         throw new CliError(USAGE);

@@ -39,6 +39,16 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
   const { storage } = deps;
   const now = deps.now ?? ((): number => Math.floor(Date.now() / 1000));
 
+  app.post('/api/knot/projects/:project', async (c) => {
+    try {
+      const project = await storage.ensureProject(c.req.param('project'), now());
+      return c.json({ id: project.id, name: project.name, displayName: project.displayName });
+    } catch (e) {
+      if (e instanceof StorageError) return jsonError(c, 400, 'bad_request', { message: e.message });
+      throw e;
+    }
+  });
+
   app.post('/api/knot/projects/:project/import', async (c) => {
     const onConflict = c.req.query('onConflict') ?? 'skip';
     if (onConflict !== 'skip' && onConflict !== 'overwrite') {

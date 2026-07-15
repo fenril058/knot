@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ulid } from '../core/id.ts';
 import { hashPassword } from '../server/password.ts';
@@ -20,6 +20,25 @@ function openStorage(dataDir: string): SqliteStorage {
 
 const USER_NAME_RE = /^[a-z0-9_-]+$/;
 const MIN_PASSWORD_LENGTH = 8;
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
+
+export async function runServe(dataDir: string, port: number, hostname: string): Promise<never> {
+  const { serve } = await import('@hono/node-server');
+  const { createApp } = await import('../server/app.ts');
+  const { loadConfig } = await import('../server/config.ts');
+  const config = loadConfig(dataDir);
+  if (config.secureCookie === 'auto') {
+    config.secureCookie = !LOOPBACK_HOSTS.has(hostname);
+  }
+  if (!existsSync(join(dataDir, 'knot.db'))) {
+    throw new CliError(`database not found in ${dataDir}; run knot init first`);
+  }
+  const storage = openStorage(dataDir);
+  const app = createApp({ storage, config });
+  serve({ fetch: app.fetch, port, hostname });
+  console.log(`knot serving http://${hostname}:${port}/ (data: ${dataDir})`);
+  return new Promise<never>(() => {});
+}
 
 export async function runInit(dataDir: string): Promise<string> {
   mkdirSync(join(dataDir, 'files'), { recursive: true });

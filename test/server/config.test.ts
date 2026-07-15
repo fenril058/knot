@@ -1,0 +1,44 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { defaultConfig, loadConfig } from '../../src/server/config.ts';
+
+test('config.json が無ければ既定値', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'knot-config-'));
+  assert.deepEqual(loadConfig(dir), defaultConfig(dir));
+});
+
+test('config.json が既定値にマージされる', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'knot-config-'));
+  writeFileSync(join(dir, 'config.json'), JSON.stringify({
+    secureCookie: false,
+    allowedFrameHosts: ['www.youtube.com'],
+    maxUploadBytes: 1024,
+  }));
+  const config = loadConfig(dir);
+  assert.equal(config.secureCookie, false);
+  assert.deepEqual(config.allowedFrameHosts, ['www.youtube.com']);
+  assert.equal(config.maxUploadBytes, 1024);
+  assert.deepEqual(config.allowedImageHosts, ['i.gyazo.com', 'gyazo.com']); // 未指定は既定のまま
+});
+
+test('未知キーはエラー', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'knot-config-'));
+  writeFileSync(join(dir, 'config.json'), JSON.stringify({ tyop: true }));
+  assert.throws(() => loadConfig(dir), /unknown config key: tyop/);
+});
+
+test('型・範囲の不正な値はエラー', () => {
+  for (const bad of [
+    { maxUploadBytes: -1 },
+    { sessionTtlSeconds: 'thirty days' },
+    { secureCookie: 'yes' },
+    { allowedImageHosts: ['ok.example', 42] },
+  ]) {
+    const dir = mkdtempSync(join(tmpdir(), 'knot-config-'));
+    writeFileSync(join(dir, 'config.json'), JSON.stringify(bad));
+    assert.throws(() => loadConfig(dir), /invalid config value/);
+  }
+});
