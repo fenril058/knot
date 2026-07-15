@@ -56,11 +56,18 @@ export function createApp(deps: AppDeps): Hono<ApiEnv> {
     return next();
   });
 
+  const PUBLIC_PATHS = new Set(['/login']);
+
   app.use('*', async (c, next) => {
     if (c.req.method === 'POST' && c.req.path === '/api/knot/session') return next();
+    if (PUBLIC_PATHS.has(c.req.path) || c.req.path.startsWith('/assets/')) return next();
     const sid = getCookie(c, SESSION_COOKIE);
     const session = sid === undefined ? null : await storage.getSession(sid, now());
-    if (session === null) return jsonError(c, 401, 'unauthorized');
+    if (session === null) {
+      const isApiOrFiles = c.req.path.startsWith('/api/') || c.req.path.startsWith('/files/');
+      if (isApiOrFiles) return jsonError(c, 401, 'unauthorized');
+      return c.redirect('/login', 302);
+    }
     if (session.expires - now() < config.sessionTtlSeconds - REFRESH_MARGIN_SECONDS) {
       await storage.refreshSession(session.id, now() + config.sessionTtlSeconds);
       setSessionCookie(c, session.id);
@@ -68,6 +75,8 @@ export function createApp(deps: AppDeps): Hono<ApiEnv> {
     c.set('userId', session.userId);
     return next();
   });
+
+  app.get('/login', (c) => c.text('login placeholder'));
 
   app.post('/api/knot/session', async (c) => {
     let body: { name?: unknown; password?: unknown };
