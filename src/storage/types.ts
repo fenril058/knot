@@ -61,7 +61,7 @@ export type PageSnapshot = PageMeta & { lines: Line[] };
 
 export type PageSummary = PageMeta & { descriptions: string[]; linked: number };
 export type PageSort = 'updated' | 'created' | 'linked' | 'title';
-export type ListPageSummariesOptions = { skip: number; limit: number; sort: PageSort };
+export type ListPageSummariesOptions = { skip: number; limit: number; sort: PageSort; pinnedFirst?: boolean };
 
 export type RelatedPage = {
   id: string;
@@ -82,7 +82,7 @@ export type RelatedPages = {
   linked: number;
 };
 
-export type TitleEntry = { id: string; title: string; hasIcon: boolean; updated: number; links: string[] };
+export type TitleEntry = { id: string; title: string; hasIcon: boolean; updated: number; links: string[]; image: string | null };
 
 export type Visit = { visited: number; lastSeenVersion: number };
 
@@ -193,6 +193,7 @@ export interface Storage {
   getRelatedPages(projectId: string, pageId: string, titleLcValue: string): Promise<RelatedPages>;
   /** 全ページのタイトルと前方リンク（原文タイトル）。search/titles と 2-hop・補完のデータ源 */
   listPageTitles(projectId: string): Promise<TitleEntry[]>;
+  setPinned(pageId: string, pinned: boolean): Promise<void>;
   commit(input: CommitInput): Promise<CommitResult>;
   /** 全行 delete のコミットとしてページを削除する。不在・削除済みは BadCommitError */
   deletePage(projectId: string, pageId: string, userId: string, now: number): Promise<{ version: number }>;

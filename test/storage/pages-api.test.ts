@@ -50,3 +50,28 @@ test('listPageSummaries: 削除済みページは数えず返さない', async (
   assert.equal(count, 0);
   assert.deepEqual(pages, []);
 });
+
+test('pinnedFirst 未指定/false なら sort の順序をそのまま維持する（JSON API 互換）', async () => {
+  const { storage } = makeStorage();
+  const project = await storage.ensureProject('proj', now);
+  await seedPage(storage, project.id, 'Old Pinned', ['x'], now);
+  await seedPage(storage, project.id, 'New Unpinned', ['x'], now + 10);
+  const pinnedId = (await storage.getPageByTitle(project.id, 'old_pinned'))!.id;
+  await storage.setPinned(pinnedId, true);
+  const withoutFlag = await storage.listPageSummaries(project.id, { skip: 0, limit: 10, sort: 'updated' });
+  assert.deepEqual(withoutFlag.pages.map((p) => p.title), ['New Unpinned', 'Old Pinned']);
+  const withFalse = await storage.listPageSummaries(project.id, { skip: 0, limit: 10, sort: 'updated', pinnedFirst: false });
+  assert.deepEqual(withFalse.pages.map((p) => p.title), ['New Unpinned', 'Old Pinned']);
+});
+
+test('pinnedFirst: ピン留めページが sort に関わらず先頭に来る', async () => {
+  const { storage } = makeStorage();
+  const project = await storage.ensureProject('proj', now);
+  await seedPage(storage, project.id, 'Old Pinned', ['x'], now);
+  await seedPage(storage, project.id, 'New Unpinned', ['x'], now + 10);
+  const pinnedId = (await storage.getPageByTitle(project.id, 'old_pinned'))!.id;
+  await storage.setPinned(pinnedId, true);
+  const { pages } = await storage.listPageSummaries(project.id, { skip: 0, limit: 10, sort: 'updated', pinnedFirst: true });
+  assert.equal(pages[0]!.title, 'Old Pinned');
+  assert.equal(pages[1]!.title, 'New Unpinned');
+});

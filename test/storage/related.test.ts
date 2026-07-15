@@ -58,3 +58,11 @@ test('listPageTitles: 原文タイトルのリンクを返す', async () => {
   assert.equal(titles[0].hasIcon, true); // image がある
   assert.deepEqual(titles[0].links.sort(), ['Foo Bar', 'tag']);
 });
+
+test('listPageTitles: image は pages.image をそのまま返す', async () => {
+  const { storage } = makeStorage();
+  const project = await storage.ensureProject('proj', now);
+  await seedPage(storage, project.id, 'With Image', ['https://i.gyazo.com/x.png'], now);
+  const titles = await storage.listPageTitles(project.id);
+  assert.equal(titles.find((t) => t.title === 'With Image')!.image, 'https://i.gyazo.com/x.png');
+});

@@ -337,6 +337,7 @@ export class SqliteStorage implements Storage {
       linked: 'linked DESC, p.updated DESC, p.id',
       title: 'p.title_lc ASC',
     };
+    const orderByClause = opts.pinnedFirst ? `p.pinned DESC, ${orderBy[opts.sort]}` : orderBy[opts.sort];
     const count = (
       this.#db.prepare('SELECT COUNT(*) AS n FROM pages WHERE project_id = ? AND deleted = 0').get(projectId) as { n: number }
     ).n;
@@ -346,7 +347,7 @@ export class SqliteStorage implements Storage {
            SELECT COUNT(*) FROM links l WHERE l.project_id = p.project_id AND l.target_title_lc = p.title_lc
          ) AS linked
          FROM pages p WHERE p.project_id = ? AND p.deleted = 0
-         ORDER BY ${orderBy[opts.sort]}
+         ORDER BY ${orderByClause}
          LIMIT ? OFFSET ?`,
       )
       .all(projectId, opts.limit, opts.skip) as (PageRow & { linked: number })[];
@@ -459,7 +460,12 @@ export class SqliteStorage implements Storage {
       hasIcon: r.image !== null,
       updated: r.updated,
       links: (linksStmt.all(r.id) as { target_title: string }[]).map((l) => l.target_title),
+      image: r.image,
     }));
+  }
+
+  async setPinned(pageId: string, pinned: boolean): Promise<void> {
+    this.#db.prepare('UPDATE pages SET pinned = ? WHERE id = ?').run(pinned ? 1 : 0, pageId);
   }
 
   async getVisit(userId: string, pageId: string): Promise<Visit | null> {

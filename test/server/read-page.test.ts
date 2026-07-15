@@ -34,6 +34,6 @@ test('GET /api/pages/:project/search/titles', async () => {
   assert.equal(res.status, 200);
   const body = await res.json();
   assert.deepEqual(body, [
-    { id: body[0].id, title: 'Page One', hasIcon: false, updated: body[0].updated, links: ['Foo Bar'] },
+    { id: body[0].id, title: 'Page One', hasIcon: false, updated: body[0].updated, links: ['Foo Bar'], image: null },
   ]);
 });
