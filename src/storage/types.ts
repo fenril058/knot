@@ -152,6 +152,7 @@ export class StorageError extends Error {
 export interface Storage {
   ensureProject(name: string, now: number): Promise<Project>;
   getProject(name: string): Promise<Project | null>;
+  listProjects(): Promise<Project[]>;
   /** インポート時にエクスポート元の displayName を反映する。 */
   setProjectDisplayName(projectId: string, displayName: string, now: number): Promise<void>;
   /** name 一致の既存ユーザーがいればそれを優先し、実際に有効なユーザー ID を返す。 */
@@ -193,6 +194,8 @@ export interface Storage {
   getRelatedPages(projectId: string, pageId: string, titleLcValue: string): Promise<RelatedPages>;
   /** 全ページのタイトルと前方リンク（原文タイトル）。search/titles と 2-hop・補完のデータ源 */
   listPageTitles(projectId: string): Promise<TitleEntry[]>;
+  /** HTML レンダリング用の既知ページ。前方リンクを取得せず単一クエリで返す。 */
+  listKnownPages(projectId: string): Promise<{ titleLc: string; title: string; image: string | null }[]>;
   setPinned(pageId: string, pinned: boolean): Promise<void>;
   commit(input: CommitInput): Promise<CommitResult>;
   /** 全行 delete のコミットとしてページを削除する。不在・削除済みは BadCommitError */

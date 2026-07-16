@@ -51,6 +51,19 @@ test('未ログインは /login へリダイレクト', async () => {
   assert.match(res.headers.get('location') ?? '', /^\/login\?next=/);
 });
 
+test('GET /:project: 存在しないプロジェクトは layout を使った HTML 404', async () => {
+  const s = await makeServer();
+  const cookie = await login(s);
+  const res = await s.request('/missing', {}, cookie);
+
+  assert.equal(res.status, 404);
+  assert.match(res.headers.get('content-type') ?? '', /text\/html/);
+  const body = await res.text();
+  assert.match(body, /<!DOCTYPE html>/);
+  assert.match(body, /プロジェクトが見つかりません/);
+  assert.match(body, /missing/);
+});
+
 test('検索ボックスと script タグが一覧ページに含まれる', async () => {
   const s = await makeServer();
   const cookie = await login(s);

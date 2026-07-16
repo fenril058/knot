@@ -1,0 +1,42 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { makeServer } from '../helpers/server.ts';
+
+async function login(s: Awaited<ReturnType<typeof makeServer>>): Promise<string> {
+  await s.addUser('alice', 'pw12345678');
+  return s.login('alice', 'pw12345678');
+}
+
+test('GET /: 認証済みユーザーにプロジェクト一覧とリンクを表示する', async () => {
+  const s = await makeServer();
+  const cookie = await login(s);
+  await s.storage.ensureProject('zeta', s.clock.t);
+  await s.storage.ensureProject('alpha', s.clock.t);
+
+  const res = await s.request('/', {}, cookie);
+  const body = await res.text();
+
+  assert.equal(res.status, 200);
+  assert.match(body, /<h1>プロジェクト一覧<\/h1>/);
+  assert.match(body, /href="\/alpha"/);
+  assert.match(body, /href="\/zeta"/);
+  assert.ok(body.indexOf('/alpha') < body.indexOf('/zeta'));
+  assert.doesNotMatch(body, /<script|<style|\son[a-z]+=/i);
+});
+
+test('GET /: プロジェクトが0件なら案内文を表示する', async () => {
+  const s = await makeServer();
+  const cookie = await login(s);
+  const res = await s.request('/', {}, cookie);
+
+  assert.equal(res.status, 200);
+  assert.match(await res.text(), /プロジェクトがありません/);
+});
+
+test('GET /: 未認証なら /login?next=%2F へリダイレクトする', async () => {
+  const s = await makeServer();
+  const res = await s.request('/');
+
+  assert.equal(res.status, 302);
+  assert.equal(res.headers.get('location'), '/login?next=%2F');
+});

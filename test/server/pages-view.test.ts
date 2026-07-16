@@ -35,6 +35,22 @@ test('初回訪問は全行 unread、再訪問（編集なし）は unread が�
   assert.doesNotMatch(await second.text(), /telomere unread/);
 });
 
+test('ページ表示の knownPages は listKnownPages を使い listPageTitles を呼ばない', async () => {
+  const s = await makeServer();
+  const cookie = await login(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'Beta', ['x'], s.clock.t);
+  await seedPage(s.storage, project.id, 'Alpha', ['[Beta]'], s.clock.t);
+  s.storage.listPageTitles = async () => {
+    throw new Error('listPageTitles must not be called by the HTML page route');
+  };
+
+  const res = await s.request('/proj/Alpha', {}, cookie);
+
+  assert.equal(res.status, 200);
+  assert.match(await res.text(), /href="\/proj\/Beta"/);
+});
+
 test('存在しないページは 404 と新規作成の案内', async () => {
   const s = await makeServer();
   const cookie = await login(s);
@@ -45,3 +61,33 @@ test('存在しないページは 404 と新規作成の案内', async () => {
   assert.match(body, /Nope/);
   assert.match(body, /\/proj\/Nope\/edit/);
 });
+
+test('GET /:project/:title: 存在しないプロジェクトは layout を使った HTML 404', async () => {
+  const s = await makeServer();
+  const cookie = await login(s);
+  const res = await s.request('/missing/Nope', {}, cookie);
+
+  assert.equal(res.status, 404);
+  assert.match(res.headers.get('content-type') ?? '', /text\/html/);
+  const body = await res.text();
+  assert.match(body, /<!DOCTYPE html>/);
+  assert.match(body, /プロジェクトが見つかりません/);
+  assert.match(body, /missing/);
+});
+
+for (const [name, headers] of [
+  ['cross-site', { 'Sec-Fetch-Site': 'cross-site' }],
+  ['prefetch', { 'Sec-Purpose': 'prefetch' }],
+] as const) {
+  test(`${name} の GET は再訪問しても unread を既読にしない`, async () => {
+    const s = await makeServer();
+    const cookie = await login(s);
+    const project = await s.storage.ensureProject('proj', s.clock.t);
+    await seedPage(s.storage, project.id, 'Alpha', ['line one'], s.clock.t);
+
+    const first = await s.request('/proj/Alpha', { headers }, cookie);
+    assert.match(await first.text(), /telomere unread/);
+    const second = await s.request('/proj/Alpha', { headers }, cookie);
+    assert.match(await second.text(), /telomere unread/);
+  });
+}

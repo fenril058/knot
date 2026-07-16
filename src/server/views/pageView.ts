@@ -54,3 +54,13 @@ export function pageNotFoundPage(project: Project, title: string): HtmlEscapedSt
 <a href="${editHref}">このタイトルで新規作成する</a>`,
   );
 }
+
+export function projectNotFoundPage(projectName: string): HtmlEscapedString {
+  return layout('プロジェクトが見つかりません', html`
+<main>
+<h1>プロジェクトが見つかりません</h1>
+<p>「${projectName}」というプロジェクトはありません。</p>
+<a href="/">プロジェクト一覧へ戻る</a>
+</main>`,
+  );
+}

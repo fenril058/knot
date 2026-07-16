@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { Hono, type Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { serveStatic } from '@hono/node-server/serve-static';
@@ -16,6 +17,20 @@ export type AppDeps = { storage: Storage; config: ServerConfig; now?: () => numb
 
 const SESSION_COOKIE = 'connect.sid';
 const REFRESH_MARGIN_SECONDS = 24 * 60 * 60;
+const PUBLIC_PATHS = new Set(['/login']);
+
+export type RequestClass = 'public' | 'api' | 'html';
+
+export function classifyRequest(method: string, path: string): RequestClass {
+  if (method === 'POST' && path === '/api/knot/session') return 'public';
+  if (PUBLIC_PATHS.has(path) || path.startsWith('/assets/')) return 'public';
+  if (path.startsWith('/api/') || path.startsWith('/files/')) return 'api';
+  return 'html';
+}
+
+export function publicDirectory(): string {
+  return fileURLToPath(new URL('../../public/', import.meta.url));
+}
 
 function cspValue(config: ServerConfig): string {
   const hosts = (list: string[]): string => (list.length === 0 ? '' : ` ${list.join(' ')}`);
@@ -58,16 +73,13 @@ export function createApp(deps: AppDeps): Hono<ApiEnv> {
     return next();
   });
 
-  const PUBLIC_PATHS = new Set(['/login']);
-
   app.use('*', async (c, next) => {
-    if (c.req.method === 'POST' && c.req.path === '/api/knot/session') return next();
-    if (PUBLIC_PATHS.has(c.req.path) || c.req.path.startsWith('/assets/')) return next();
+    const requestClass = classifyRequest(c.req.method, c.req.path);
+    if (requestClass === 'public') return next();
     const sid = getCookie(c, SESSION_COOKIE);
     const session = sid === undefined ? null : await storage.getSession(sid, now());
     if (session === null) {
-      const isApiOrFiles = c.req.path.startsWith('/api/') || c.req.path.startsWith('/files/');
-      if (isApiOrFiles) return jsonError(c, 401, 'unauthorized');
+      if (requestClass === 'api') return jsonError(c, 401, 'unauthorized');
       const requestUrl = new URL(c.req.url);
       const next = `${requestUrl.pathname}${requestUrl.search}`;
       return c.redirect(`/login?next=${encodeURIComponent(next)}`, 302);
@@ -80,7 +92,7 @@ export function createApp(deps: AppDeps): Hono<ApiEnv> {
     return next();
   });
 
-  app.use('/assets/*', serveStatic({ root: './public', rewriteRequestPath: (p) => p.replace(/^\/assets/, '') }));
+  app.use('/assets/*', serveStatic({ root: publicDirectory(), rewriteRequestPath: (p) => p.replace(/^\/assets/, '') }));
 
   app.post('/api/knot/session', async (c) => {
     let body: { name?: unknown; password?: unknown };

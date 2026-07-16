@@ -20,6 +20,17 @@ test('不正・予約語のプロジェクト名を拒否する', async () => {
   await storage.close();
 });
 
+test('listProjects は name 昇順ですべてのプロジェクトを返す', async () => {
+  const { storage } = makeStorage();
+  await storage.ensureProject('zeta', 100);
+  await storage.ensureProject('alpha', 200);
+
+  const projects = await storage.listProjects();
+
+  assert.deepEqual(projects.map((project) => project.name), ['alpha', 'zeta']);
+  await storage.close();
+});
+
 test('upsertDisplayUser は name 一致の既存ユーザー ID を返す', async () => {
   const { db, storage } = makeStorage();
   const first = await storage.upsertDisplayUser({ id: 'u1', name: 'alice', displayName: 'Alice' }, 1);
@@ -63,5 +74,21 @@ test('getPageByTitle / listPages は削除済みページを除外する', async
   const byId = await storage.getPageById('pg2');
   assert.ok(byId);
   assert.equal(byId.deleted, true);
+  await storage.close();
+});
+
+test('listKnownPages は未削除ページの titleLc・title・image だけを返す', async () => {
+  const { db, storage } = makeStorage();
+  const project = await storage.ensureProject('wiki', 100);
+  const insert = db.prepare(
+    `INSERT INTO pages (id, project_id, title, title_lc, version, pinned, deleted, image, created, updated)
+     VALUES (?, ?, ?, ?, 1, 0, ?, ?, 10, 10)`,
+  );
+  insert.run('p1', project.id, 'Alpha Page', 'alpha_page', 0, 'https://example.com/a.png');
+  insert.run('p2', project.id, 'Gone', 'gone', 1, null);
+
+  const pages = await storage.listKnownPages(project.id);
+
+  assert.deepEqual(pages, [{ titleLc: 'alpha_page', title: 'Alpha Page', image: 'https://example.com/a.png' }]);
   await storage.close();
 });

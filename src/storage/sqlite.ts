@@ -130,6 +130,19 @@ export class SqliteStorage implements Storage {
     return this.#getProjectRow(name);
   }
 
+  async listProjects(): Promise<Project[]> {
+    const rows = this.#db
+      .prepare('SELECT id, name, display_name, created, updated FROM projects ORDER BY name')
+      .all() as { id: string; name: string; display_name: string; created: number; updated: number }[];
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      displayName: row.display_name,
+      created: row.created,
+      updated: row.updated,
+    }));
+  }
+
   async setProjectDisplayName(projectId: string, displayName: string, now: number): Promise<void> {
     this.#db
       .prepare('UPDATE projects SET display_name = ?, updated = ? WHERE id = ?')
@@ -462,6 +475,13 @@ export class SqliteStorage implements Storage {
       links: (linksStmt.all(r.id) as { target_title: string }[]).map((l) => l.target_title),
       image: r.image,
     }));
+  }
+
+  async listKnownPages(projectId: string): Promise<{ titleLc: string; title: string; image: string | null }[]> {
+    const rows = this.#db
+      .prepare('SELECT title_lc, title, image FROM pages WHERE project_id = ? AND deleted = 0')
+      .all(projectId) as { title_lc: string; title: string; image: string | null }[];
+    return rows.map((row) => ({ titleLc: row.title_lc, title: row.title, image: row.image }));
   }
 
   async setPinned(pageId: string, pinned: boolean): Promise<void> {
