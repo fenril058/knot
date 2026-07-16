@@ -1,5 +1,232 @@
-// Task 8 で本実装に置き換える一時スタブ。core がブラウザ向けバンドルに解決されることを確認する。
-import { ulid } from '../../core/id.ts';
-import { pageHref } from '../../core/title.ts';
+import { defaultKeymap, history as historyExtension, historyKeymap } from '@codemirror/commands';
+import { keymap, EditorView } from '@codemirror/view';
+import { applyOps } from '../../core/apply.ts';
+import { titleLc, pageHref } from '../../core/title.ts';
+import { fetchPage, postCommit } from './api.ts';
+import {
+  parsePendingRecord,
+  serializePendingRecord,
+  SyncEngine,
+  type PendingRecord,
+  type Snapshot,
+  type SyncEffect,
+} from './sync.ts';
 
-console.debug('knot editor stub', ulid(), pageHref('project', 'title'));
+const SAVE_DELAY_MS = 500;
+const KEEPALIVE_BODY_LIMIT = 64 * 1024;
+
+const root = document.querySelector<HTMLElement>('#editor-root');
+const statusElement = document.querySelector<HTMLElement>('#save-status');
+if (root === null || statusElement === null) throw new Error('editor root is missing');
+const editorRoot = root;
+const saveStatus = statusElement;
+
+const data = editorRoot.dataset;
+if (data.project === undefined || data.title === undefined || data.userName === undefined || data.cspNonce === undefined) {
+  throw new Error('editor data attributes are missing');
+}
+const project = data.project;
+const title = data.title;
+const userName = data.userName;
+const cspNonce = data.cspNonce;
+
+function pendingKey(value: string): string {
+  return `knot:pending:${project}/${titleLc(value)}`;
+}
+
+function readPending(key: string): PendingRecord | null {
+  const raw = localStorage.getItem(key);
+  if (raw === null) return null;
+  const record = parsePendingRecord(raw);
+  if (record === null) localStorage.removeItem(key);
+  return record;
+}
+
+let storageKey = pendingKey(title);
+let engine: SyncEngine;
+let view: EditorView;
+let timer: number | undefined;
+let stopped = false;
+let statusMessage: string | undefined;
+let suppressChanges = false;
+
+function renderStatus(): void {
+  const labels = { saved: '保存済み', saving: '保存中', dirty: '未保存', error: 'エラー' } as const;
+  saveStatus.textContent = statusMessage ?? labels[engine.status];
+  saveStatus.dataset.status = engine.status;
+}
+
+function moveTitleIfNeeded(previousTitle: string): void {
+  if (engine.currentTitle === previousTitle) return;
+  const oldKey = storageKey;
+  storageKey = pendingKey(engine.currentTitle);
+  const pending = localStorage.getItem(oldKey);
+  if (pending !== null) {
+    localStorage.setItem(storageKey, pending);
+    localStorage.removeItem(oldKey);
+  }
+  window.history.replaceState(null, '', `${pageHref(project, engine.currentTitle)}/edit`);
+}
+
+function syncDocument(lines: readonly string[]): void {
+  const next = lines.join('\n');
+  if (view.state.doc.toString() === next) return;
+  suppressChanges = true;
+  view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next } });
+  suppressChanges = false;
+}
+
+function textsAfterConflict(
+  page: { version: number; lines: Snapshot['lines'] },
+  effects: readonly SyncEffect[],
+): string[] {
+  const send = effects.find((effect) => effect.type === 'send');
+  if (send === undefined) return page.lines.map(({ text }) => text);
+  return applyOps(page.lines, send.commit.ops, {
+    userId: userName,
+    now: Date.now(),
+    version: page.version + 1,
+  }).map(({ text }) => text);
+}
+
+async function executeEffects(effects: readonly SyncEffect[], keepalive = false): Promise<void> {
+  // Persist before awaiting the network so pagehide can always recover the inflight commit.
+  for (const effect of effects) {
+    if (effect.type !== 'persist') continue;
+    if (effect.record === null) localStorage.removeItem(storageKey);
+    else localStorage.setItem(storageKey, serializePendingRecord(effect.record));
+  }
+  for (const effect of effects) {
+    if (effect.type === 'schedule') {
+      if (stopped) continue;
+      if (timer !== undefined) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        timer = undefined;
+        void executeEffects(engine.flush());
+        renderStatus();
+      }, SAVE_DELAY_MS);
+      continue;
+    }
+    if (effect.type === 'persist') {
+      continue;
+    }
+    if (stopped) continue;
+
+    const bodySize = new TextEncoder().encode(JSON.stringify(effect.commit)).byteLength;
+    if (keepalive && bodySize > KEEPALIVE_BODY_LIMIT) {
+      await executeEffects(engine.ackFailure());
+      continue;
+    }
+
+    const result = await postCommit(project, effect.title, effect.commit, { keepalive });
+    const previousTitle = engine.currentTitle;
+    if (result.kind === 'ok') {
+      await executeEffects(engine.ackSuccess(result.version), keepalive);
+      moveTitleIfNeeded(previousTitle);
+      statusMessage = undefined;
+    } else if (result.kind === 'conflict') {
+      const nextEffects = engine.ackConflict(result.page);
+      syncDocument(textsAfterConflict(result.page, nextEffects));
+      await executeEffects(nextEffects, keepalive);
+      moveTitleIfNeeded(previousTitle);
+      statusMessage = undefined;
+    } else if (result.kind === 'network') {
+      await executeEffects(engine.ackFailure(), keepalive);
+    } else {
+      stopped = true;
+      localStorage.removeItem(storageKey);
+      statusMessage = result.message === 'first line must match the URL title'
+        ? 'タイトル行が URL と一致しません'
+        : `エラー: ${result.message}`;
+      renderStatus();
+      return;
+    }
+    renderStatus();
+  }
+}
+
+type Recovery = { engine: SyncEngine; effects: SyncEffect[]; texts: string[] };
+
+async function restorePending(record: PendingRecord): Promise<Recovery | null> {
+  const result = await postCommit(project, record.title, {
+    commitId: record.commitId,
+    baseVersion: record.baseVersion,
+    ops: record.ops,
+  });
+  if (result.kind === 'ok' || result.kind === 'bad') {
+    localStorage.removeItem(storageKey);
+    return null;
+  }
+  // 元の PendingRecord を inflight のまま復元する。network 時の再送が同じ commitId・同じ ops
+  // になり（冪等）、元のコミットが実は届いていた場合も重複適用にならない。
+  const restored = new SyncEngine({
+    snapshot: { version: record.baseVersion, lines: record.baseLines },
+    title: record.title,
+    userId: userName,
+    isNew: record.baseVersion === 0,
+    pending: record,
+  });
+  const expected = applyOps(record.baseLines, record.ops, {
+    userId: userName,
+    now: Date.now(),
+    version: record.baseVersion + 1,
+  }).map(({ text }) => text);
+  if (result.kind === 'network') {
+    return { engine: restored, effects: restored.ackFailure(), texts: expected };
+  }
+  const effects = restored.ackConflict(result.page);
+  return { engine: restored, effects, texts: textsAfterConflict(result.page, effects) };
+}
+
+async function start(): Promise<void> {
+  const pending = readPending(storageKey);
+  const recovery = pending === null ? null : await restorePending(pending);
+  const page = await fetchPage(project, title);
+
+  engine = recovery?.engine ?? new SyncEngine({
+    snapshot: page?.snapshot ?? { version: 0, lines: [] },
+    title: page?.title ?? title,
+    userId: userName,
+    isNew: page === null,
+  });
+  const initialLines = recovery?.texts
+    ?? (page === null ? [title] : page.snapshot.lines.map(({ text }) => text));
+
+  view = new EditorView({
+    doc: initialLines.join('\n'),
+    parent: editorRoot,
+    extensions: [
+      EditorView.cspNonce.of(cspNonce),
+      historyExtension(),
+      keymap.of([...defaultKeymap, ...historyKeymap]),
+      EditorView.updateListener.of((update) => {
+        if (!update.docChanged || suppressChanges || stopped) return;
+        statusMessage = undefined;
+        void executeEffects(engine.bufferChanged(update.state.doc.toString().split('\n')));
+        renderStatus();
+      }),
+    ],
+  });
+  renderStatus();
+  if (recovery !== null) await executeEffects(recovery.effects);
+  window.addEventListener('pagehide', flushOnExit);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+}
+
+function flushOnExit(): void {
+  if (stopped) return;
+  if (timer !== undefined) window.clearTimeout(timer);
+  timer = undefined;
+  void executeEffects(engine.flush(), true);
+  renderStatus();
+}
+
+function handleVisibilityChange(): void {
+  if (document.visibilityState === 'hidden') flushOnExit();
+}
+
+void start().catch((error: unknown) => {
+  console.error(error);
+  saveStatus.textContent = 'エラー';
+  saveStatus.dataset.status = 'error';
+});

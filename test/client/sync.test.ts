@@ -179,3 +179,61 @@ test('lineMeta は keep の元メタを保ち、追加行には自己メタと�
     { updated: 999, userId: 'self', updatedVersion: Number.MAX_SAFE_INTEGER },
   ]);
 });
+
+test('pending 復元: ackFailure 後の flush が元の commitId と ops をそのまま再送する', () => {
+  const base = [line('title', 'Title'), line('body', 'old')];
+  const record = {
+    commitId: 'pending-commit',
+    baseVersion: 1,
+    ops: [{ type: 'update' as const, id: 'body', text: 'new' }],
+    baseLines: base,
+    title: 'Title',
+  };
+  const sync = new SyncEngine({
+    snapshot: { version: 1, lines: base },
+    title: 'Title',
+    userId: 'self',
+    isNew: false,
+    pending: record,
+    makeId: idGenerator(),
+    now: () => 100,
+  });
+
+  assert.equal(sync.status, 'saving');
+  assert.deepEqual(sync.flush(), []); // inflight 中は新規送信しない
+  sync.ackFailure();
+  const send = effect(sync.flush(), 'send');
+  assert.equal(send?.commit.commitId, 'pending-commit');
+  assert.deepEqual(send?.commit.ops, record.ops);
+
+  const persistAfter = sync.ackSuccess(2);
+  assert.equal(effect(persistAfter, 'persist')?.record, null);
+  assert.deepEqual(sync.confirmedLines.map(({ text }) => text), ['Title', 'new']);
+});
+
+test('pending 復元: ackConflict は元 inflight を破棄して新しい commitId でリベース再送する', () => {
+  const base = [line('title', 'Title'), line('body', 'old')];
+  const record = {
+    commitId: 'pending-commit',
+    baseVersion: 1,
+    ops: [{ type: 'update' as const, id: 'body', text: 'mine' }],
+    baseLines: base,
+    title: 'Title',
+  };
+  const sync = new SyncEngine({
+    snapshot: { version: 1, lines: base },
+    title: 'Title',
+    userId: 'self',
+    isNew: false,
+    pending: record,
+    makeId: idGenerator(),
+    now: () => 100,
+  });
+
+  const latest = [line('title', 'Title', 2), line('body', 'old', 1), line('extra', 'theirs', 2)];
+  const send = effect(sync.ackConflict({ version: 2, title: 'Title', lines: latest }), 'send');
+  assert.notEqual(send?.commit.commitId, 'pending-commit');
+  assert.equal(send?.commit.baseVersion, 2);
+  const applied = applyOps(latest, send!.commit.ops, { userId: 'self', now: 100, version: 3 });
+  assert.deepEqual(applied.map(({ text }) => text), ['Title', 'mine', 'theirs']);
+});

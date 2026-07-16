@@ -40,6 +40,7 @@ export class SyncEngine {
     title: string;
     userId: string;
     isNew: boolean;
+    pending?: PendingRecord;
     makeId?: () => string;
     now?: () => number;
   }) {
@@ -50,6 +51,18 @@ export class SyncEngine {
     this.#makeId = init.makeId ?? (() => ulid());
     this.#now = init.now ?? Date.now;
     this.#buffer = init.isNew ? [init.title] : init.snapshot.lines.map(({ text }) => text);
+    // 永続化済みの送信中コミットを inflight として復元する（同じ commitId・同じ ops で再送するため）。
+    if (init.pending !== undefined) {
+      const expectedLines = applyOps(
+        init.pending.baseLines,
+        init.pending.ops,
+        this.#context(init.pending.baseVersion + 1),
+      );
+      this.#inflight = { ...init.pending, expectedLines };
+      this.#buffer = expectedLines.map(({ text }) => text);
+      this.#hasBufferChanged = true;
+      this.#status = 'saving';
+    }
   }
 
   get status(): SyncStatus {
