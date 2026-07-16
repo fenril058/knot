@@ -82,3 +82,24 @@ export async function postCommit(
     return { kind: 'network' };
   }
 }
+
+export async function uploadFile(
+  project: string,
+  file: File,
+): Promise<{ kind: 'ok'; url: string } | { kind: 'error'; message: string }> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('project', project);
+  try {
+    const response = await fetch('/api/knot/files', {
+      method: 'POST',
+      headers: { 'X-Knot-Client': 'editor' },
+      body: form,
+    });
+    const body = await response.json() as { url?: string; message?: string };
+    if (response.ok && typeof body.url === 'string') return { kind: 'ok', url: body.url };
+    return { kind: 'error', message: body.message ?? `HTTP ${response.status}` };
+  } catch {
+    return { kind: 'error', message: 'network error' };
+  }
+}

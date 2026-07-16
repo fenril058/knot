@@ -2,9 +2,11 @@ import { defaultKeymap, history as historyExtension, historyKeymap } from '@code
 import { keymap, EditorView } from '@codemirror/view';
 import { applyOps } from '../../core/apply.ts';
 import { titleLc, pageHref } from '../../core/title.ts';
-import { fetchPage, postCommit } from './api.ts';
+import { fetchPage, postCommit, uploadFile } from './api.ts';
 import { titleAutocompletion } from './cm/complete.ts';
 import { syntaxHighlighting } from './cm/decorations.ts';
+import { editorKeymap } from './cm/keymap.ts';
+import { pasteHandlers } from './cm/paste.ts';
 import { refreshTelomereGutter, telomereGutter } from './cm/telomere.ts';
 import {
   parsePendingRecord,
@@ -214,7 +216,14 @@ async function start(): Promise<void> {
     extensions: [
       EditorView.cspNonce.of(cspNonce),
       historyExtension(),
-      keymap.of([...defaultKeymap, ...historyKeymap]),
+      keymap.of([...editorKeymap(userName), ...defaultKeymap, ...historyKeymap]),
+      pasteHandlers({
+        uploadFile: (file) => uploadFile(project, file),
+        onUploadError: (message) => {
+          statusMessage = `エラー: ${message}`;
+          renderStatus();
+        },
+      }),
       titleAutocompletion(project),
       syntaxHighlighting,
       telomereGutter({
