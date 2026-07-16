@@ -64,6 +64,7 @@ export async function postCommit(
     const body = await response.json() as {
       version?: number;
       message?: string;
+      reason?: string;
       page?: PageJson;
     };
 
@@ -71,6 +72,11 @@ export async function postCommit(
       return { kind: 'ok', version: body.version };
     }
     if (response.status === 409 && body.page !== undefined) {
+      // リベースと再送の対象は reason 'version' だけ（storage/types.ts の契約）。
+      // reason 'title' の page はタイトルを占有している別ページなので、リベースに使ってはならない。
+      if (body.reason !== 'version') {
+        return { kind: 'bad', message: 'そのタイトルのページは既に存在します' };
+      }
       const snapshot = toSnapshot(body.page);
       return {
         kind: 'conflict',

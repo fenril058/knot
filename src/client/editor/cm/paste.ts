@@ -38,12 +38,17 @@ async function uploadAndInsert(
   to: number,
   options: PasteOptions,
 ): Promise<void> {
+  const startDoc = view.state.doc;
   const result = await options.uploadFile(file);
   if (result.kind === 'error') {
     options.onUploadError(result.message);
     return;
   }
-  view.dispatch({ changes: { from, to, insert: `[${result.url}]` } });
+  // アップロード中に編集があったら開始時の位置は信用できない。
+  // 無関係のテキストを置換しないよう、現在のカーソル位置への挿入に切り替える。
+  const changed = !view.state.doc.eq(startDoc);
+  const range = changed ? view.state.selection.main : { from, to };
+  view.dispatch({ changes: { from: range.from, to: range.to, insert: `[${result.url}]` } });
 }
 
 export function pasteHandlers(options: PasteOptions): ReturnType<typeof EditorView.domEventHandlers> {
