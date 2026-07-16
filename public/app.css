@@ -15,6 +15,14 @@ a { color: #2c6ea3; }
 .code-line { font-family: monospace; white-space: pre; }
 .icon-img { height: 1.2em; vertical-align: middle; }
 .error { color: #c0392b; }
+.page-actions { display: inline-block; margin-left: 0.5rem; position: relative; }
+.page-actions-menu { background: white; border: 1px solid #ddd; border-radius: 4px; display: grid; gap: 0.25rem; padding: 0.5rem; position: absolute; z-index: 1; }
+.page-actions-menu button { text-align: left; white-space: nowrap; }
+dialog { border: 1px solid #ccc; border-radius: 6px; max-width: min(28rem, calc(100% - 2rem)); }
+dialog::backdrop { background: rgb(0 0 0 / 35%); }
+dialog form { display: grid; gap: 1rem; }
+.dialog-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+.danger { color: #c0392b; }
 
 #editor-root { max-width: 960px; margin: 0 auto; }
 #editor-root .cm-editor { min-height: 70vh; border: 1px solid #ddd; border-radius: 4px; }

@@ -26,6 +26,12 @@ export function pageListPage(
   return layout(project.displayName, html`
 <h1>${project.displayName}</h1>
 <div id="search-root" data-project="${project.name}">
+<button type="button" id="create-page-button">新規作成</button>
+<dialog id="create-page-dialog"><form id="create-page-form">
+<h2>ページを新規作成</h2>
+<label>タイトル <input id="create-page-title" name="title" required></label>
+<div class="dialog-actions"><button type="submit">作成</button><button type="button" data-dialog-close>キャンセル</button></div>
+</form></dialog>
 <input id="search-box" type="search" placeholder="検索">
 <div id="search-results" hidden></div>
 </div>

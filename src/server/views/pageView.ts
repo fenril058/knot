@@ -40,11 +40,41 @@ export function pageViewPage(
   return layout(page.title, html`
 <h1>${page.title}</h1>
 <a href="${editHref}">編集</a>
+<div id="page-menu-root" data-project="${project.name}" data-title="${page.title}" data-version="${page.version}">
+<details id="page-actions" class="page-actions">
+<summary>操作</summary>
+<div class="page-actions-menu">
+<button type="button" id="duplicate-button">複製</button>
+<button type="button" id="rename-button">リネーム</button>
+<button type="button" id="delete-button">削除</button>
+</div>
+</details>
+<dialog id="duplicate-dialog"><form id="duplicate-form">
+<h2>ページを複製</h2>
+<label>新しいタイトル <input id="duplicate-title" name="title" required></label>
+<p id="duplicate-error" class="error" hidden></p>
+<div class="dialog-actions"><button type="submit">複製</button><button type="button" data-dialog-close>キャンセル</button></div>
+</form></dialog>
+<dialog id="rename-dialog"><form id="rename-form">
+<h2>ページをリネーム</h2>
+<label>新しいタイトル <input id="rename-title" name="title" value="${page.title}" required></label>
+<label><input id="rename-rewrite-links" name="rewriteLinks" type="checkbox"> リンクも書き換える</label>
+<p id="rename-error" class="error" hidden></p>
+<div class="dialog-actions"><button type="submit">リネーム</button><button type="button" data-dialog-close>キャンセル</button></div>
+</form></dialog>
+<dialog id="delete-dialog"><form id="delete-form">
+<h2>ページを削除</h2>
+<p>「${page.title}」を削除しますか？</p>
+<p id="delete-error" class="error" hidden></p>
+<div class="dialog-actions"><button type="submit" class="danger">削除</button><button type="button" data-dialog-close>キャンセル</button></div>
+</form></dialog>
+</div>
 ${related.hasBackLinks ? html`<p class="backlinks-badge">逆リンクまたはアイコン参照あり</p>` : ''}
 <div class="page-body">${rendered.map((line, index) => lineRow(page, page.lines[index]!, line, previousVisit))}</div>
 ${relatedSection('関連ページ', related.links1hop, project.name)}
 ${relatedSection('2-hop リンク', related.links2hop, project.name)}
-<script src="/assets/line-ui.js" defer></script>`,
+<script src="/assets/line-ui.js" defer></script>
+<script type="module" src="/assets/build/page-menu.js"></script>`,
   );
 }
 

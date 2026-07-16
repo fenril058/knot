@@ -72,6 +72,20 @@ test('検索ボックスと script タグが一覧ページに含まれる', asy
   assert.doesNotMatch(body, /<script>/);
 });
 
+test('一覧ページに新規作成ボタンとタイトル入力 dialog が含まれる', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  await s.storage.ensureProject('proj', s.clock.t);
+
+  const res = await s.request('/proj', {}, cookie);
+  const body = await res.text();
+
+  assert.match(body, /<button[^>]*id="create-page-button"[^>]*>新規作成<\/button>/);
+  assert.match(body, /<dialog[^>]*id="create-page-dialog"/);
+  assert.match(body, /<input[^>]*id="create-page-title"[^>]*required/);
+  assert.doesNotMatch(body, /\son[a-z]+\s*=/i);
+});
+
 test('カード画像は allowedImageHosts で許可したホストだけ表示する', async () => {
   const s = await makeServer({ allowedImageHosts: ['allowed.example'] });
   const cookie = await loginAs(s);

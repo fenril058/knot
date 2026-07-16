@@ -16,6 +16,22 @@ const data = root.dataset;
 if (data.project === undefined) throw new Error('search data attributes are missing');
 const project = data.project;
 
+const createButton = document.querySelector<HTMLButtonElement>('#create-page-button');
+const createDialog = document.querySelector<HTMLDialogElement>('#create-page-dialog');
+const createForm = document.querySelector<HTMLFormElement>('#create-page-form');
+const createTitle = document.querySelector<HTMLInputElement>('#create-page-title');
+if (createButton === null || createDialog === null || createForm === null || createTitle === null) {
+  throw new Error('create page controls are missing');
+}
+createButton.addEventListener('click', () => createDialog.showModal());
+createForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  window.location.assign(`${pageHref(project, createTitle.value.trim())}/edit`);
+});
+for (const button of document.querySelectorAll<HTMLButtonElement>('[data-dialog-close]')) {
+  button.addEventListener('click', () => button.closest('dialog')?.close());
+}
+
 let titles: TitleEntry[] | null = null;
 let debounceTimer: number | undefined;
 let latestSeq = 0;

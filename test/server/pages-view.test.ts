@@ -20,6 +20,24 @@ test('GET /:project/:title: レンダリング結果・赤リンク・テロメ�
   void alphaId;
 });
 
+test('閲覧画面に操作メニューと複製・リネーム・削除 dialog がありインラインハンドラを使わない', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'Alpha', ['body'], s.clock.t);
+
+  const res = await s.request('/proj/Alpha', {}, cookie);
+  const body = await res.text();
+
+  assert.match(body, /id="page-menu-root"[^>]*data-project="proj"[^>]*data-title="Alpha"[^>]*data-version="1"/);
+  assert.match(body, /<details[^>]*id="page-actions"/);
+  assert.match(body, /<dialog[^>]*id="duplicate-dialog"/);
+  assert.match(body, /<dialog[^>]*id="rename-dialog"/);
+  assert.match(body, /<dialog[^>]*id="delete-dialog"/);
+  assert.match(body, /<script type="module" src="\/assets\/build\/page-menu\.js"><\/script>/);
+  assert.doesNotMatch(body, /\son[a-z]+\s*=/i);
+});
+
 test('初回訪問は全行 unread、再訪問（編集なし）は unread が消える', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
