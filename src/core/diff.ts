@@ -1,11 +1,11 @@
 import { type Line, type LineOp } from './ops.ts';
 
-type Step =
+export type AlignStep =
   | { kind: 'keep'; line: Line }
   | { kind: 'del'; line: Line }
   | { kind: 'add'; text: string };
 
-function editScript(oldLines: Line[], newTexts: string[]): Step[] {
+export function alignLines(oldLines: Line[], newTexts: string[]): AlignStep[] {
   const n = oldLines.length;
   const m = newTexts.length;
   const lcs: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
@@ -16,7 +16,7 @@ function editScript(oldLines: Line[], newTexts: string[]): Step[] {
         : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
     }
   }
-  const steps: Step[] = [];
+  const steps: AlignStep[] = [];
   let i = 0;
   let j = 0;
   while (i < n || j < m) {
@@ -36,7 +36,7 @@ function editScript(oldLines: Line[], newTexts: string[]): Step[] {
 }
 
 export function diffLines(oldLines: Line[], newTexts: string[], makeId: () => string): LineOp[] {
-  const steps = editScript(oldLines, newTexts);
+  const steps = alignLines(oldLines, newTexts);
   const ops: LineOp[] = [];
   let anchor = '_head';
   let k = 0;

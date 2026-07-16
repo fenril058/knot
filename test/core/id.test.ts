@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { ulid } from '../../src/core/id.ts';
+
+test('ブラウザ非互換の node:crypto import を含まない', () => {
+  const source = readFileSync(new URL('../../src/core/id.ts', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /node:crypto/);
+});
 
 test('26 文字の Crockford Base32 を返す', () => {
   const id = ulid();

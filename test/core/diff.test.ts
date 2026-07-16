@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { diffLines } from '../../src/core/diff.ts';
+import { alignLines, diffLines } from '../../src/core/diff.ts';
 import { applyOps } from '../../src/core/apply.ts';
 import { type Line } from '../../src/core/ops.ts';
 
@@ -12,6 +12,35 @@ const idgen = () => {
 };
 const texts = (lines: Line[]) => lines.map((l) => l.text);
 const ctx = { userId: 'u2', now: 9, version: 2 };
+
+test('alignLines: 純追加は既存行を保って新規行を加える', () => {
+  const old = mk('a', 'b');
+  assert.deepEqual(alignLines(old, ['a', 'b', 'c']), [
+    { kind: 'keep', line: old[0] },
+    { kind: 'keep', line: old[1] },
+    { kind: 'add', text: 'c' },
+  ]);
+});
+
+test('alignLines: 純削除は残存行と削除行を対応付ける', () => {
+  const old = mk('a', 'b', 'c');
+  assert.deepEqual(alignLines(old, ['a', 'c']), [
+    { kind: 'keep', line: old[0] },
+    { kind: 'del', line: old[1] },
+    { kind: 'keep', line: old[2] },
+  ]);
+});
+
+test('alignLines: 編集と追加が混在しても LCS に沿って対応付ける', () => {
+  const old = mk('remove', 'keep', 'tail');
+  assert.deepEqual(alignLines(old, ['keep', 'changed', 'added', 'tail']), [
+    { kind: 'del', line: old[0] },
+    { kind: 'keep', line: old[1] },
+    { kind: 'add', text: 'changed' },
+    { kind: 'add', text: 'added' },
+    { kind: 'keep', line: old[2] },
+  ]);
+});
 
 test('変更なしなら空の ops', () => {
   assert.deepEqual(diffLines(mk('a', 'b'), ['a', 'b'], idgen()), []);
