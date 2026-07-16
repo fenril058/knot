@@ -20,6 +20,12 @@ test('拡張子とホストで分類する', () => {
   assert.equal(classifyUrl('/files/abc/pic.webp'), 'image');
 });
 
+test('Cosense 慣習の #.png フラグメントは画像として分類する', () => {
+  assert.equal(classifyUrl('https://lh3.googleusercontent.com/a/ACg8oc=s96-c#.png'), 'image');
+  assert.equal(classifyUrl('https://example.com/stream#.mp4'), 'video');
+  assert.equal(classifyUrl('https://example.com/page#section'), 'other');
+});
+
 test('http/https 以外のスキームは other', () => {
   assert.equal(classifyUrl('javascript:alert(1)'), 'other');
   assert.equal(classifyUrl('data:image/png;base64,xxxx'), 'other');

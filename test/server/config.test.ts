@@ -21,7 +21,7 @@ test('config.json が既定値にマージされる', () => {
   assert.equal(config.secureCookie, false);
   assert.deepEqual(config.allowedFrameHosts, ['www.youtube.com']);
   assert.equal(config.maxUploadBytes, 1024);
-  assert.deepEqual(config.allowedImageHosts, ['i.gyazo.com', 'gyazo.com']); // 未指定は既定のまま
+  assert.deepEqual(config.allowedImageHosts, ['i.gyazo.com', 'gyazo.com', 'scrapbox.io']); // 未指定は既定のまま
 });
 
 test('未知キーはエラー', () => {

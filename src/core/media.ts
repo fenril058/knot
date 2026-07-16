@@ -14,9 +14,10 @@ export function classifyUrl(url: string): MediaKind {
   }
   if (u.protocol !== 'http:' && u.protocol !== 'https:') return 'other';
   if (IMAGE_HOSTS.has(u.hostname)) return 'image';
-  if (IMAGE_EXT.test(u.pathname)) return 'image';
-  if (VIDEO_EXT.test(u.pathname)) return 'video';
-  if (AUDIO_EXT.test(u.pathname)) return 'audio';
+  // Cosense 慣習: 拡張子のない URL に #.png 等を付けてメディア種別を宣言する
+  if (IMAGE_EXT.test(u.pathname) || IMAGE_EXT.test(u.hash)) return 'image';
+  if (VIDEO_EXT.test(u.pathname) || VIDEO_EXT.test(u.hash)) return 'video';
+  if (AUDIO_EXT.test(u.pathname) || AUDIO_EXT.test(u.hash)) return 'audio';
   return 'other';
 }
 

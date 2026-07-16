@@ -14,7 +14,7 @@ export type ServerConfig = {
 export function defaultConfig(dataDir: string): ServerConfig {
   return {
     dataDir,
-    allowedImageHosts: ['i.gyazo.com', 'gyazo.com'],
+    allowedImageHosts: ['i.gyazo.com', 'gyazo.com', 'scrapbox.io'],
     allowedMediaHosts: [],
     allowedFrameHosts: [],
     maxUploadBytes: 10 * 1024 * 1024,

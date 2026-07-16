@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { loginAs, makeServer } from '../helpers/server.ts';
 import { seedPage } from '../helpers/pages.ts';
 
-const BASE_CSP = "default-src 'self'; img-src 'self' i.gyazo.com gyazo.com; media-src 'self'; frame-src 'none'";
+const BASE_CSP = "default-src 'self'; img-src 'self' i.gyazo.com gyazo.com scrapbox.io; media-src 'self'; frame-src 'none'";
 
 function dataAttribute(body: string, name: string): string {
   const match = body.match(new RegExp(`data-${name}="([^"]*)"`));

@@ -56,6 +56,18 @@ Cosense のエクスポート JSON がある場合は、curl の代わりに `kn
 
 あとは http://127.0.0.1:3000/notes を開くと、一覧の「新規作成」ボタンや `/notes/<タイトル>/edit` への直接アクセスでページを書ける。
 
+## 外部画像の許可ホスト
+
+外部ホストの画像はセキュリティ上 allowlist を通ったものだけ `<img>` 表示する（それ以外はリンクのまま）。
+既定は `i.gyazo.com` / `gyazo.com` / `scrapbox.io`（Cosense の添付ファイル）。
+追加するにはデータディレクトリの `config.json` に書く（ワイルドカードはサブドメインにだけ一致）。
+
+```json
+{ "allowedImageHosts": ["i.gyazo.com", "gyazo.com", "scrapbox.io", "lh3.googleusercontent.com"] }
+```
+
+サイト内にアップロードした添付（`/files/…`）は allowlist に関係なく表示される。
+
 ## E2E テスト（Playwright）
 
 初回のみブラウザバイナリを導入する（flake.nix が `PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"` を設定済み）。

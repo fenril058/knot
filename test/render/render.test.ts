@@ -177,6 +177,14 @@ test('/files/ 以外のルートパスは従来どおり平文のまま', () => 
   assert.doesNotMatch(out, /<img|<a /);
 });
 
+test('許可ホストの #.png フラグメント付きURLも img にする', () => {
+  const config = { allowedImageHosts: ['lh3.googleusercontent.com'], allowedMediaHosts: [] };
+  assert.match(
+    renderOne('https://lh3.googleusercontent.com/a/xyz=s96-c#.png', [], config),
+    /<img src="https:\/\/lh3\.googleusercontent\.com\/a\/xyz=s96-c#\.png"/,
+  );
+});
+
 test('画像URL(拡張子)は img、Gyazoホストも img', () => {
   assert.match(renderOne('https://i.gyazo.com/abc.png'), /<img src="https:\/\/i\.gyazo\.com\/abc\.png"/);
   assert.match(renderOne('https://example.com/a.png'), /<img src="https:\/\/example\.com\/a\.png"/);
