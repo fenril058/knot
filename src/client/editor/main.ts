@@ -163,14 +163,32 @@ async function executeEffects(effects: readonly SyncEffect[], keepalive = false)
 
 type Recovery = { engine: SyncEngine; effects: SyncEffect[]; texts: string[] };
 
+// 起動時再送がサーバに拒否されたとき、失われる内容をエディタに見せるための持ち越し。
+let rejectedPendingTexts: string[] | null = null;
+
+function expectedTexts(record: PendingRecord): string[] {
+  return applyOps(record.baseLines, record.ops, {
+    userId: userName,
+    now: unixTime(),
+    version: record.baseVersion + 1,
+  }).map(({ text }) => text);
+}
+
 async function restorePending(record: PendingRecord): Promise<Recovery | null> {
   const result = await postCommit(project, record.title, {
     commitId: record.commitId,
     baseVersion: record.baseVersion,
     ops: record.ops,
   });
-  if (result.kind === 'ok' || result.kind === 'bad') {
+  if (result.kind === 'ok') {
     localStorage.removeItem(storageKey);
+    return null;
+  }
+  if (result.kind === 'bad') {
+    // 拒否されたコミットは再送しない。ただし黙って捨てず、内容をバッファに残して警告を出す。
+    localStorage.removeItem(storageKey);
+    rejectedPendingTexts = expectedTexts(record);
+    statusMessage = `前回の未保存の編集を自動反映できませんでした: ${result.message}`;
     return null;
   }
   // 元の PendingRecord を inflight のまま復元する。network 時の再送が同じ commitId・同じ ops
@@ -183,11 +201,7 @@ async function restorePending(record: PendingRecord): Promise<Recovery | null> {
     pending: record,
     now: unixTime,
   });
-  const expected = applyOps(record.baseLines, record.ops, {
-    userId: userName,
-    now: unixTime(),
-    version: record.baseVersion + 1,
-  }).map(({ text }) => text);
+  const expected = expectedTexts(record);
   if (result.kind === 'network') {
     return { engine: restored, effects: restored.ackFailure(), texts: expected };
   }
@@ -208,6 +222,7 @@ async function start(): Promise<void> {
     now: unixTime,
   });
   const initialLines = recovery?.texts
+    ?? rejectedPendingTexts
     ?? (page === null ? [title] : page.snapshot.lines.map(({ text }) => text));
 
   view = new EditorView({

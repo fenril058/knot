@@ -45,9 +45,10 @@ async function uploadAndInsert(
     return;
   }
   // アップロード中に編集があったら開始時の位置は信用できない。
-  // 無関係のテキストを置換しないよう、現在のカーソル位置への挿入に切り替える。
+  // 何も置換しないよう、現在のカーソル位置（head）への純粋な挿入に切り替える。
   const changed = !view.state.doc.eq(startDoc);
-  const range = changed ? view.state.selection.main : { from, to };
+  const head = view.state.selection.main.head;
+  const range = changed ? { from: head, to: head } : { from, to };
   view.dispatch({ changes: { from: range.from, to: range.to, insert: `[${result.url}]` } });
 }
 
