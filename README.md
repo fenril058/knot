@@ -20,6 +20,42 @@ direnv exec . npm run watch:client  # バンドルの watch
 **`knot serve` の前に `npm run build:client` が必要**。
 `/assets/build/*.js`（エディタ・検索・ページメニュー）は gitignore された生成物で、バンドルを作らないと編集画面・検索・操作メニューが動かない。
 
+## 起動（クイックスタート）
+
+CLI は `node src/cli/main.ts` で呼ぶ（`knot <command>` と読み替える）。
+初回はデータディレクトリの初期化とユーザー作成が必要。
+
+```sh
+direnv exec . npm run build:client
+
+# 1. データディレクトリを初期化（./data は gitignore 済み）
+direnv exec . node src/cli/main.ts init --data ./data
+
+# 2. ユーザーを作成（パスワードは標準入力から読む）
+echo -n 'パスワード' | direnv exec . node src/cli/main.ts user add --data ./data --name ril
+
+# 3. サーバ起動（既定 http://127.0.0.1:3000）
+direnv exec . node src/cli/main.ts serve --data ./data
+```
+
+ブラウザで http://127.0.0.1:3000/login からログインする。
+
+プロジェクト作成の UI はまだ無いので、初回は API で作るか import で取り込む。
+
+```sh
+# ログインしてセッション cookie を保存
+curl -c /tmp/knot-cookies -H 'Content-Type: application/json' -H 'X-Knot-Client: cli' \
+  -d '{"name":"ril","password":"パスワード"}' http://127.0.0.1:3000/api/knot/session
+
+# プロジェクト "notes" を作成
+curl -b /tmp/knot-cookies -X POST -H 'X-Knot-Client: cli' \
+  http://127.0.0.1:3000/api/knot/projects/notes
+```
+
+Cosense のエクスポート JSON がある場合は、curl の代わりに `knot import --data ./data --project notes <file.json>` でプロジェクトごと作成できる。
+
+あとは http://127.0.0.1:3000/notes を開くと、一覧の「新規作成」ボタンや `/notes/<タイトル>/edit` への直接アクセスでページを書ける。
+
 ## E2E テスト（Playwright）
 
 初回のみブラウザバイナリを導入する（flake.nix が `PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"` を設定済み）。
