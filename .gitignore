@@ -3,3 +3,5 @@ data/
 *.db
 dist/
 public/build/
+test-results/
+playwright-report/

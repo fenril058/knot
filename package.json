@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "build:client": "rolldown -c",
     "watch:client": "rolldown -c --watch",
-    "lint": "oxlint src public test"
+    "lint": "oxlint src public test e2e",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
@@ -26,6 +27,7 @@
     "hono": "^4.12.30"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/node": "^26.1.1",
     "oxlint": "^1.74.0",
     "rolldown": "^1.2.0",
