@@ -70,3 +70,17 @@ test('検索ボックスと script タグが一覧ページに含まれる', asy
   assert.match(body, /<script src="\/assets\/search\.js"[^>]*data-project="proj"/);
   assert.doesNotMatch(body, /<script>/);
 });
+
+test('カード画像は allowedImageHosts で許可したホストだけ表示する', async () => {
+  const s = await makeServer({ allowedImageHosts: ['allowed.example'] });
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'Allowed', ['https://allowed.example/a.png'], s.clock.t);
+  await seedPage(s.storage, project.id, 'Blocked', ['https://blocked.example/b.png'], s.clock.t + 1);
+
+  const res = await s.request('/proj', {}, cookie);
+  const body = await res.text();
+
+  assert.match(body, /<img class="card-image" src="https:\/\/allowed\.example\/a\.png"/);
+  assert.doesNotMatch(body, /<img class="card-image" src="https:\/\/blocked\.example\/b\.png"/);
+});

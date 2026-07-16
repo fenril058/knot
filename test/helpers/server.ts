@@ -4,6 +4,7 @@ import { SqliteStorage } from '../../src/storage/sqlite.ts';
 import type { Storage } from '../../src/storage/types.ts';
 import { createApp } from '../../src/server/app.ts';
 import { defaultConfig } from '../../src/server/config.ts';
+import type { ServerConfig } from '../../src/server/config.ts';
 import type { ApiEnv } from '../../src/server/http.ts';
 import { hashPassword } from '../../src/server/password.ts';
 import { ulid } from '../../src/core/id.ts';
@@ -17,10 +18,10 @@ export type TestServer = {
   request(path: string, init?: RequestInit, cookie?: string): Promise<Response>;
 };
 
-export async function makeServer(overrides?: { dataDir?: string }): Promise<TestServer> {
+export async function makeServer(overrides?: Partial<ServerConfig>): Promise<TestServer> {
   const storage: Storage = new SqliteStorage(openDatabase(':memory:'));
   const clock = { t: 1_700_000_000, now: (): number => clock.t };
-  const config = { ...defaultConfig(overrides?.dataDir ?? '/nonexistent'), secureCookie: false };
+  const config = { ...defaultConfig(overrides?.dataDir ?? '/nonexistent'), secureCookie: false, ...overrides };
   const app = createApp({ storage, config, now: clock.now });
 
   const addUser = async (name: string, password: string, isAdmin = false): Promise<string> => {

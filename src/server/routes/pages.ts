@@ -29,7 +29,7 @@ export function registerPageRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
       sort: 'updated',
       pinnedFirst: true,
     });
-    return c.html(pageListPage(project, result, skip, limit));
+    return c.html(pageListPage(project, result, skip, limit, deps.config.allowedImageHosts));
   });
 
   app.get('/:project/:title', async (c) => {

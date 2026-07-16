@@ -1,7 +1,7 @@
 import { parse, type Node } from '@progfay/scrapbox-parser';
 import { html, raw } from 'hono/html';
 import type { HtmlEscapedString } from 'hono/utils/html';
-import { classifyUrl } from '../core/media.ts';
+import { classifyUrl, isAllowedImageUrl, isHostAllowed } from '../core/media.ts';
 import { pageHref, titleLc } from '../core/title.ts';
 
 export type KnownPage = { title: string; image: string | null };
@@ -21,16 +21,6 @@ function isHttpUrl(href: string): boolean {
 
 function hasUriScheme(href: string): boolean {
   return /^[a-z][a-z\d+.-]*:/i.test(href);
-}
-
-function isHostAllowed(hostname: string, allowedHosts: string[]): boolean {
-  const normalizedHostname = hostname.toLowerCase();
-  return allowedHosts.some((allowedHost) => {
-    const normalizedAllowedHost = allowedHost.toLowerCase();
-    if (!normalizedAllowedHost.startsWith('*.')) return normalizedHostname === normalizedAllowedHost;
-    const suffix = normalizedAllowedHost.slice(1);
-    return normalizedHostname.endsWith(suffix) && normalizedHostname !== suffix.slice(1);
-  });
 }
 
 function countIndentedBodyLines(lines: { text: string }[], headerIndex: number, headerIndent: number): number {
@@ -118,7 +108,7 @@ function makeRenderer(knownPages: Map<string, KnownPage>, projectName: string, c
         if (node.pathType !== 'relative') return html`<span class="icon-link">[${node.path}]</span>`;
         const entry = knownPages.get(titleLc(node.path));
         const href = pageHref(projectName, entry?.title ?? node.path);
-        if (entry?.image) {
+        if (entry?.image && isAllowedImageUrl(entry.image, config.allowedImageHosts)) {
           return html`<a href="${href}" class="icon-link"><img src="${entry.image}" alt="${node.path}" class="icon-img"></a>`;
         }
         return entry

@@ -232,3 +232,15 @@ test('[Name.icon] は known page に image があれば img で表示する', ()
     /<a href="\/proj\/Foo" class="icon-link"><img src="https:\/\/i\.gyazo\.com\/icon\.png" alt="Foo" class="icon-img"><\/a>/,
   );
 });
+
+test('[Name.icon] は image が許可ホスト外ならブラケット表示に戻す', () => {
+  const lines = [
+    { id: 'title', text: 'Title' },
+    { id: 'l1', text: '[Foo.icon]' },
+  ];
+  const map = new Map([['foo', { title: 'Foo', image: 'https://blocked.example/icon.png' }]]);
+  const out = renderLines(lines, map, 'proj', { allowedImageHosts: ['example.com'], allowedMediaHosts: [] });
+  const result = String(out[1]!.html);
+  assert.doesNotMatch(result, /<img/);
+  assert.match(result, /<a href="\/proj\/Foo" class="icon-link">\[Foo\]<\/a>/);
+});

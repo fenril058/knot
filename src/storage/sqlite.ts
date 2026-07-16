@@ -499,7 +499,9 @@ export class SqliteStorage implements Storage {
     this.#db
       .prepare(
         `INSERT INTO page_visits (user_id, page_id, visited, last_seen_version) VALUES (?, ?, ?, ?)
-         ON CONFLICT (user_id, page_id) DO UPDATE SET visited = excluded.visited, last_seen_version = excluded.last_seen_version`,
+         ON CONFLICT (user_id, page_id) DO UPDATE SET
+           visited = MAX(page_visits.visited, excluded.visited),
+           last_seen_version = MAX(page_visits.last_seen_version, excluded.last_seen_version)`,
       )
       .run(userId, pageId, visitedAt, lastSeenVersion);
   }

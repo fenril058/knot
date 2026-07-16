@@ -19,3 +19,22 @@ export function classifyUrl(url: string): MediaKind {
   if (AUDIO_EXT.test(u.pathname)) return 'audio';
   return 'other';
 }
+
+export function isHostAllowed(hostname: string, allowedHosts: string[]): boolean {
+  const normalizedHostname = hostname.toLowerCase();
+  return allowedHosts.some((allowedHost) => {
+    const normalizedAllowedHost = allowedHost.toLowerCase();
+    if (!normalizedAllowedHost.startsWith('*.')) return normalizedHostname === normalizedAllowedHost;
+    const suffix = normalizedAllowedHost.slice(1);
+    return normalizedHostname.endsWith(suffix) && normalizedHostname !== suffix.slice(1);
+  });
+}
+
+export function isAllowedImageUrl(url: string, allowedHosts: string[]): boolean {
+  try {
+    const parsed = new URL(url);
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && isHostAllowed(parsed.hostname, allowedHosts);
+  } catch {
+    return false;
+  }
+}

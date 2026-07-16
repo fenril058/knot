@@ -1,5 +1,9 @@
 # knot plan-04 (web-read) Implementation Plan
 
+> **完了済みの履歴資料です。**
+> 本文中のチェックリストとコード断片を、新規実装の手順として実行してはいけません。
+> 実装後に判明した訂正と最終判断は、文末の [Errata](#errata実装後レビューによる追記2026-07-16) を参照してください。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
 > **Save location:** this plan should be committed to `docs/superpowers/plans/2026-07-15-knot-04-web-read.md` before execution (writing-plans convention for this repo).
@@ -1376,6 +1380,8 @@ EOF
 | GET でのページ閲覧が無条件に `recordVisit` し、SameSite=Lax 下のクロスサイト遷移・プリフェッチでも既読化される | Task 9 の設計（決定: GET のまま `Sec-Fetch-Site: cross-site` / `Sec-Purpose: prefetch` をスキップするガードを追加） | `39559f2` |
 | ページ閲覧ごとに `listPageTitles`（links の N+1 サブクエリ）を呼び links を捨てる | Task 9 スニペットが knownPages の構築に `listPageTitles` を指定 | `39559f2` |
 | `lineRow` の O(行数²) `find`、views の `as unknown as HtmlEscapedString` 二重キャスト、URL 組み立ての5箇所コピペ | Task 7-9 の各スニペット | `e555613` |
+| 並行するページ閲覧の完了順によって `page_visits` が古い版へ巻き戻る | Task 1 の upsert が既存値を無条件に上書きしていた | レビュー追補で `visited` と `last_seen_version` を単調増加に修正 |
+| CSP 許可ホストとの照合が本文画像にしか適用されず、アイコン画像と一覧カード画像が壊れる | Task 2・Task 8 の画像表示と Task 3 の許可ホスト判定が分離していた | レビュー追補で共通の許可ホスト判定を全画像経路に適用 |
 
 ### 実装が計画から自力で救済していた点（記録）
 
