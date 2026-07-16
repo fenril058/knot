@@ -186,7 +186,8 @@ async function restorePending(record: PendingRecord): Promise<Recovery | null> {
   }
   if (result.kind === 'bad') {
     // 拒否されたコミットは再送しない。ただし黙って捨てず、内容をバッファに残して警告を出す。
-    localStorage.removeItem(storageKey);
+    // record の削除はエディタが起動して内容が画面に載った後まで遅延する
+    // （この後の fetchPage が失敗した場合、リロードで再びこの経路に入れるように）。
     rejectedPendingTexts = expectedTexts(record);
     statusMessage = `前回の未保存の編集を自動反映できませんでした: ${result.message}`;
     return null;
@@ -256,6 +257,8 @@ async function start(): Promise<void> {
     ],
   });
   renderStatus();
+  // 拒否された pending の内容が画面に載ったので、ここで初めて record を消してよい。
+  if (rejectedPendingTexts !== null) localStorage.removeItem(storageKey);
   if (recovery !== null) await executeEffects(recovery.effects);
   window.addEventListener('pagehide', flushOnExit);
   document.addEventListener('visibilitychange', handleVisibilityChange);
