@@ -67,7 +67,8 @@ test('検索ボックスと script タグが一覧ページに含まれる', asy
   const res = await s.request('/proj', {}, cookie);
   const body = await res.text();
   assert.match(body, /id="search-box"/);
-  assert.match(body, /<script src="\/assets\/search\.js"[^>]*data-project="proj"/);
+  assert.match(body, /id="search-root"[^>]*data-project="proj"/);
+  assert.match(body, /<script type="module" src="\/assets\/build\/search\.js"><\/script>/);
   assert.doesNotMatch(body, /<script>/);
 });
 

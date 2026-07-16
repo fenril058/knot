@@ -25,12 +25,14 @@ export function pageListPage(
   const nextSkip = skip + limit;
   return layout(project.displayName, html`
 <h1>${project.displayName}</h1>
+<div id="search-root" data-project="${project.name}">
 <input id="search-box" type="search" placeholder="検索">
 <div id="search-results" hidden></div>
+</div>
 <div class="card-grid">${result.pages.map((page) => card(project, page, allowedImageHosts))}</div>
 ${nextSkip < result.count
     ? html`<a href="/${encodeURIComponent(project.name)}?skip=${nextSkip}&limit=${limit}">もっと見る</a>`
     : ''}
-<script src="/assets/search.js" defer data-project="${project.name}"></script>`,
+<script type="module" src="/assets/build/search.js"></script>`,
   );
 }
