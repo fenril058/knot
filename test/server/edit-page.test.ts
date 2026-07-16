@@ -28,6 +28,7 @@ test('既存ページの edit はエディタ用 data 属性と nonce 付き CSP
   const nonce = dataAttribute(body, 'csp-nonce');
   assert.match(nonce, /^[A-Za-z0-9+/]{22}==$/);
   assert.equal(res.headers.get('content-security-policy'), `${BASE_CSP}; style-src 'self' 'nonce-${nonce}'`);
+  assert.match(body, /<nav class="page-nav"><a href="\/proj">proj<\/a><\/nav>/);
   assert.match(body, /<div id="save-status"/);
   assert.match(body, /<script type="module" src="\/assets\/build\/editor\.js"><\/script>/);
 });

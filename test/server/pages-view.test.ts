@@ -17,6 +17,7 @@ test('GET /:project/:title: レンダリング結果・赤リンク・テロメ�
   assert.match(body, /class="telomere/);
   assert.match(body, /Beta/);
   assert.match(body, /href="\/proj\/Alpha\/edit"[^>]*>編集<\/a>/);
+  assert.match(body, /<nav class="page-nav"><a href="\/proj">proj<\/a><\/nav>/);
   void alphaId;
 });
 

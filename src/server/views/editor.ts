@@ -10,6 +10,7 @@ export function editorPage(
   styleNonce: string,
 ): Html {
   return layout(title, html`
+<nav class="page-nav"><a href="/${encodeURIComponent(project.name)}">${project.displayName}</a></nav>
 <main
   id="editor-root"
   data-project="${project.name}"

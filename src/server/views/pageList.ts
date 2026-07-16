@@ -1,6 +1,7 @@
 import { html } from 'hono/html';
 import { isAllowedImageUrl } from '../../core/media.ts';
 import { pageHref } from '../../core/title.ts';
+import { plainLineText } from '../../render/plain.ts';
 import type { PageSummary, Project } from '../../storage/types.ts';
 import { layout, type Html } from './layout.ts';
 
@@ -11,7 +12,7 @@ ${page.image !== null && isAllowedImageUrl(page.image, allowedImageHosts)
     ? html`<img class="card-image" src="${page.image}" alt="">`
     : ''}
 <h3>${page.title}</h3>
-${page.descriptions.map((description) => html`<p>${description}</p>`)}
+${page.descriptions.map((description) => html`<p>${plainLineText(description)}</p>`)}
 </a>`;
 }
 

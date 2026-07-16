@@ -21,6 +21,18 @@ test('GET /:project: ピン留めが先頭、以降は更新順、カードに�
   assert.match(body, /first line/);
 });
 
+test('カードの冒頭行は記法を剥がした平文で出す', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'Page', ['[Foo Bar] と #tag を含む行'], s.clock.t);
+
+  const body = await (await s.request('/proj', {}, cookie)).text();
+
+  assert.match(body, /Foo Bar と #tag を含む行/);
+  assert.doesNotMatch(body, /\[Foo Bar\]/);
+});
+
 test('もっと見るリンク: count が limit を超えたら次ページへのリンクが出る', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);

@@ -38,6 +38,7 @@ export function pageViewPage(
 ): Html {
   const editHref = `${pageHref(project.name, page.title)}/edit`;
   return layout(page.title, html`
+<nav class="page-nav"><a href="/${encodeURIComponent(project.name)}">${project.displayName}</a></nav>
 <h1>${page.title}</h1>
 <a href="${editHref}">編集</a>
 <div id="page-menu-root" data-project="${project.name}" data-title="${page.title}" data-version="${page.version}">
