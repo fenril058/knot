@@ -7,7 +7,7 @@ export const LINE_ID_RE = /^([0-9a-f]{24}|[0-9A-HJKMNP-TV-Z]{26})$/;
 export type LinkTarget = { title: string; titleLc: string };
 export type PageRefs = { linkTargets: LinkTarget[]; image: string | null };
 
-const HASHTAG_UNSAFE_RE = /[\s\[\]#`]/;
+const HASHTAG_UNSAFE_RE = /[\s[\]#`]/;
 
 function stripLineId(href: string): string {
   const i = href.lastIndexOf('#');

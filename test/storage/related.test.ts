@@ -12,7 +12,7 @@ test('getRelatedPages: 1-hop は前方リンク先と逆リンク元', async () 
   await seedPage(storage, project.id, 'Fwd', ['content'], now + 1);
   await seedPage(storage, project.id, 'Back', ['see [Home]'], now + 2);
   const rel = await storage.getRelatedPages(project.id, homeId, 'home');
-  const oneHop = rel.links1hop.map((p) => p.title).sort();
+  const oneHop = rel.links1hop.map((p) => p.title).toSorted();
   assert.deepEqual(oneHop, ['Back', 'Fwd']); // 赤リンク 'Red Link' はページが無いので含まれない
   assert.equal(rel.hasBackLinks, true);
 });
@@ -56,7 +56,7 @@ test('listPageTitles: 原文タイトルのリンクを返す', async () => {
   assert.equal(titles.length, 1);
   assert.equal(titles[0].title, 'Page One');
   assert.equal(titles[0].hasIcon, true); // image がある
-  assert.deepEqual(titles[0].links.sort(), ['Foo Bar', 'tag']);
+  assert.deepEqual(titles[0].links.toSorted(), ['Foo Bar', 'tag']);
 });
 
 test('listPageTitles: image は pages.image をそのまま返す', async () => {

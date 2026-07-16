@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "target": "es2023",
+    "lib": ["es2023", "dom", "dom.iterable"],
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "strict": true,
@@ -10,5 +11,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts", "rolldown.config.ts"]
 }

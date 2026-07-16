@@ -4,7 +4,7 @@ import { extractRefs } from '../../src/core/links.ts';
 
 test('ブラケットリンクとハッシュタグを title_lc で集める', () => {
   const { linkTargets } = extractRefs('タイトル\n[Foo Bar] と #tag と [foo_bar]');
-  assert.deepEqual(linkTargets.map((t) => t.titleLc).sort(), ['foo_bar', 'tag']);
+  assert.deepEqual(linkTargets.map((t) => t.titleLc).toSorted(), ['foo_bar', 'tag']);
 });
 
 test('装飾の入れ子の中のリンクも拾う', () => {

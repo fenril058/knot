@@ -12,6 +12,9 @@ const loadFixture = () => JSON.parse(readFileSync(FIXTURE_URL, 'utf8')) as unkno
 
 type ObjectLine = Exclude<CosenseLine, string>;
 
+const byTitle = <T extends { title: string }>(pages: readonly T[]): T[] =>
+  pages.toSorted((a, b) => a.title.localeCompare(b.title));
+
 test('round-trip: インポート → エクスポートで意味が保存される', async () => {
   const { storage } = makeStorage();
   const data = loadFixture();
@@ -55,7 +58,6 @@ test('export → import → export が安定する', async () => {
   const out2 = await exportCosense(second.storage, 'sandbox', 'full', 1760000001);
   await second.storage.close();
 
-  const byTitle = (pages: typeof out1.pages) => [...pages].sort((a, b) => a.title.localeCompare(b.title));
   assert.deepEqual(byTitle(out2.pages), byTitle(out1.pages));
 });
 
@@ -125,7 +127,7 @@ test('行を持たないが commits に残るユーザーも export の users �
     now,
   });
   const exp = await exportCosense(storage, 'proj', 'full', now);
-  const names = (exp.users ?? []).map((u) => u.name).sort();
+  const names = (exp.users ?? []).map((u) => u.name).toSorted();
   assert.deepEqual(names, ['u1', 'u2']);
   await storage.close();
 });

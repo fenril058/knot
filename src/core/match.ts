@@ -79,7 +79,7 @@ export function rankTitles<T>(
       return { item, index, text, score: fuzzyScore(normalizedQuery, text) };
     })
     .filter((entry): entry is typeof entry & { score: number } => entry.score !== null)
-    .sort((a, b) => {
+    .toSorted((a, b) => {
       if (a.score !== b.score) return b.score - a.score;
       if (a.text < b.text) return -1;
       if (a.text > b.text) return 1;

@@ -23,6 +23,20 @@ function summaryToJson(p: PageSummary) {
   };
 }
 
+function relatedToJson(p: RelatedPage) {
+  return {
+    id: p.id,
+    title: p.title,
+    titleLc: p.titleLc,
+    image: p.image,
+    descriptions: p.descriptions,
+    linksLc: p.linksLc,
+    linked: p.linked,
+    updated: p.updated,
+    accessed: p.updated,
+  };
+}
+
 export function registerReadRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
   const { storage } = deps;
 
@@ -121,17 +135,6 @@ export function registerReadRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
       .filter((l) => l.text !== '')
       .slice(0, 5)
       .map((l) => l.text);
-    const relatedToJson = (p: RelatedPage) => ({
-      id: p.id,
-      title: p.title,
-      titleLc: p.titleLc,
-      image: p.image,
-      descriptions: p.descriptions,
-      linksLc: p.linksLc,
-      linked: p.linked,
-      updated: p.updated,
-      accessed: p.updated,
-    });
     return c.json({
       id: page.id,
       title: page.title,

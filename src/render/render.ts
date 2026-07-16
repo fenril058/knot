@@ -33,12 +33,12 @@ function countIndentedBodyLines(lines: { text: string }[], headerIndex: number, 
   return count;
 }
 
-function makeRenderer(knownPages: Map<string, KnownPage>, projectName: string, config: RenderConfig) {
-  const renderExternalLink = (url: string, label: string | undefined): RenderedHtml =>
-    label === undefined
-      ? html`<a href="${url}" rel="noopener noreferrer">${url}</a>`
-      : html`<a href="${url}" rel="noopener noreferrer">${label}</a>`;
+const renderExternalLink = (url: string, label: string | undefined): RenderedHtml =>
+  label === undefined
+    ? html`<a href="${url}" rel="noopener noreferrer">${url}</a>`
+    : html`<a href="${url}" rel="noopener noreferrer">${label}</a>`;
 
+function makeRenderer(knownPages: Map<string, KnownPage>, projectName: string, config: RenderConfig) {
   const renderMedia = (url: string, label: string | undefined): RenderedHtml => {
     if (!isHttpUrl(url)) return label === undefined ? html`${url}` : html`${label} (${url})`;
 

@@ -32,8 +32,9 @@ export function publicDirectory(): string {
   return fileURLToPath(new URL('../../public/', import.meta.url));
 }
 
+const hosts = (list: string[]): string => (list.length === 0 ? '' : ` ${list.join(' ')}`);
+
 function cspValue(config: ServerConfig): string {
-  const hosts = (list: string[]): string => (list.length === 0 ? '' : ` ${list.join(' ')}`);
   const frame = config.allowedFrameHosts.length === 0 ? "'none'" : config.allowedFrameHosts.join(' ');
   return [
     "default-src 'self'",
@@ -81,8 +82,8 @@ export function createApp(deps: AppDeps): Hono<ApiEnv> {
     if (session === null) {
       if (requestClass === 'api') return jsonError(c, 401, 'unauthorized');
       const requestUrl = new URL(c.req.url);
-      const next = `${requestUrl.pathname}${requestUrl.search}`;
-      return c.redirect(`/login?next=${encodeURIComponent(next)}`, 302);
+      const nextPath = `${requestUrl.pathname}${requestUrl.search}`;
+      return c.redirect(`/login?next=${encodeURIComponent(nextPath)}`, 302);
     }
     if (session.expires - now() < config.sessionTtlSeconds - REFRESH_MARGIN_SECONDS) {
       await storage.refreshSession(session.id, now() + config.sessionTtlSeconds);
