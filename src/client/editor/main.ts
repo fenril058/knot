@@ -3,6 +3,8 @@ import { keymap, EditorView } from '@codemirror/view';
 import { applyOps } from '../../core/apply.ts';
 import { titleLc, pageHref } from '../../core/title.ts';
 import { fetchPage, postCommit } from './api.ts';
+import { syntaxHighlighting } from './cm/decorations.ts';
+import { refreshTelomereGutter, telomereGutter } from './cm/telomere.ts';
 import {
   parsePendingRecord,
   serializePendingRecord,
@@ -29,6 +31,11 @@ const project = data.project;
 const title = data.title;
 const userName = data.userName;
 const cspNonce = data.cspNonce;
+const lastSeenVersion = Number(data.lastSeenVersion ?? 0);
+
+function unixTime(): number {
+  return Math.floor(Date.now() / 1000);
+}
 
 function pendingKey(value: string): string {
   return `knot:pending:${project}/${titleLc(value)}`;
@@ -76,6 +83,10 @@ function syncDocument(lines: readonly string[]): void {
   suppressChanges = false;
 }
 
+function refreshGutter(): void {
+  view.dispatch({ effects: refreshTelomereGutter.of(undefined) });
+}
+
 function textsAfterConflict(
   page: { version: number; lines: Snapshot['lines'] },
   effects: readonly SyncEffect[],
@@ -84,7 +95,7 @@ function textsAfterConflict(
   if (send === undefined) return page.lines.map(({ text }) => text);
   return applyOps(page.lines, send.commit.ops, {
     userId: userName,
-    now: Date.now(),
+    now: unixTime(),
     version: page.version + 1,
   }).map(({ text }) => text);
 }
@@ -122,12 +133,14 @@ async function executeEffects(effects: readonly SyncEffect[], keepalive = false)
     const previousTitle = engine.currentTitle;
     if (result.kind === 'ok') {
       await executeEffects(engine.ackSuccess(result.version), keepalive);
+      refreshGutter();
       moveTitleIfNeeded(previousTitle);
       statusMessage = undefined;
     } else if (result.kind === 'conflict') {
       const nextEffects = engine.ackConflict(result.page);
       syncDocument(textsAfterConflict(result.page, nextEffects));
       await executeEffects(nextEffects, keepalive);
+      refreshGutter();
       moveTitleIfNeeded(previousTitle);
       statusMessage = undefined;
     } else if (result.kind === 'network') {
@@ -165,10 +178,11 @@ async function restorePending(record: PendingRecord): Promise<Recovery | null> {
     userId: userName,
     isNew: record.baseVersion === 0,
     pending: record,
+    now: unixTime,
   });
   const expected = applyOps(record.baseLines, record.ops, {
     userId: userName,
-    now: Date.now(),
+    now: unixTime(),
     version: record.baseVersion + 1,
   }).map(({ text }) => text);
   if (result.kind === 'network') {
@@ -188,6 +202,7 @@ async function start(): Promise<void> {
     title: page?.title ?? title,
     userId: userName,
     isNew: page === null,
+    now: unixTime,
   });
   const initialLines = recovery?.texts
     ?? (page === null ? [title] : page.snapshot.lines.map(({ text }) => text));
@@ -199,6 +214,13 @@ async function start(): Promise<void> {
       EditorView.cspNonce.of(cspNonce),
       historyExtension(),
       keymap.of([...defaultKeymap, ...historyKeymap]),
+      syntaxHighlighting,
+      telomereGutter({
+        confirmedLines: () => engine.confirmedLines,
+        userId: userName,
+        lastSeenVersion,
+        now: unixTime,
+      }),
       EditorView.updateListener.of((update) => {
         if (!update.docChanged || suppressChanges || stopped) return;
         statusMessage = undefined;

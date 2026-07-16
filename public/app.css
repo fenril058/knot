@@ -22,3 +22,17 @@ a { color: #2c6ea3; }
 #editor-root .cm-focused { outline: 2px solid #2c6ea3; outline-offset: 2px; }
 #save-status { min-height: 1.5em; margin-bottom: 0.5rem; color: #555; text-align: right; }
 #save-status[data-status="error"] { color: #c0392b; }
+
+#editor-root .cm-telomere-gutter .cm-gutterElement { display: flex; align-items: stretch; }
+#editor-root .cm-telomere-gutter .telomere { display: block; min-height: 1.4em; margin-right: 0; }
+.cm-sb-title { font-size: 1.25em; font-weight: 700; }
+.cm-sb-indent { color: #aaa; }
+.cm-sb-link, .cm-sb-hashtag { color: #2c6ea3; }
+.cm-sb-external-link, .cm-sb-url { color: #287c3c; }
+.cm-sb-icon { color: #8e44ad; }
+.cm-sb-strong { font-weight: 700; }
+.cm-sb-italic { font-style: italic; }
+.cm-sb-strike { text-decoration: line-through; }
+.cm-sb-code-inline, .cm-sb-code-block, .cm-sb-formula { font-family: monospace; }
+.cm-sb-code-block { background: #f5f5f5; }
+.cm-sb-quote { color: #666; }
