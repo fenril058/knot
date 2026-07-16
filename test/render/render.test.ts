@@ -2,12 +2,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { renderLines } from '../../src/render/render.ts';
 
-const cfg = { allowedFrameHosts: [] };
+const cfg = {
+  allowedImageHosts: ['example.com', 'i.gyazo.com', 'gyazo.com'],
+  allowedMediaHosts: ['example.com'],
+};
 
-function renderOne(text: string, known: [string, string][] = []): string {
+function renderOne(text: string, known: [string, string][] = [], config = cfg): string {
   const lines = [{ id: 'title', text: 'Title' }, { id: 'l1', text }];
   const map = new Map(known.map(([lc, title]) => [lc, { title, image: null }]));
-  const out = renderLines(lines, map, 'proj', cfg);
+  const out = renderLines(lines, map, 'proj', config);
   return String(out[1]!.html);
 }
 
@@ -56,6 +59,12 @@ test('画像リンクの alt にイベントハンドラを注入しようとし
   assert.doesNotMatch(html, /onerror=/);
 });
 
+test('引用画像デコレーションに相対リンクを混在させない', () => {
+  const output = renderOne('[" https://example.com/a.png [relative.png]]');
+  assert.match(output, /<span><img src="https:\/\/example\.com\/a\.png"/);
+  assert.doesNotMatch(output, /relative\.png/);
+});
+
 test('コードブロックは複数物理行を 1 ブロックとして消費し、各物理行に対応する html を生成する', () => {
   const lines = [
     { id: 'title', text: 'Title' },
@@ -70,6 +79,62 @@ test('コードブロックは複数物理行を 1 ブロックとして消費�
   assert.deepEqual(out.map((o) => o.lineId), ['title', 'l1', 'l2', 'l3', 'l4']);
 });
 
+test('コードブロックのヘッダ直後が非インデント行なら本体0行として扱う', () => {
+  const lines = [
+    { id: 'title', text: 'Title' },
+    { id: 'l1', text: 'code:a.js' },
+    { id: 'l2', text: 'after' },
+  ];
+  const out = renderLines(lines, new Map(), 'proj', cfg);
+  assert.deepEqual(out.map((line) => line.lineId), ['title', 'l1', 'l2']);
+  assert.match(String(out[1]!.html), /class="code-header"/);
+  assert.equal(String(out[2]!.html), '<div>after</div>');
+});
+
+test('コードブロックの空白のみの本体1行も物理行と対応させる', () => {
+  const lines = [
+    { id: 'title', text: 'Title' },
+    { id: 'l1', text: 'code:a.js' },
+    { id: 'l2', text: ' ' },
+    { id: 'l3', text: 'after' },
+  ];
+  const out = renderLines(lines, new Map(), 'proj', cfg);
+  assert.deepEqual(out.map((line) => line.lineId), ['title', 'l1', 'l2', 'l3']);
+  assert.equal(String(out[1]!.html), '<div class="code-header">a.js</div>');
+  assert.equal(String(out[2]!.html), '<div class="code-line"></div>');
+  assert.equal(String(out[3]!.html), '<div>after</div>');
+});
+
+test('コードブロックの複数の空白行をそれぞれ物理行と対応させる', () => {
+  const lines = [
+    { id: 'title', text: 'Title' },
+    { id: 'l1', text: 'code:a.js' },
+    { id: 'l2', text: ' ' },
+    { id: 'l3', text: '  ' },
+    { id: 'l4', text: ' value' },
+    { id: 'l5', text: 'after' },
+  ];
+  const out = renderLines(lines, new Map(), 'proj', cfg);
+  assert.deepEqual(out.map((line) => line.lineId), ['title', 'l1', 'l2', 'l3', 'l4', 'l5']);
+  assert.equal(String(out[2]!.html), '<div class="code-line"></div>');
+  assert.equal(String(out[3]!.html), '<div class="code-line"> </div>');
+  assert.equal(String(out[4]!.html), '<div class="code-line">value</div>');
+  assert.equal(String(out[5]!.html), '<div>after</div>');
+});
+
+test('インデント付きコードブロックはヘッダより深い行だけを消費する', () => {
+  const lines = [
+    { id: 'title', text: 'Title' },
+    { id: 'l1', text: '\u3000code:a.js' },
+    { id: 'l2', text: '\u3000\u3000value' },
+    { id: 'l3', text: '\u3000after' },
+  ];
+  const out = renderLines(lines, new Map(), 'proj', cfg);
+  assert.deepEqual(out.map((line) => line.lineId), ['title', 'l1', 'l2', 'l3']);
+  assert.equal(String(out[2]!.html), '<div class="code-line">value</div>');
+  assert.equal(String(out[3]!.html), '<div>after</div>');
+});
+
 test('テーブルも複数物理行を 1 ブロックとして消費する', () => {
   const lines = [
     { id: 'title', text: 'Title' },
@@ -82,9 +147,40 @@ test('テーブルも複数物理行を 1 ブロックとして消費する', ()
   assert.match(String(out[2]!.html), /<table>/);
 });
 
+test('テーブルの空白のみの本体行も物理行と対応させる', () => {
+  const lines = [
+    { id: 'title', text: 'Title' },
+    { id: 'l1', text: 'table:t' },
+    { id: 'l2', text: ' ' },
+    { id: 'l3', text: 'after' },
+  ];
+  const out = renderLines(lines, new Map(), 'proj', cfg);
+  assert.deepEqual(out.map((line) => line.lineId), ['title', 'l1', 'l2', 'l3']);
+  assert.match(String(out[2]!.html), /class="table-row"/);
+  assert.equal(String(out[3]!.html), '<div>after</div>');
+});
+
 test('画像URL(拡張子)は img、Gyazoホストも img', () => {
   assert.match(renderOne('https://i.gyazo.com/abc.png'), /<img src="https:\/\/i\.gyazo\.com\/abc\.png"/);
   assert.match(renderOne('https://example.com/a.png'), /<img src="https:\/\/example\.com\/a\.png"/);
+});
+
+test('許可されていないホストの画像URLは通常リンクにする', () => {
+  const output = renderOne('https://blocked.example/a.png', [], {
+    allowedImageHosts: ['example.com'],
+    allowedMediaHosts: [],
+  });
+  assert.doesNotMatch(output, /<img/);
+  assert.match(
+    output,
+    /<a href="https:\/\/blocked\.example\/a\.png" rel="noopener noreferrer">https:\/\/blocked\.example\/a\.png<\/a>/,
+  );
+});
+
+test('allowedImageHosts のワイルドカードはサブドメインにだけ一致する', () => {
+  const config = { allowedImageHosts: ['*.example.com'], allowedMediaHosts: [] };
+  assert.match(renderOne('https://cdn.assets.example.com/a.png', [], config), /<img /);
+  assert.doesNotMatch(renderOne('https://example.com/a.png', [], config), /<img /);
 });
 
 test('動画URLは video controls、音声は audio controls', () => {
@@ -96,6 +192,16 @@ test('動画URLは video controls、音声は audio controls', () => {
     renderOne('https://example.com/a.mp3'),
     /<audio controls><source src="https:\/\/example\.com\/a\.mp3"><\/audio>/,
   );
+});
+
+test('動画と音声は allowedMediaHosts で許可したホストだけ埋め込む', () => {
+  const blockedConfig = { allowedImageHosts: [], allowedMediaHosts: [] };
+  assert.doesNotMatch(renderOne('https://media.example.com/a.mp4', [], blockedConfig), /<video/);
+  assert.doesNotMatch(renderOne('https://media.example.com/a.mp3', [], blockedConfig), /<audio/);
+
+  const allowedConfig = { allowedImageHosts: [], allowedMediaHosts: ['media.example.com'] };
+  assert.match(renderOne('https://media.example.com/a.mp4', [], allowedConfig), /<video controls>/);
+  assert.match(renderOne('https://media.example.com/a.mp3', [], allowedConfig), /<audio controls>/);
 });
 
 test('YouTube等は既定で埋め込まず通常リンク（iframe は生成しない）', () => {

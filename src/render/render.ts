@@ -5,7 +5,7 @@ import { classifyUrl } from '../core/media.ts';
 import { encodeTitleForUrl, titleLc } from '../core/title.ts';
 
 export type KnownPage = { title: string; image: string | null };
-export type RenderConfig = { allowedFrameHosts: string[] };
+export type RenderConfig = { allowedImageHosts: string[]; allowedMediaHosts: string[] };
 export type RenderedLine = { lineId: string; html: HtmlEscapedString | Promise<HtmlEscapedString> };
 
 type RenderedHtml = HtmlEscapedString | Promise<HtmlEscapedString>;
@@ -27,21 +27,48 @@ function pageHref(projectName: string, title: string): string {
   return `/${encodeURIComponent(projectName)}/${encodeTitleForUrl(title)}`;
 }
 
-function makeRenderer(knownPages: Map<string, KnownPage>, projectName: string) {
+function isHostAllowed(hostname: string, allowedHosts: string[]): boolean {
+  const normalizedHostname = hostname.toLowerCase();
+  return allowedHosts.some((allowedHost) => {
+    const normalizedAllowedHost = allowedHost.toLowerCase();
+    if (!normalizedAllowedHost.startsWith('*.')) return normalizedHostname === normalizedAllowedHost;
+    const suffix = normalizedAllowedHost.slice(1);
+    return normalizedHostname.endsWith(suffix) && normalizedHostname !== suffix.slice(1);
+  });
+}
+
+function countIndentedBodyLines(lines: { text: string }[], headerIndex: number, headerIndent: number): number {
+  let count = 0;
+  for (let lineIndex = headerIndex + 1; lineIndex < lines.length; lineIndex += 1) {
+    const indent = /^\s+/.exec(lines[lineIndex]!.text)?.[0].length ?? 0;
+    if (indent <= headerIndent) break;
+    count += 1;
+  }
+  return count;
+}
+
+function makeRenderer(knownPages: Map<string, KnownPage>, projectName: string, config: RenderConfig) {
+  const renderExternalLink = (url: string, label: string | undefined): RenderedHtml =>
+    label === undefined
+      ? html`<a href="${url}" rel="noopener noreferrer">${url}</a>`
+      : html`<a href="${url}" rel="noopener noreferrer">${label}</a>`;
+
   const renderMedia = (url: string, label: string | undefined): RenderedHtml => {
     if (!isHttpUrl(url)) return label === undefined ? html`${url}` : html`${label} (${url})`;
 
+    const hostname = new URL(url).hostname;
     switch (classifyUrl(url)) {
       case 'image':
+        if (!isHostAllowed(hostname, config.allowedImageHosts)) return renderExternalLink(url, label);
         return html`<img src="${url}" alt="" loading="lazy">`;
       case 'video':
+        if (!isHostAllowed(hostname, config.allowedMediaHosts)) return renderExternalLink(url, label);
         return html`<video controls><source src="${url}"></video>`;
       case 'audio':
+        if (!isHostAllowed(hostname, config.allowedMediaHosts)) return renderExternalLink(url, label);
         return html`<audio controls><source src="${url}"></audio>`;
       case 'other':
-        return label === undefined
-          ? html`<a href="${url}" rel="noopener noreferrer">${url}</a>`
-          : html`<a href="${url}" rel="noopener noreferrer">${label}</a>`;
+        return renderExternalLink(url, label);
     }
   };
 
@@ -68,7 +95,9 @@ function makeRenderer(knownPages: Map<string, KnownPage>, projectName: string) {
           )
         ) {
           return html`<span>${node.nodes
-            .filter((child) => child.type === 'link' && classifyUrl(child.href) === 'image')
+            .filter(
+              (child) => child.type === 'link' && child.pathType === 'absolute' && classifyUrl(child.href) === 'image',
+            )
             .map(renderNode)}</span>`;
         }
         if (node.decos.includes('/')) return html`<em>${node.nodes.map(renderNode)}</em>`;
@@ -132,9 +161,9 @@ export function renderLines(
   lines: { id: string; text: string }[],
   knownPages: Map<string, KnownPage>,
   projectName: string,
-  _config: RenderConfig,
+  config: RenderConfig,
 ): RenderedLine[] {
-  const { renderNode, renderTableCell } = makeRenderer(knownPages, projectName);
+  const { renderNode, renderTableCell } = makeRenderer(knownPages, projectName, config);
   const result: RenderedLine[] = lines.map(({ id }) => ({ lineId: id, html: raw('') }));
   const blocks = parse(lines.map(({ text }) => text).join('\n'), { hasTitle: true });
 
@@ -146,26 +175,30 @@ export function renderLines(
       result[index] = { lineId: lines[index]!.id, html: html`<div>${block.nodes.map(renderNode)}</div>` };
       index += 1;
     } else if (block.type === 'codeBlock') {
+      const bodyLineCount = countIndentedBodyLines(lines, index, block.indent);
       const contentLines = block.content === '' ? [] : block.content.split('\n');
       result[index] = { lineId: lines[index]!.id, html: html`<div class="code-header">${block.fileName}</div>` };
-      contentLines.forEach((content, offset) => {
+      Array.from({ length: bodyLineCount }, (_, offset) => contentLines[offset] ?? '').forEach((content, offset) => {
         const lineIndex = index + 1 + offset;
         result[lineIndex] = {
           lineId: lines[lineIndex]!.id,
           html: html`<div class="code-line">${content}</div>`,
         };
       });
-      index += 1 + contentLines.length;
+      index += 1 + bodyLineCount;
     } else if (block.type === 'table') {
+      const bodyLineCount = countIndentedBodyLines(lines, index, block.indent);
       result[index] = { lineId: lines[index]!.id, html: html`<div class="table-header">${block.fileName}</div>` };
-      block.cells.forEach((row, offset) => {
+      Array.from({ length: bodyLineCount }, (_, offset) => block.cells[offset] ?? []).forEach((row, offset) => {
         const lineIndex = index + 1 + offset;
         result[lineIndex] = {
           lineId: lines[lineIndex]!.id,
           html: html`<div class="table-row"><table><tr>${row.map(renderTableCell)}</tr></table></div>`,
         };
       });
-      index += 1 + block.cells.length;
+      index += 1 + bodyLineCount;
+    } else {
+      block satisfies never;
     }
   }
 

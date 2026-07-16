@@ -47,7 +47,8 @@ export function registerPageRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     const titles = await deps.storage.listPageTitles(project.id);
     const knownPages = new Map(titles.map((entry) => [titleLc(entry.title), { title: entry.title, image: entry.image }]));
     const rendered = renderLines(page.lines, knownPages, project.name, {
-      allowedFrameHosts: deps.config.allowedFrameHosts,
+      allowedImageHosts: deps.config.allowedImageHosts,
+      allowedMediaHosts: deps.config.allowedMediaHosts,
     });
     await deps.storage.recordVisit(userId, page.id, now, page.version);
     return c.html(pageViewPage(project, page, rendered, previousVisit, related));
