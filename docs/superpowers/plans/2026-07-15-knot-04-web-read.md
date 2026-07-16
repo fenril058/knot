@@ -1357,3 +1357,37 @@ EOF
 
 - 仕様カバレッジ: 画面構成（login/一覧/閲覧）、メディア埋め込み、リンクとタグ（1-hop/2-hop/赤リンク）、テロメア（新旧・既読未読・permalink・ホバー詳細）、検索UI（簡易版、ユーザー承認済み）、レンダリングのXSS安全化、エラー処理（401リダイレクト/404作成案内）を Task 1-11 でカバーした。エディタ・rename UI・添付アップロードUI は plan-05 以降のためスコープ外。
 - `setPinned` は現行コードベースにピン留め切替手段が一切ないことを確認したうえで Task 2 に新規メソッドとして追加した（未解決フラグではなく確定済みの設計）。
+
+## Errata（実装後レビューによる追記、2026-07-16）
+
+実装完了後のレビュー（8角度ファインダー + 検証）で、この計画自体に由来する欠陥が複数見つかった。
+本節はその対応表と、計画の作り方への教訓を記録する。
+実装は計画をほぼ忠実に反映していたため、以下の多くは「計画のコード断片のバグがそのまま本番コードに転写された」ものである。
+
+### 計画由来のバグと修正コミット
+
+| 欠陥 | 計画上の起源 | 修正コミット |
+| --- | --- | --- |
+| codeBlock の空白のみ本体行で以降全行の HTML/lineId がズレる | Task 3 スニペットの `block.content === '' ? [] : split('\n')`（内容0行と空白1行を区別できない） | `eabbdb7` |
+| メディア埋め込みが CSP（img-src/media-src allowlist）と突き合わされておらず、既定設定では Gyazo 以外の画像と外部 video/audio が全部ブロックされる | Global Constraints に CSP を掲げつつ照合工程がなく、`RenderConfig.allowedFrameHosts` は定義のみで未使用の死んだ配線だった | `eabbdb7` |
+| `serveStatic({ root: './public' })` が cwd 相対で、リポジトリ外から `knot serve` すると全アセット 404 | Task 6 スニペット | `39559f2` |
+| ログイン後の既定遷移先 `/` にルートがなく plain-text 404 に着地 | Task 7 の `login.js` スニペット（`next ?? '/'`）+ どのタスクも `GET /` を定義していない | `39559f2` |
+| 検索UIで古いクエリの遅い応答が新しい表示を上書きする（順序保証なし） | Task 10 の `search.js` スニペット | `b7ba6a6` |
+| GET でのページ閲覧が無条件に `recordVisit` し、SameSite=Lax 下のクロスサイト遷移・プリフェッチでも既読化される | Task 9 の設計（決定: GET のまま `Sec-Fetch-Site: cross-site` / `Sec-Purpose: prefetch` をスキップするガードを追加） | `39559f2` |
+| ページ閲覧ごとに `listPageTitles`（links の N+1 サブクエリ）を呼び links を捨てる | Task 9 スニペットが knownPages の構築に `listPageTitles` を指定 | `39559f2` |
+| `lineRow` の O(行数²) `find`、views の `as unknown as HtmlEscapedString` 二重キャスト、URL 組み立ての5箇所コピペ | Task 7-9 の各スニペット | `e555613` |
+
+### 実装が計画から自力で救済していた点（記録）
+
+- 計画の `login.js` は `next` を無検証で使うオープンリダイレクトだったが、実装がオリジン検証を追加した（`32d2806`, `d8e5c12`）。
+- 計画の `decorationTag` は `decos.includes('*')` 判定で、scrapbox-parser の実際の deco 形式（`'*-1'` 等）では太字が効かないコードだったが、実装が `startsWith('*')` に修正していた。
+
+### 既知の段階的状態
+
+- 赤リンクと 404 ページの `/edit` リンクは plan-05 でエディタが入るまで 404 になる（意図的な段階分割）。
+
+### 計画の作り方への教訓（plan-05 以降に適用）
+
+- コード断片を「そのまま反映すること」と指示するのをやめ、インターフェース + 挙動 + テスト仕様の指定に留める。
+- Global Constraints（CSP 等）と各機能の突き合わせチェックを計画の Self-Review に含める。
+- 実行前に spec-ambiguity-audit を通す。
