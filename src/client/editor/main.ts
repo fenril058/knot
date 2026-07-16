@@ -3,6 +3,7 @@ import { keymap, EditorView } from '@codemirror/view';
 import { applyOps } from '../../core/apply.ts';
 import { titleLc, pageHref } from '../../core/title.ts';
 import { fetchPage, postCommit } from './api.ts';
+import { titleAutocompletion } from './cm/complete.ts';
 import { syntaxHighlighting } from './cm/decorations.ts';
 import { refreshTelomereGutter, telomereGutter } from './cm/telomere.ts';
 import {
@@ -214,6 +215,7 @@ async function start(): Promise<void> {
       EditorView.cspNonce.of(cspNonce),
       historyExtension(),
       keymap.of([...defaultKeymap, ...historyKeymap]),
+      titleAutocompletion(project),
       syntaxHighlighting,
       telomereGutter({
         confirmedLines: () => engine.confirmedLines,
