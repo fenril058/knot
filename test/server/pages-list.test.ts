@@ -21,6 +21,16 @@ test('GET /:project: ピン留めが先頭、以降は更新順、カードに�
   assert.match(body, /first line/);
 });
 
+test('プロジェクトトップにプロジェクト一覧へ戻る導線がある', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  await s.storage.ensureProject('proj', s.clock.t);
+
+  const body = await (await s.request('/proj', {}, cookie)).text();
+
+  assert.match(body, /<nav class="page-nav"><a href="\/">プロジェクト一覧<\/a><\/nav>/);
+});
+
 test('アップロード画像(/files/)はカードのサムネイルになる', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
