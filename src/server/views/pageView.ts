@@ -36,8 +36,10 @@ export function pageViewPage(
   previousVisit: Visit | null,
   related: RelatedPages,
 ): Html {
+  const editHref = `${pageHref(project.name, page.title)}/edit`;
   return layout(page.title, html`
 <h1>${page.title}</h1>
+<a href="${editHref}">編集</a>
 ${related.hasBackLinks ? html`<p class="backlinks-badge">逆リンクまたはアイコン参照あり</p>` : ''}
 <div class="page-body">${rendered.map((line, index) => lineRow(page, page.lines[index]!, line, previousVisit))}</div>
 ${relatedSection('関連ページ', related.links1hop, project.name)}

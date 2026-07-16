@@ -64,7 +64,11 @@ export function createApp(deps: AppDeps): Hono<ApiEnv> {
   app.use('*', async (c, next) => {
     await next();
     c.header('X-Content-Type-Options', 'nosniff');
-    c.header('Content-Security-Policy', csp);
+    const styleNonce = c.get('styleNonce');
+    c.header(
+      'Content-Security-Policy',
+      styleNonce === undefined ? csp : `${csp}; style-src 'self' 'nonce-${styleNonce}'`,
+    );
   });
 
   app.use('/api/knot/*', async (c, next) => {
