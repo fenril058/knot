@@ -160,6 +160,23 @@ test('テーブルの空白のみの本体行も物理行と対応させる', ()
   assert.equal(String(out[3]!.html), '<div>after</div>');
 });
 
+test('アップロード画像(/files/ の相対URL)は allowlist なしで img にする', () => {
+  assert.match(
+    renderOne('[/files/01ABC/x.png]', [], { allowedImageHosts: [], allowedMediaHosts: [] }),
+    /<img src="\/files\/01ABC\/x\.png"/,
+  );
+});
+
+test('/files/ の画像以外のファイルはリンクにする', () => {
+  assert.match(renderOne('[/files/01ABC/doc.pdf]'), /<a href="\/files\/01ABC\/doc\.pdf">/);
+  assert.doesNotMatch(renderOne('[/files/01ABC/doc.pdf]'), /<img/);
+});
+
+test('/files/ 以外のルートパスは従来どおり平文のまま', () => {
+  const out = renderOne('[/elsewhere/x.png]');
+  assert.doesNotMatch(out, /<img|<a /);
+});
+
 test('画像URL(拡張子)は img、Gyazoホストも img', () => {
   assert.match(renderOne('https://i.gyazo.com/abc.png'), /<img src="https:\/\/i\.gyazo\.com\/abc\.png"/);
   assert.match(renderOne('https://example.com/a.png'), /<img src="https:\/\/example\.com\/a\.png"/);

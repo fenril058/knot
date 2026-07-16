@@ -20,6 +20,11 @@ export function classifyUrl(url: string): MediaKind {
   return 'other';
 }
 
+/** サイト内の添付ファイル配信パス（/files/<id>/<name>）か。allowlist 不要（img-src 'self' の圏内）。 */
+export function isAttachmentUrl(url: string): boolean {
+  return url.startsWith('/files/');
+}
+
 export function isHostAllowed(hostname: string, allowedHosts: string[]): boolean {
   const normalizedHostname = hostname.toLowerCase();
   return allowedHosts.some((allowedHost) => {

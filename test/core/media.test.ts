@@ -1,6 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyUrl, isAllowedImageUrl } from '../../src/core/media.ts';
+import { classifyUrl, isAllowedImageUrl, isAttachmentUrl } from '../../src/core/media.ts';
+
+test('isAttachmentUrl: サイト内 /files/ のルートパスだけを添付として扱う', () => {
+  assert.equal(isAttachmentUrl('/files/01ABC/x.png'), true);
+  assert.equal(isAttachmentUrl('/files/01ABC/doc.pdf'), true);
+  assert.equal(isAttachmentUrl('/elsewhere/x.png'), false);
+  assert.equal(isAttachmentUrl('https://example.com/files/x.png'), false);
+  assert.equal(isAttachmentUrl('files/x.png'), false);
+});
 
 test('拡張子とホストで分類する', () => {
   assert.equal(classifyUrl('https://example.com/a.png'), 'image');

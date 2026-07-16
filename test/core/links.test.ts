@@ -55,6 +55,12 @@ test('[[...]] の strongImage 記法も代表画像になる', () => {
   assert.equal(extractRefs(src).image, 'https://example.com/b.png');
 });
 
+test('アップロード画像(/files/)も image に採用し、画像以外の /files/ は採用しない', () => {
+  assert.equal(extractRefs('タイトル\n[/files/01ABC/x.png]').image, '/files/01ABC/x.png');
+  assert.equal(extractRefs('タイトル\n[/files/01ABC/doc.pdf]').image, null);
+  assert.equal(extractRefs('タイトル\n[/elsewhere/x.png]').image, null);
+});
+
 test('table 記法の中のリンクも linkTargets に入る', () => {
   const src = 'タイトル\ntable:名前\n\t[TableLink]\tcell2';
   assert.deepEqual(extractRefs(src).linkTargets.map((t) => t.titleLc), ['tablelink']);

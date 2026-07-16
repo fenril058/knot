@@ -1,7 +1,7 @@
 import { parse, type Node } from '@progfay/scrapbox-parser';
 import { html, raw } from 'hono/html';
 import type { HtmlEscapedString } from 'hono/utils/html';
-import { classifyUrl, isAllowedImageUrl, isHostAllowed } from '../core/media.ts';
+import { classifyUrl, isAllowedImageUrl, isAttachmentUrl, isHostAllowed } from '../core/media.ts';
 import { pageHref, titleLc } from '../core/title.ts';
 
 export type KnownPage = { title: string; image: string | null };
@@ -40,6 +40,19 @@ const renderExternalLink = (url: string, label: string | undefined): RenderedHtm
 
 function makeRenderer(knownPages: Map<string, KnownPage>, projectName: string, config: RenderConfig) {
   const renderMedia = (url: string, label: string | undefined): RenderedHtml => {
+    // サイト内の添付ファイルは同一オリジン配信（img-src/media-src 'self'）なので allowlist を通さない
+    if (isAttachmentUrl(url)) {
+      switch (classifyUrl(url)) {
+        case 'image':
+          return html`<img src="${url}" alt="" loading="lazy">`;
+        case 'video':
+          return html`<video controls><source src="${url}"></video>`;
+        case 'audio':
+          return html`<audio controls><source src="${url}"></audio>`;
+        case 'other':
+          return label === undefined ? html`<a href="${url}">${url}</a>` : html`<a href="${url}">${label}</a>`;
+      }
+    }
     if (!isHttpUrl(url)) return label === undefined ? html`${url}` : html`${label} (${url})`;
 
     const hostname = new URL(url).hostname;
@@ -133,6 +146,9 @@ function makeRenderer(knownPages: Map<string, KnownPage>, projectName: string, c
         }
         if (isHttpUrl(node.href)) {
           return renderMedia(node.href, node.content === '' ? node.href : node.content);
+        }
+        if (isAttachmentUrl(node.href)) {
+          return renderMedia(node.href, node.content === '' ? undefined : node.content);
         }
         return node.content === '' ? html`${node.href}` : html`${node.content} (${node.href})`;
       }

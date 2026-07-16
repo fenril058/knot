@@ -21,6 +21,17 @@ test('GET /:project: ピン留めが先頭、以降は更新順、カードに�
   assert.match(body, /first line/);
 });
 
+test('アップロード画像(/files/)はカードのサムネイルになる', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'Page', ['[/files/01ABC/x.png]', 'body'], s.clock.t);
+
+  const body = await (await s.request('/proj', {}, cookie)).text();
+
+  assert.match(body, /<img class="card-image" src="\/files\/01ABC\/x\.png"/);
+});
+
 test('カードの冒頭行は記法を剥がした平文で出す', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);

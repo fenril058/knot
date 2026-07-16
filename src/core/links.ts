@@ -1,6 +1,6 @@
 import { parse, type Node } from '@progfay/scrapbox-parser';
 import { titleLc } from './title.ts';
-import { classifyUrl } from './media.ts';
+import { classifyUrl, isAttachmentUrl } from './media.ts';
 
 export const LINE_ID_RE = /^([0-9a-f]{24}|[0-9A-HJKMNP-TV-Z]{26})$/;
 
@@ -31,6 +31,10 @@ export function extractRefs(text: string): PageRefs {
       add(node.href);
     } else if (node.type === 'link' && node.pathType === 'absolute') {
       if (image === null && classifyUrl(node.href) === 'image') image = node.href;
+    } else if (node.type === 'link' && node.pathType === 'root') {
+      if (image === null && isAttachmentUrl(node.href) && classifyUrl(node.href) === 'image') {
+        image = node.href;
+      }
     } else if (node.type === 'icon' && node.pathType === 'relative') {
       add(node.path);
     } else if (node.type === 'image' || node.type === 'strongImage') {

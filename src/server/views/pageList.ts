@@ -1,5 +1,5 @@
 import { html } from 'hono/html';
-import { isAllowedImageUrl } from '../../core/media.ts';
+import { isAllowedImageUrl, isAttachmentUrl } from '../../core/media.ts';
 import { pageHref } from '../../core/title.ts';
 import { plainLineText } from '../../render/plain.ts';
 import type { PageSummary, Project } from '../../storage/types.ts';
@@ -8,7 +8,7 @@ import { layout, type Html } from './layout.ts';
 function card(project: Project, page: PageSummary, allowedImageHosts: string[]): Html {
   const href = pageHref(project.name, page.title);
   return html`<a class="card ${page.pinned ? 'pinned' : ''}" href="${href}">
-${page.image !== null && isAllowedImageUrl(page.image, allowedImageHosts)
+${page.image !== null && (isAttachmentUrl(page.image) || isAllowedImageUrl(page.image, allowedImageHosts))
     ? html`<img class="card-image" src="${page.image}" alt="">`
     : ''}
 <h3>${page.title}</h3>
