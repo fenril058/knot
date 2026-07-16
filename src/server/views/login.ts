@@ -1,8 +1,7 @@
 import { html } from 'hono/html';
-import type { HtmlEscapedString } from 'hono/utils/html';
-import { layout } from './layout.ts';
+import { layout, type Html } from './layout.ts';
 
-export function loginPage(): HtmlEscapedString {
+export function loginPage(): Html {
   return layout(
     'ログイン',
     html`
@@ -12,5 +11,5 @@ export function loginPage(): HtmlEscapedString {
   <button type="submit">ログイン</button>
 </form>
 <script src="/assets/login.js" defer></script>`,
-  ) as unknown as HtmlEscapedString;
+  );
 }

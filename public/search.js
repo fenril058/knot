@@ -11,6 +11,7 @@ async function loadTitles() {
   return titles;
 }
 
+// バンドラなしで import できないため、src/core/title.ts の pageHref と同等に保つこと。
 function pageHref(title) {
   return `/${encodeURIComponent(project)}/${encodeURIComponent(title.replaceAll(' ', '_'))}`;
 }

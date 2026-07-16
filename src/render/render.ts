@@ -2,7 +2,7 @@ import { parse, type Node } from '@progfay/scrapbox-parser';
 import { html, raw } from 'hono/html';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { classifyUrl } from '../core/media.ts';
-import { encodeTitleForUrl, titleLc } from '../core/title.ts';
+import { pageHref, titleLc } from '../core/title.ts';
 
 export type KnownPage = { title: string; image: string | null };
 export type RenderConfig = { allowedImageHosts: string[]; allowedMediaHosts: string[] };
@@ -21,10 +21,6 @@ function isHttpUrl(href: string): boolean {
 
 function hasUriScheme(href: string): boolean {
   return /^[a-z][a-z\d+.-]*:/i.test(href);
-}
-
-function pageHref(projectName: string, title: string): string {
-  return `/${encodeURIComponent(projectName)}/${encodeTitleForUrl(title)}`;
 }
 
 function isHostAllowed(hostname: string, allowedHosts: string[]): boolean {

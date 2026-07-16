@@ -51,3 +51,12 @@ export async function makeServer(overrides?: { dataDir?: string }): Promise<Test
 
   return { app, storage, clock, addUser, login, request };
 }
+
+export async function loginAs(
+  s: TestServer,
+  name = 'alice',
+  password = 'pw12345678',
+): Promise<string> {
+  await s.addUser(name, password);
+  return s.login(name, password);
+}

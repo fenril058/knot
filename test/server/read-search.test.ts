@@ -1,16 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeServer } from '../helpers/server.ts';
+import { loginAs, makeServer } from '../helpers/server.ts';
 import { seedPage } from '../helpers/pages.ts';
-
-async function login(s: Awaited<ReturnType<typeof makeServer>>): Promise<string> {
-  await s.addUser('alice', 'pw12345678');
-  return s.login('alice', 'pw12345678');
-}
 
 test('search/query が Cosense 形状で返す', async () => {
   const s = await makeServer();
-  const cookie = await login(s);
+  const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
   await seedPage(s.storage, project.id, 'Hit Page', ['this line has needle inside'], s.clock.t);
   await seedPage(s.storage, project.id, 'Other', ['nothing here'], s.clock.t + 1);
@@ -31,7 +26,7 @@ test('search/query が Cosense 形状で返す', async () => {
 
 test('existsExactTitleMatch はタイトル lc 一致で true', async () => {
   const s = await makeServer();
-  const cookie = await login(s);
+  const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
   await seedPage(s.storage, project.id, 'Needle', ['needle body'], s.clock.t);
   const res = await s.request('/api/pages/proj/search/query?q=needle', {}, cookie);
@@ -41,7 +36,7 @@ test('existsExactTitleMatch はタイトル lc 一致で true', async () => {
 
 test('/api/code はコードブロックを返す', async () => {
   const s = await makeServer();
-  const cookie = await login(s);
+  const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
   await seedPage(s.storage, project.id, 'Code Page', [
     'code:sample.js',

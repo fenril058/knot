@@ -1,16 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeServer } from '../helpers/server.ts';
+import { loginAs, makeServer } from '../helpers/server.ts';
 import { seedPage } from '../helpers/pages.ts';
-
-async function login(s: Awaited<ReturnType<typeof makeServer>>): Promise<string> {
-  await s.addUser('alice', 'pw12345678');
-  return s.login('alice', 'pw12345678');
-}
 
 test('GET /:project/:title: レンダリング結果・赤リンク・テロメア・関連ページを含む', async () => {
   const s = await makeServer();
-  const cookie = await login(s);
+  const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
   await seedPage(s.storage, project.id, 'Beta', ['x'], s.clock.t);
   const alphaId = await seedPage(s.storage, project.id, 'Alpha', ['see [Beta] and [Ghost]'], s.clock.t + 1);
@@ -26,7 +21,7 @@ test('GET /:project/:title: レンダリング結果・赤リンク・テロメ�
 
 test('初回訪問は全行 unread、再訪問（編集なし）は unread が消える', async () => {
   const s = await makeServer();
-  const cookie = await login(s);
+  const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
   await seedPage(s.storage, project.id, 'Alpha', ['line one'], s.clock.t);
   const first = await s.request('/proj/Alpha', {}, cookie);
@@ -37,7 +32,7 @@ test('初回訪問は全行 unread、再訪問（編集なし）は unread が�
 
 test('ページ表示の knownPages は listKnownPages を使い listPageTitles を呼ばない', async () => {
   const s = await makeServer();
-  const cookie = await login(s);
+  const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
   await seedPage(s.storage, project.id, 'Beta', ['x'], s.clock.t);
   await seedPage(s.storage, project.id, 'Alpha', ['[Beta]'], s.clock.t);
@@ -53,7 +48,7 @@ test('ページ表示の knownPages は listKnownPages を使い listPageTitles 
 
 test('存在しないページは 404 と新規作成の案内', async () => {
   const s = await makeServer();
-  const cookie = await login(s);
+  const cookie = await loginAs(s);
   await s.storage.ensureProject('proj', s.clock.t);
   const res = await s.request('/proj/Nope', {}, cookie);
   assert.equal(res.status, 404);
@@ -64,7 +59,7 @@ test('存在しないページは 404 と新規作成の案内', async () => {
 
 test('GET /:project/:title: 存在しないプロジェクトは layout を使った HTML 404', async () => {
   const s = await makeServer();
-  const cookie = await login(s);
+  const cookie = await loginAs(s);
   const res = await s.request('/missing/Nope', {}, cookie);
 
   assert.equal(res.status, 404);
@@ -81,7 +76,7 @@ for (const [name, headers] of [
 ] as const) {
   test(`${name} の GET は再訪問しても unread を既読にしない`, async () => {
     const s = await makeServer();
-    const cookie = await login(s);
+    const cookie = await loginAs(s);
     const project = await s.storage.ensureProject('proj', s.clock.t);
     await seedPage(s.storage, project.id, 'Alpha', ['line one'], s.clock.t);
 

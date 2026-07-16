@@ -1,9 +1,8 @@
 import { html } from 'hono/html';
-import type { HtmlEscapedString } from 'hono/utils/html';
 import type { Project } from '../../storage/types.ts';
-import { layout } from './layout.ts';
+import { layout, type Html } from './layout.ts';
 
-export function projectIndexPage(projects: Project[]): HtmlEscapedString {
+export function projectIndexPage(projects: Project[]): Html {
   return layout('プロジェクト一覧', html`
 <main>
 <h1>プロジェクト一覧</h1>

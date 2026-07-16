@@ -1,15 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeServer } from '../helpers/server.ts';
-
-async function login(s: Awaited<ReturnType<typeof makeServer>>): Promise<string> {
-  await s.addUser('alice', 'pw12345678');
-  return s.login('alice', 'pw12345678');
-}
+import { loginAs, makeServer } from '../helpers/server.ts';
 
 test('GET /: 認証済みユーザーにプロジェクト一覧とリンクを表示する', async () => {
   const s = await makeServer();
-  const cookie = await login(s);
+  const cookie = await loginAs(s);
   await s.storage.ensureProject('zeta', s.clock.t);
   await s.storage.ensureProject('alpha', s.clock.t);
 
@@ -26,7 +21,7 @@ test('GET /: 認証済みユーザーにプロジェクト一覧とリンクを�
 
 test('GET /: プロジェクトが0件なら案内文を表示する', async () => {
   const s = await makeServer();
-  const cookie = await login(s);
+  const cookie = await loginAs(s);
   const res = await s.request('/', {}, cookie);
 
   assert.equal(res.status, 200);
