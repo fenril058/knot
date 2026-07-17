@@ -1,4 +1,4 @@
-import type { Hono } from 'hono';
+import type { Context, Hono } from 'hono';
 import { parse } from '@progfay/scrapbox-parser';
 import type { AppDeps } from '../app.ts';
 import { jsonError, resolvePage, resolveProject, safeDecode, type ApiEnv } from '../http.ts';
@@ -39,6 +39,50 @@ function relatedToJson(p: RelatedPage) {
 
 export function registerReadRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
   const { storage } = deps;
+
+  const getPage = async (c: Context<ApiEnv>): Promise<Response> => {
+    const project = await resolveProject(storage, c);
+    if (!project) return jsonError(c, 404, 'not_found');
+    const page = await resolvePage(storage, project.id, c);
+    if (!page) return jsonError(c, 404, 'not_found');
+    const related = await storage.getRelatedPages(project.id, page.id, page.titleLc);
+    const titles = await storage.listPageTitles(project.id);
+    const links = titles.find((t) => t.id === page.id)?.links ?? [];
+    const descriptions = page.lines
+      .slice(1)
+      .filter((l) => l.text !== '')
+      .slice(0, 5)
+      .map((l) => l.text);
+    return c.json({
+      id: page.id,
+      title: page.title,
+      image: page.image,
+      descriptions,
+      pin: page.pinned,
+      views: 0,
+      linked: related.linked,
+      created: page.created,
+      updated: page.updated,
+      accessed: page.updated,
+      version: page.version,
+      persistent: true,
+      lines: page.lines.map((l) => ({
+        id: l.id,
+        text: l.text,
+        userId: l.userId,
+        created: l.created,
+        updated: l.updated,
+      })),
+      links,
+      relatedPages: {
+        links1hop: related.links1hop.map(relatedToJson),
+        links2hop: related.links2hop.map(relatedToJson),
+        hasBackLinksOrIcons: related.hasBackLinks,
+      },
+      collaborators: [],
+      lastAccessed: page.updated,
+    });
+  };
 
   app.get('/api/pages/:project', async (c) => {
     const project = await resolveProject(storage, c);
@@ -90,6 +134,13 @@ export function registerReadRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     });
   });
 
+  app.get('/api/projects/:project/users', async (c) => {
+    const project = await resolveProject(storage, c);
+    if (!project) return jsonError(c, 404, 'not_found');
+    const users = await storage.listUsersForProject(project.id);
+    return c.json({ projectName: project.name, users });
+  });
+
   app.get('/api/code/:project/:title/:filename', async (c) => {
     const project = await resolveProject(storage, c);
     if (!project) return jsonError(c, 404, 'not_found');
@@ -122,47 +173,6 @@ export function registerReadRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     return c.redirect(page.image, 302);
   });
 
-  app.get('/api/pages/:project/:title', async (c) => {
-    const project = await resolveProject(storage, c);
-    if (!project) return jsonError(c, 404, 'not_found');
-    const page = await resolvePage(storage, project.id, c);
-    if (!page) return jsonError(c, 404, 'not_found');
-    const related = await storage.getRelatedPages(project.id, page.id, page.titleLc);
-    const titles = await storage.listPageTitles(project.id);
-    const links = titles.find((t) => t.id === page.id)?.links ?? [];
-    const descriptions = page.lines
-      .slice(1)
-      .filter((l) => l.text !== '')
-      .slice(0, 5)
-      .map((l) => l.text);
-    return c.json({
-      id: page.id,
-      title: page.title,
-      image: page.image,
-      descriptions,
-      pin: page.pinned,
-      views: 0,
-      linked: related.linked,
-      created: page.created,
-      updated: page.updated,
-      accessed: page.updated,
-      version: page.version,
-      persistent: true,
-      lines: page.lines.map((l) => ({
-        id: l.id,
-        text: l.text,
-        userId: l.userId,
-        created: l.created,
-        updated: l.updated,
-      })),
-      links,
-      relatedPages: {
-        links1hop: related.links1hop.map(relatedToJson),
-        links2hop: related.links2hop.map(relatedToJson),
-        hasBackLinksOrIcons: related.hasBackLinks,
-      },
-      collaborators: [],
-      lastAccessed: page.updated,
-    });
-  });
+  app.get('/api/pages/v2/:project/:title', getPage);
+  app.get('/api/pages/:project/:title', getPage);
 }
