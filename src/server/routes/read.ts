@@ -45,6 +45,7 @@ export function registerReadRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     if (!project) return jsonError(c, 404, 'not_found');
     const page = await resolvePage(storage, project.id, c);
     if (!page) return jsonError(c, 404, 'not_found');
+    const authors = await storage.getPageAuthors(page.id);
     const related = await storage.getRelatedPages(project.id, page.id, page.titleLc);
     const titles = await storage.listPageTitles(project.id);
     const links = titles.find((t) => t.id === page.id)?.links ?? [];
@@ -63,6 +64,8 @@ export function registerReadRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
       linked: related.linked,
       created: page.created,
       updated: page.updated,
+      user: authors.user ?? authors.lastUpdateUser,
+      lastUpdateUser: authors.lastUpdateUser,
       accessed: page.updated,
       version: page.version,
       persistent: true,

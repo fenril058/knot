@@ -175,6 +175,49 @@ export class SqliteStorage implements Storage {
     return rows.map((r) => ({ id: r.id, name: r.name, displayName: r.display_name }));
   }
 
+  async getPageAuthors(
+    pageId: string,
+  ): Promise<{ user: DisplayUser | null; lastUpdateUser: DisplayUser | null }> {
+    const row = this.#db
+      .prepare(
+        `WITH first_commit AS (
+           SELECT user_id FROM commits WHERE page_id = ? ORDER BY version ASC LIMIT 1
+         ), last_commit AS (
+           SELECT user_id FROM commits WHERE page_id = ? ORDER BY version DESC LIMIT 1
+         )
+         SELECT
+           first_user.id AS first_id,
+           first_user.name AS first_name,
+           first_user.display_name AS first_display_name,
+           last_user.id AS last_id,
+           last_user.name AS last_name,
+           last_user.display_name AS last_display_name
+         FROM first_commit
+         CROSS JOIN last_commit
+         LEFT JOIN users first_user ON first_user.id = first_commit.user_id
+         LEFT JOIN users last_user ON last_user.id = last_commit.user_id`,
+      )
+      .get(pageId, pageId) as
+      | {
+          first_id: string | null;
+          first_name: string | null;
+          first_display_name: string | null;
+          last_id: string | null;
+          last_name: string | null;
+          last_display_name: string | null;
+        }
+      | undefined;
+    const user =
+      row?.first_id !== null && row?.first_id !== undefined && row.first_name !== null && row.first_display_name !== null
+        ? { id: row.first_id, name: row.first_name, displayName: row.first_display_name }
+        : null;
+    const lastUpdateUser =
+      row?.last_id !== null && row?.last_id !== undefined && row.last_name !== null && row.last_display_name !== null
+        ? { id: row.last_id, name: row.last_name, displayName: row.last_display_name }
+        : null;
+    return { user, lastUpdateUser };
+  }
+
   #userRowToAuthUser(r: UserRow): AuthUser {
     return {
       id: r.id,

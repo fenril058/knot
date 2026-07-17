@@ -184,6 +184,7 @@ export interface Storage {
   findAttachmentBySha256(projectId: string, sha256: string): Promise<Attachment | null>;
   getPageByTitle(projectId: string, titleLcValue: string): Promise<PageSnapshot | null>;
   getPageById(pageId: string): Promise<PageSnapshot | null>;
+  getPageAuthors(pageId: string): Promise<{ user: DisplayUser | null; lastUpdateUser: DisplayUser | null }>;
   listPages(projectId: string): Promise<PageMeta[]>;
   listPageSummaries(
     projectId: string,

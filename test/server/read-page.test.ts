@@ -8,6 +8,7 @@ test('GET /api/pages/:project/:title が lines / links / relatedPages を返す'
   await s.addUser('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
   const project = await s.storage.ensureProject('proj', s.clock.t);
+  await s.storage.upsertDisplayUser({ id: 'u', name: 'editor', displayName: 'Editor' }, s.clock.t);
   await seedPage(s.storage, project.id, 'Home', ['see [Sub Page] and [Red]'], s.clock.t);
   await seedPage(s.storage, project.id, 'Sub Page', ['back to [Home]'], s.clock.t + 1);
   const res = await s.request('/api/pages/proj/Home', {}, cookie);
@@ -15,6 +16,10 @@ test('GET /api/pages/:project/:title が lines / links / relatedPages を返す'
   const body = await res.json();
   assert.equal(body.title, 'Home');
   assert.equal(body.persistent, true);
+  assert.deepEqual([body.user, body.lastUpdateUser], [
+    { id: 'u', name: 'editor', displayName: 'Editor' },
+    { id: 'u', name: 'editor', displayName: 'Editor' },
+  ]);
   assert.equal(typeof body.version, 'number'); // knot 拡張
   assert.equal(body.lines[0].text, 'Home');
   assert.deepEqual(body.links.toSorted(), ['Red', 'Sub Page']); // 前方リンクの原文（赤リンク含む）

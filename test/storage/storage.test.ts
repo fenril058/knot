@@ -42,6 +42,29 @@ test('upsertDisplayUser は name 一致の既存ユーザー ID を返す', asyn
   await storage.close();
 });
 
+test('getPageAuthors は最古と最新のコミットのユーザーを返す', async () => {
+  const { db, storage } = makeStorage();
+  const project = await storage.ensureProject('wiki', 1);
+  await storage.upsertDisplayUser({ id: 'creator', name: 'alice', displayName: 'Alice' }, 1);
+  await storage.upsertDisplayUser({ id: 'editor', name: 'bob', displayName: 'Bob' }, 2);
+  db.prepare(
+    `INSERT INTO pages (id, project_id, title, title_lc, version, pinned, deleted, image, created, updated)
+     VALUES ('page', ?, 'Page', 'page', 2, 0, 0, NULL, 1, 2)`,
+  ).run(project.id);
+  const insertCommit = db.prepare(
+    `INSERT INTO commits (id, page_id, base_version, version, user_id, created, ops, ops_hash)
+     VALUES (?, 'page', ?, ?, ?, ?, '[]', ?)`,
+  );
+  insertCommit.run('commit-1', 0, 1, 'creator', 1, 'hash-1');
+  insertCommit.run('commit-2', 1, 2, 'editor', 2, 'hash-2');
+
+  assert.deepEqual(await storage.getPageAuthors('page'), {
+    user: { id: 'creator', name: 'alice', displayName: 'Alice' },
+    lastUpdateUser: { id: 'editor', name: 'bob', displayName: 'Bob' },
+  });
+  await storage.close();
+});
+
 test('getPageByTitle / listPages は削除済みページを除外する', async () => {
   const { db, storage } = makeStorage();
   const project = await storage.ensureProject('wiki', 100);
