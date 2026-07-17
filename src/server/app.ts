@@ -7,6 +7,7 @@ import type { Storage } from '../storage/types.ts';
 import type { ServerConfig } from './config.ts';
 import { clientIp, jsonError, type ApiEnv } from './http.ts';
 import { verifyPassword } from './password.ts';
+import { hashApiToken } from './apiToken.ts';
 import { RateLimiter } from './ratelimit.ts';
 import { registerReadRoutes } from './routes/read.ts';
 import { registerFileRoutes } from './routes/files.ts';
@@ -81,6 +82,13 @@ export function createApp(deps: AppDeps): Hono<ApiEnv> {
   app.use('*', async (c, next) => {
     const requestClass = classifyRequest(c.req.method, c.req.path);
     if (requestClass === 'public') return next();
+    const apiToken = requestClass === 'api' ? c.req.header('x-personal-access-token') : undefined;
+    if (apiToken !== undefined) {
+      const user = await storage.getUserByApiTokenHash(hashApiToken(apiToken));
+      if (user === null) return jsonError(c, 401, 'unauthorized');
+      c.set('userId', user.id);
+      return next();
+    }
     const sid = getCookie(c, SESSION_COOKIE);
     const session = sid === undefined ? null : await storage.getSession(sid, now());
     if (session === null) {

@@ -33,6 +33,8 @@ export type AddUserResult = { kind: 'created' | 'claimed'; id: string };
 
 export type Session = { id: string; userId: string; expires: number; created: number };
 
+export type ApiToken = { id: string; userId: string; label: string; created: number };
+
 export type Attachment = {
   id: string;
   projectId: string;
@@ -166,6 +168,10 @@ export interface Storage {
   addUser(user: NewUser, now: number): Promise<AddUserResult>;
   getUserByName(name: string): Promise<AuthUser | null>;
   getUserById(id: string): Promise<AuthUser | null>;
+  createApiToken(token: { id: string; userId: string; label: string; tokenHash: string; created: number }): Promise<void>;
+  getUserByApiTokenHash(tokenHash: string): Promise<AuthUser | null>;
+  listApiTokens(userId: string): Promise<ApiToken[]>;
+  deleteApiToken(id: string): Promise<boolean>;
   createSession(session: Session): Promise<void>;
   /** 期限切れ（expires <= now）のセッションは削除して null を返す。 */
   getSession(id: string, now: number): Promise<Session | null>;

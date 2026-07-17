@@ -12,11 +12,11 @@ test('マイグレーションで全テーブルが作られ user_version が進
   ).map((r) => r.name);
   const expected = [
     'projects', 'users', 'pages', 'lines', 'commits', 'title_history',
-    'page_visits', 'links', 'attachments', 'sessions', 'pages_fts',
+    'page_visits', 'links', 'attachments', 'sessions', 'pages_fts', 'api_tokens',
   ];
   for (const t of expected) assert.ok(names.includes(t), `${t} がない`);
   const v = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
-  assert.equal(v, 3);
+  assert.equal(v, 4);
   db.close();
 });
 
@@ -26,7 +26,7 @@ test('再オープンしても適用済みマイグレーションを二重適�
   openDatabase(path).close();
   const db = openDatabase(path);
   const v = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
-  assert.equal(v, 3);
+  assert.equal(v, 4);
   db.close();
 });
 

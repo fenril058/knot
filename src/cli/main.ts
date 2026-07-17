@@ -1,6 +1,17 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
-import { CliError, runExport, runImport, runInit, runReindex, runServe, runUserAdd } from './commands.ts';
+import {
+  CliError,
+  runExport,
+  runImport,
+  runInit,
+  runReindex,
+  runServe,
+  runTokenAdd,
+  runTokenList,
+  runTokenRevoke,
+  runUserAdd,
+} from './commands.ts';
 
 const USAGE = `usage:
   knot init    --data <dir>
@@ -8,6 +19,9 @@ const USAGE = `usage:
   knot export  --data <dir> --project <name> [--format import] [--out <file.json>]
   knot reindex --data <dir> [--project <name>]
   knot serve   --data <dir> [--port <n>] [--hostname <s>]
+  knot token add --data <dir> --user <name> [--label <s>]
+  knot token list --data <dir> --user <name>
+  knot token revoke --data <dir> --id <id>
   knot user add --data <dir> --name <name> [--display-name <name>] [--admin]
                 (パスワードは標準入力から読む: echo -n 'pass' | knot user add ...)`;
 
@@ -34,6 +48,9 @@ async function main(argv: string[]): Promise<string> {
       admin: { type: 'boolean' },
       port: { type: 'string' },
       hostname: { type: 'string' },
+      user: { type: 'string' },
+      label: { type: 'string' },
+      id: { type: 'string' },
     },
   });
   const data = values.data;
@@ -73,6 +90,17 @@ async function main(argv: string[]): Promise<string> {
       const password = (await readStdin()).replace(/\n$/, '');
       return runUserAdd(data, values.name, values['display-name'] ?? null, values.admin === true, password);
     }
+    case 'token':
+      if (positionals[0] === 'add' && positionals.length === 1 && values.user !== undefined) {
+        return runTokenAdd(data, values.user, values.label ?? 'default');
+      }
+      if (positionals[0] === 'list' && positionals.length === 1 && values.user !== undefined) {
+        return runTokenList(data, values.user);
+      }
+      if (positionals[0] === 'revoke' && positionals.length === 1 && values.id !== undefined) {
+        return runTokenRevoke(data, values.id);
+      }
+      throw new CliError(USAGE);
     default:
       throw new CliError(USAGE);
   }

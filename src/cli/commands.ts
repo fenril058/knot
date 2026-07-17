@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ulid } from '../core/id.ts';
 import { hashPassword } from '../server/password.ts';
+import { generateApiToken } from '../server/apiToken.ts';
 import { openDatabase } from '../storage/db.ts';
 import { SqliteStorage } from '../storage/sqlite.ts';
 import { importCosense } from '../storage/import.ts';
@@ -118,6 +119,43 @@ export async function runUserAdd(
     return result.kind === 'claimed'
       ? `claimed existing user ${name} (${result.id})`
       : `created user ${name} (${result.id})`;
+  } finally {
+    await storage.close();
+  }
+}
+
+export async function runTokenAdd(dataDir: string, userName: string, label: string): Promise<string> {
+  const storage = openStorage(dataDir);
+  try {
+    const user = await storage.getUserByName(userName);
+    if (user === null) throw new CliError(`unknown user: ${userName}`);
+    if (user.passwordHash === null) throw new CliError(`user cannot log in: ${userName}`);
+    const now = Math.floor(Date.now() / 1000);
+    const { token, tokenHash } = generateApiToken();
+    await storage.createApiToken({ id: ulid(now * 1000), userId: user.id, label, tokenHash, created: now });
+    return token;
+  } finally {
+    await storage.close();
+  }
+}
+
+export async function runTokenList(dataDir: string, userName: string): Promise<string> {
+  const storage = openStorage(dataDir);
+  try {
+    const user = await storage.getUserByName(userName);
+    if (user === null) throw new CliError(`unknown user: ${userName}`);
+    const tokens = await storage.listApiTokens(user.id);
+    return tokens.map((token) => `${token.id}\t${token.label}\t${token.created}`).join('\n');
+  } finally {
+    await storage.close();
+  }
+}
+
+export async function runTokenRevoke(dataDir: string, id: string): Promise<string> {
+  const storage = openStorage(dataDir);
+  try {
+    if (!(await storage.deleteApiToken(id))) throw new CliError(`unknown token: ${id}`);
+    return `revoked token ${id}`;
   } finally {
     await storage.close();
   }

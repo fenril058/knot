@@ -9,6 +9,7 @@ import {
   BadCommitError,
   StorageError,
   type AddUserResult,
+  type ApiToken,
   type Attachment,
   type AuthUser,
   type CommitInput,
@@ -217,6 +218,36 @@ export class SqliteStorage implements Storage {
   async getUserById(id: string): Promise<AuthUser | null> {
     const r = this.#db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined;
     return r ? this.#userRowToAuthUser(r) : null;
+  }
+
+  async createApiToken(token: {
+    id: string;
+    userId: string;
+    label: string;
+    tokenHash: string;
+    created: number;
+  }): Promise<void> {
+    this.#db
+      .prepare('INSERT INTO api_tokens (id, user_id, label, token_hash, created) VALUES (?, ?, ?, ?, ?)')
+      .run(token.id, token.userId, token.label, token.tokenHash, token.created);
+  }
+
+  async getUserByApiTokenHash(tokenHash: string): Promise<AuthUser | null> {
+    const row = this.#db
+      .prepare('SELECT u.* FROM users u JOIN api_tokens t ON t.user_id = u.id WHERE t.token_hash = ?')
+      .get(tokenHash) as UserRow | undefined;
+    return row ? this.#userRowToAuthUser(row) : null;
+  }
+
+  async listApiTokens(userId: string): Promise<ApiToken[]> {
+    const rows = this.#db
+      .prepare('SELECT id, user_id, label, created FROM api_tokens WHERE user_id = ? ORDER BY created ASC, id ASC')
+      .all(userId) as { id: string; user_id: string; label: string; created: number }[];
+    return rows.map((row) => ({ id: row.id, userId: row.user_id, label: row.label, created: row.created }));
+  }
+
+  async deleteApiToken(id: string): Promise<boolean> {
+    return this.#db.prepare('DELETE FROM api_tokens WHERE id = ?').run(id).changes > 0;
   }
 
   async createSession(session: Session): Promise<void> {
