@@ -418,10 +418,11 @@ Run: `direnv exec . node --test test/acceptance/cosense-cli.test.ts` → 修正 
 1. `docker build -t knot:smoke .`
 2. `docker volume create knot-smoke-$$`（一意名）
 3. `init --data /data` → `user add`（stdin でパスワード、`--name alice`）
-4. `docker run -d` で serve を起動し、`/api/pages/none` が 401 を返すまでリトライ付きで待機（最大 30 秒、curl 失敗は継続）。
-5. ログイン検証: `POST /api/knot/session` に `content-type: application/json` + `X-Knot-Client` ヘッダと `{"name":"alice","password":...}` を送り 200 を確認し、`Set-Cookie`（connect.sid）を cookie jar に保存する（curl -c）。
-6. **再起動後の volume 書き込み検証**: コンテナを restart し、再ログインで cookie を取り直してから `POST /api/knot/projects/smoke` を cookie jar（curl -b）+ `X-Knot-Client` ヘッダ付きで送り 200（書き込み API は認証 cookie と X-Knot-Client が必須。named volume の所有権と永続化の確認。指摘 #1 の回帰テスト）。
-7. cleanup は trap で必ず実行（`docker rm -f` + `docker volume rm`）。失敗時も残骸を残さない。
+4. スモーク用設定の書き込み: `--entrypoint /bin/sh` で `/data/config.json` に `{"secureCookie": false}` を書く。理由: 既定 CMD は `--hostname 0.0.0.0` であり `secureCookie: auto` が true に解決されるため、HTTP のスモークでは Secure cookie を再送できず 401 になる。これはテスト専用設定で、本番は HTTPS 終端（プロキシ）配下で auto のまま使う（ops.md §3 と整合）。
+5. `docker run -d` で serve を起動し、`/api/pages/none` が 401 を返すまでリトライ付きで待機（最大 30 秒、curl 失敗は継続）。
+6. ログイン検証: `POST /api/knot/session` に `content-type: application/json` + `X-Knot-Client` ヘッダと `{"name":"alice","password":...}` を送り 200 を確認し、`Set-Cookie`（connect.sid）を cookie jar に保存する（curl -c。手順 4 の secureCookie: false により HTTP でも再送できる）。
+7. **再起動後の volume 書き込み検証**: コンテナを restart し、再ログインで cookie を取り直してから `POST /api/knot/projects/smoke` を cookie jar（curl -b）+ `X-Knot-Client` ヘッダ付きで送り 200（書き込み API は認証 cookie と X-Knot-Client が必須。named volume の所有権と永続化の確認。指摘 #1 の回帰テスト）。
+8. cleanup は trap で必ず実行（`docker rm -f` + `docker volume rm`）。失敗時も残骸を残さない。
 
 - [ ] **Step 3: 手元で実行して確認する（docker が使える環境の場合）**
 
@@ -447,7 +448,7 @@ docker が無い環境ではこの Step をスキップし、Task 10 の CI job 
 **挙動仕様:**
 - job `test`: ubuntu-latest、actions/checkout + actions/setup-node（node-version: 24, cache: npm）→ `npm ci` → `npm run typecheck` → `npm run lint` → `npm run build:client` → `npm test`。受け入れテストはここで一緒に走る（外部ネットワーク不要。ツールは npm ci で入る）。
 - job `e2e`: `npm ci` → `npx playwright install --with-deps chromium` → `npm run test:e2e`。
-- job `docker`: `bash scripts/docker-smoke.sh` を実行する（Task 9 で定義した単一ソース。build → init → user add → 起動待機 → 401 → ログイン 200 → 再起動後書き込み → cleanup を含む）。
+- job `docker`: `bash scripts/docker-smoke.sh` を実行する（Task 9 で定義した単一ソース。build → init → user add → secureCookie: false 設定 → 起動待機 → 401 → ログイン 200 → 再起動後書き込み → cleanup を含む）。
 - nix / direnv は CI では使わない（プレーン npm で完結することが Global Constraints の範囲で成り立つ）。
 
 - [ ] **Step 1: workflow を書く**
@@ -501,3 +502,4 @@ Run: `npm ci && npm run typecheck && npm run lint && npm run build:client && npm
 - **外部レビュー反映（Codex、2026-07-17）**: 指摘 12 件中 10 件を計画へ反映 — Docker /data 所有権（mkdir + chown を VOLUME 前に）、世代管理のプロジェクト別サブディレクトリ化、自動エクスポートの tmp + rename と実行ロック、バックアップの一時ディレクトリ確定・パス包含拒否・再実行可能性、ZIP 非対応範囲の StorageError 拒否と DOS 時刻規則、CLI bin 実体の package.json 解決、互換契約の Task 2 への固定（Task 8 の循環判断を排除）、MCP テストの 127.0.0.1 統一、CI Docker スモークの単一スクリプト化（再起動後書き込み検証込み）。
   残る 2 件は実装変更せず ops.md の必須記載とした: #6 メモリ（2〜5 人規模でストリーミング zip は YAGNI。ピークメモリの条件を §1 に明記）、#10 レートリミットのプロキシ配下共有キー（trusted proxy 対応は v2 検討。制約を §3 に明記）。
 - **外部レビュー反映（Codex 2 巡目、2026-07-18）**: 指摘 6 件 + 補足 1 件を反映 — outDir は存在自体で拒否し mkdtemp の一時ディレクトリから rename で確定（rename との矛盾解消）、ZIP 上限を sentinel 値（エントリ数 0xFFFF・32bit フィールド 0xFFFFFFFF）**到達**で拒否に修正、自動エクスポートの同秒上書きを「最新スナップショットで置換」の規則として定義、export zip の files/ の用途を「添付の保全・手動移行用」に訂正（自動復元機能は無い。復元は knot backup）、Docker スモークに cookie jar と X-Knot-Client の引き回しを明記、ops.md のメモリ説明から backup を除外、listApiTokens の順序を `created ASC, id ASC` に固定。
+- **外部レビュー反映（Codex 3 巡目、2026-07-18）**: Docker スモークの残指摘 1 件を反映 — 既定 CMD（`--hostname 0.0.0.0`）では secureCookie: auto が true になり HTTP で Secure cookie を再送できないため、スモーク手順に `/data/config.json` へ `{"secureCookie": false}` を書くステップを追加（テスト専用。本番はプロキシの HTTPS 終端配下で auto のまま）。
