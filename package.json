@@ -27,10 +27,12 @@
     "hono": "^4.12.30"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@playwright/test": "^1.61.1",
     "@types/node": "^26.1.1",
     "oxlint": "^1.74.0",
     "rolldown": "^1.2.0",
+    "scrapbox-cosense-mcp": "^0.7.3",
     "typescript": "^7.0.2"
   }
 }
