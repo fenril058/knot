@@ -60,7 +60,7 @@ MCP サーバは `scrapbox-cosense-mcp`（`API_DOMAIN` で接続先変更可、`
   - Storage 追加メソッド:
     - `createApiToken(token: { id: string; userId: string; label: string; tokenHash: string; created: number }): Promise<void>`
     - `getUserByApiTokenHash(tokenHash: string): Promise<AuthUser | null>`（users と JOIN）
-    - `listApiTokens(userId: string): Promise<ApiToken[]>`
+    - `listApiTokens(userId: string): Promise<ApiToken[]>`（`ORDER BY created ASC, id ASC`。同秒発行のタイブレークを id で一意化する）
     - `deleteApiToken(id: string): Promise<boolean>`（削除したら true）
   - CLI: `knot token add --data <dir> --user <name> [--label <s>]`（発行したトークンを標準出力に 1 度だけ表示。label 既定は `default`）、`knot token list --data <dir> --user <name>`（id / label / created を表示。token_hash は表示しない）、`knot token revoke --data <dir> --id <id>`。
 
@@ -167,7 +167,7 @@ Run: `direnv exec . node --test test/server/read-v2.test.ts test/server/project-
 - ローカルファイルヘッダ + central directory + EOCD の最小構成。圧縮メソッドは 8（deflate、`zlib.deflateRawSync`）。CRC32 はテーブル方式で自前実装（writer と reader で共用してよい）。
 - ファイル名は UTF-8 とし、general purpose bit 11（language encoding flag）を立てる。
 - DOS 時刻は mtime（Unix 秒、UTC）から変換する。範囲外は clamp（1980-01-01 未満 → 1980-01-01、2107-12-31 超 → 2107-12-31）、秒は偶数へ切り下げる（DOS 時刻は 2 秒粒度）。エントリと mtime が同じなら出力はバイト単位で決定的。
-- ZIP64 は実装しない。非対応範囲は黙って切り詰めず **StorageError で拒否する**: エントリ数 > 65535、エントリの非圧縮サイズ・圧縮後サイズ・ローカルヘッダ offset・central directory のサイズ/offset のいずれかが 0xFFFFFFFF 超。
+- ZIP64 は実装しない。非対応範囲は黙って切り詰めず **StorageError で拒否する**。ZIP64 では各フィールドの最大値（0xFFFF / 0xFFFFFFFF）が「ZIP64 拡張を参照せよ」の予約値（sentinel）であるため、**その値に達したら拒否**する: エントリ数 >= 0xFFFF（65535）、エントリの非圧縮サイズ・圧縮後サイズ・ローカルヘッダ offset・central directory のサイズ/offset のいずれかが >= 0xFFFFFFFF。
 - 上限検査は数値を引数に取る小さな検証関数（例 `assertZipLimits`）に括り出し、4GB の実バッファを作らずに単体テストできるようにする。
 - createZip は zip 全体をメモリ上に構築する（v1 の割り切り。ストリーミング化は将来課題としてコメントに明記）。
 
@@ -179,7 +179,7 @@ test/storage/zip.test.ts:
 - 同一入力・同一 mtime で 2 回 createZip した Buffer が equal（決定性）。
 - data を 1 バイト改竄した zip を readZip すると CRC 不一致で throw。
 - マジックナンバー確認: 出力先頭 4 バイトが `PK\x03\x04`、末尾に EOCD シグネチャ `PK\x05\x06` が存在する。
-- 上限: 65536 エントリ（全部 0 バイトで可）の createZip が StorageError。検証関数の数値テストで 0xFFFFFFFF 境界（ちょうど / +1）の合否を確認。
+- 上限: 65535 エントリ（全部 0 バイトで可）の createZip が StorageError、65534 エントリは成功。検証関数の数値テストで 0xFFFFFFFE が成功・0xFFFFFFFF が拒否となることを確認（sentinel 値は使用不可）。
 - DOS 時刻境界: 1980 年未満と 2107 年超の mtime が clamp され、奇数秒が偶数へ切り下がる（readZip またはヘッダのバイト検査で確認）。
 
 - [ ] **Step 2: 落ちることを確認 → Step 3: 実装 → Step 4: PASS 確認**
@@ -244,8 +244,8 @@ test/cli/export-with-files.test.ts:
   - CLI: `knot backup --data <dir> --out <destdir>`。
 
 **挙動仕様（設計書 27 の順序を厳守）:**
-1. パス検査: dataDir と outDir を realpath（親ディレクトリまで）解決し、同一・相互包含（outDir が dataDir 配下、dataDir が outDir 配下）なら CliError。outDir が存在して空でなければ CliError（上書きによる過去バックアップ破壊を防ぐ）。
-2. 出力は outDir と同じ親ディレクトリの一時ディレクトリ（例 `.<basename>.tmp-<pid>`）へ組み立て、**全工程成功後に rename で outDir へ確定**する。失敗時は一時ディレクトリを削除して CliError（部分出力を残さず、同じコマンドをそのまま再実行できる）。
+1. パス検査: dataDir と outDir を realpath（親ディレクトリまで）解決し、同一・相互包含（outDir が dataDir 配下、dataDir が outDir 配下）なら CliError。**outDir が既に存在すれば（空ディレクトリでも）CliError**（最終 rename を常に成立させ、過去バックアップの上書きも防ぐ）。
+2. 出力は outDir と同じ親ディレクトリに **`mkdtemp` で作った一時ディレクトリ**へ組み立て（固定名は残骸・並行実行と衝突するため使わない）、**全工程成功後に rename で outDir へ確定**する。失敗時は一時ディレクトリを削除して CliError（部分出力を残さず、同じコマンドをそのまま再実行できる）。
 3. **先に** `dataDir/files/` を一時ディレクトリの files/ へ再帰コピー（cpSync）。`config.json` があればコピー。
 4. **その後** ソース DB を openDatabase で開き、`backup()` で一時ディレクトリの knot.db へスナップショット（WAL 中でも一貫スナップショットになる。これが files 先行コピーと合わせて「DB が参照するファイルが欠けない」根拠。理由をコードコメントに残す）。
 5. 完了後の検証: スナップショット DB を開き attachments 全行の id について files/<id> の存在を確認。欠けがあれば欠落 id を列挙して CliError。
@@ -257,7 +257,7 @@ test/cli/export-with-files.test.ts:
 test/cli/backup.test.ts:
 - **復元テスト（スペックの受け入れ条件）**: init → import fixture → 添付 1 件（DB 行 + 実ファイル）→ runBackup → バックアップ先を dataDir として SqliteStorage + createApp を組み、ログイン → `GET /api/pages/:project/:title` 200、`GET /files/:id`（既存 files ルートの実パスに合わせる）200 を確認。
 - 検証の失敗系: dataDir/files から実ファイルを消してから runBackup → reject（メッセージに欠落 id）。**失敗後に outDir も一時ディレクトリも残っておらず、ファイルを戻して同じ引数で再実行すると成功する。**
-- outDir 非空 → reject。outDir が dataDir 自身・dataDir 配下（例 dataDir/files/bk）・dataDir を包含する親 → いずれも reject。
+- outDir が既に存在（空ディレクトリでも）→ reject。outDir が dataDir 自身・dataDir 配下（例 dataDir/files/bk）・dataDir を包含する親 → いずれも reject。
 - バックアップ実行後に元 DB へ書き込んでもバックアップ側が変化しない（スナップショットである）ことを 1 ケース。
 
 - [ ] **Step 2: 落ちることを確認 → Step 3: 実装 → Step 4: PASS 確認 → Step 5: コミット**
@@ -287,7 +287,7 @@ test/cli/backup.test.ts:
 
 **挙動仕様:**
 - 保存形式は**プロジェクトごとのサブディレクトリ** `<autoExportDir>/<projectName>/<YYYYMMDD-HHMMSS>.zip`（UTC、now から生成）。ファイル名からプロジェクトを判定するパース処理は書かない（`a` と `a-b` のような prefix 衝突を構造で排除する）。出力先は mkdir -p する。
-- 書き込みは同ディレクトリの一時名（例 `<name>.zip.tmp`）へ書いてから rename で確定する（途中終了による破損 zip を最終名で残さない）。同秒衝突で最終名が既に存在する場合は rename の上書きで確定してよい（同一 now からの再生成は同内容）。
+- 書き込みは同ディレクトリの一時名（例 `<name>.zip.tmp`）へ書いてから rename で確定する（途中終了による破損 zip を最終名で残さない）。同秒で最終名が既に存在する場合は rename の上書きで確定する。これは「**同一秒内の後続実行はより新しいスナップショットで置換する**」という規則であり、同内容の保証ではない（同秒内の編集は後の実行結果が残る）。
 - 世代管理: **各プロジェクトのサブディレクトリ内だけ**を対象に、`*.zip` を名前降順に並べ新しい方から keep 件を残して削除。`.tmp` は対象外。
 - 実行ロック: プロセス内で「実行中フラグ」を持ち、前回の runAutoExportOnce が終わっていなければその周期は skip する（多重実行しない）。knot v1 は単一プロセス運用が前提であり、プロセス間ロックは実装しない（前提をコメントに明記）。
 - `startAutoExport` は起動直後に 1 回実行し、以後 intervalHours ごと（`setInterval`、`unref()` してプロセス終了を妨げない）。`stop()` はタイマーを解除するだけで進行中の実行は待たない（tmp + rename により最終名の破損は起きない）。
@@ -300,7 +300,7 @@ test/server/auto-export.test.ts:
 - プロジェクト 2 つを仕込み runAutoExportOnce → 各サブディレクトリに 1 ファイル、written に 2 パス、zip が readZip で読める。`.tmp` が残っていない。
 - keep=2 で now を進めながら 3 回実行 → 各プロジェクトのファイルが 2 件に刈り込まれ、pruned が最古を指す。
 - prefix 衝突: プロジェクト `a` と `a-b` を両方仕込み、片方の刈り込みがもう片方のファイルに触れない。
-- 同一 now で 2 回実行してもエラーにならず、ファイルは 1 件のまま。
+- 同一 now で 2 回実行（間にページを追加して内容を変える）してもエラーにならず、ファイルは 1 件のままで内容は後の実行のスナップショットになる。
 - 添付欠落プロジェクトがあっても他プロジェクトの zip は書かれ、reject しない（エラーは握って継続）。
 - `startAutoExport` は `node:test` の `mock.timers`（setInterval を mock）で、起動時 1 回 + interval 経過でもう 1 回走ることを確認し、`stop()` 後は走らないこと。
 
@@ -419,8 +419,8 @@ Run: `direnv exec . node --test test/acceptance/cosense-cli.test.ts` → 修正 
 2. `docker volume create knot-smoke-$$`（一意名）
 3. `init --data /data` → `user add`（stdin でパスワード、`--name alice`）
 4. `docker run -d` で serve を起動し、`/api/pages/none` が 401 を返すまでリトライ付きで待機（最大 30 秒、curl 失敗は継続）。
-5. ログイン検証: `POST /api/knot/session` に `content-type: application/json` + `X-Knot-Client` ヘッダと `{"name":"alice","password":...}` を送り 200 を確認。
-6. **再起動後の volume 書き込み検証**: コンテナを restart し、ログイン → `POST /api/knot/projects/smoke` が 200（named volume の所有権と永続化の確認。指摘 #1 の回帰テスト）。
+5. ログイン検証: `POST /api/knot/session` に `content-type: application/json` + `X-Knot-Client` ヘッダと `{"name":"alice","password":...}` を送り 200 を確認し、`Set-Cookie`（connect.sid）を cookie jar に保存する（curl -c）。
+6. **再起動後の volume 書き込み検証**: コンテナを restart し、再ログインで cookie を取り直してから `POST /api/knot/projects/smoke` を cookie jar（curl -b）+ `X-Knot-Client` ヘッダ付きで送り 200（書き込み API は認証 cookie と X-Knot-Client が必須。named volume の所有権と永続化の確認。指摘 #1 の回帰テスト）。
 7. cleanup は trap で必ず実行（`docker rm -f` + `docker volume rm`）。失敗時も残骸を残さない。
 
 - [ ] **Step 3: 手元で実行して確認する（docker が使える環境の場合）**
@@ -472,12 +472,12 @@ Run: `npm ci && npm run typecheck && npm run lint && npm run build:client && npm
 - Produces: 配布物としての運用ドキュメント。
 
 **挙動仕様（章立てと必須内容）:**
-1. **起動と設定**: `knot serve` のフラグ、config.json の全キー表（allowedImageHosts 〜 autoExportKeep。既定値と意味）。想定リソース: 通常運用でメモリ 200MB 程度。ただし export --with-files / 自動エクスポート / backup の実行中は zip をメモリ上に構築するため、対象プロジェクトの添付合計サイズぶんのピークが上乗せされる（数 GB 規模の添付を持つ運用は v1 の対象外）と明記する。
+1. **起動と設定**: `knot serve` のフラグ、config.json の全キー表（allowedImageHosts 〜 autoExportKeep。既定値と意味）。想定リソース: 通常運用でメモリ 200MB 程度。ただし export --with-files と自動エクスポートの実行中は zip をメモリ上に構築するため、対象プロジェクトの添付合計サイズぶんのピークが上乗せされる（数 GB 規模の添付を持つ運用は v1 の対象外）と明記する（backup は cpSync + SQLite backup API でありメモリ上に zip を作らない）。
 2. **ユーザーとトークン**: `knot user add`、`knot token add/list/revoke`、PAT の使い方（`x-personal-access-token` ヘッダ / 公式 cosense-cli の `COSENSE_PAT`）。
 3. **リバースプロキシ設定例**: nginx と Caddy の 2 例。必須ポイントを本文で説明する — `X-Forwarded-Proto`、HTTPS 終端時に secureCookie が auto で secure になる条件（serve の hostname が loopback かどうかで決まる現実装の挙動を正確に書く）、`client_max_body_size`（アップロード上限 maxUploadBytes と揃える）、`/files/` と `/assets/` を含む全パス転送。**既知の制約として必ず書く**: ログイン試行のレートリミットは接続元 socket アドレスをキーにしており `X-Forwarded-For` を解釈しないため、プロキシ・Cloudflare Tunnel 配下では全利用者が同一キーを共有する（誰かの失敗 10 回で全員が 10 分ロックアウトされ得る。trusted proxy 対応は v2 検討事項）。
 4. **Cloudflare Tunnel**: 自宅 PC + 0 円構成の設定例（cloudflared の config 断片）。
 5. **バックアップと復元**: `knot backup` の手順と原理（files 先行 → DB スナップショット → 検証の順序の理由）、復元手順（バックアップディレクトリをそのまま `--data` に指定 / 置き換え）、cron 設定例。稼働中サーバへの backup は添付アップロードと競合すると検証エラーで失敗することがあり、**再実行すれば解決する**（部分出力は残らない）こと。バックアップ対象は files/ + knot.db + config.json のみで、自動エクスポート zip は含まれないこと。
-6. **定期自動エクスポート**: autoExport 3 キーの設定例と、これが「DB 形式に依存しない保険」であるという位置づけ。autoExportDir は dataDir の外に置くことを推奨。zip の中身（`<project>.json` + `files/`）と Cosense へ持ち込む場合の手順（`--format import` との関係。**制約として明記**: 本文中の添付 URL は knot の相対 URL のままであり、Cosense 側へのファイル移行・URL 書き換えは自動化しない。files/ は knot への再取り込み・自己復元用である）。
+6. **定期自動エクスポート**: autoExport 3 キーの設定例と、これが「DB 形式に依存しない保険」であるという位置づけ。autoExportDir は dataDir の外に置くことを推奨。zip の中身（`<project>.json` + `files/`）と Cosense へ持ち込む場合の手順（`--format import` との関係。**制約として明記**: 本文中の添付 URL は knot の相対 URL のままであり、Cosense 側へのファイル移行・URL 書き換えは自動化しない。files/ は添付の保全・手動移行用であり、zip からの自動復元機能は無い。knot 全体の復元手段は knot backup である）。
 7. **Docker 運用**: ボリューム作成 → init → user add → serve の一連、docker compose 例、イメージ更新手順。bind mount を使う場合はホスト側ディレクトリの所有権を node ユーザー（uid 1000）に合わせる必要があること（named volume はイメージ側の所有権を引き継ぐため不要）。
 8. **互換性の約束**: 動作保証する周辺ツールの列挙 — `scrapbox-cosense-mcp@0.7.x`（get_page / list_pages / search_pages、`API_DOMAIN` と `COSENSE_SID` の設定方法）と `@helpfeel/cosense-cli@1.10.x`（listPages / readPage / searchFullText、`COSENSE_PAT`）。「フィールドの網羅は保証せず、受け入れテストが参照する範囲を保証する」という原則の明記。
 
@@ -500,3 +500,4 @@ Run: `npm ci && npm run typecheck && npm run lint && npm run build:client && npm
 - **プレースホルダ**: コピー用コードを置かない方針（plan-04 errata）に基づき、各タスクは挙動仕様とテスト仕様で完結させた。外部ツールの引数並びなど実行時にしか確定しない 2 点（cosense-cli の searchFullText 引数、scrapbox-cosense-mcp の bin 実体パス）は「--help / package.json で確認する」手順として明示した。
 - **外部レビュー反映（Codex、2026-07-17）**: 指摘 12 件中 10 件を計画へ反映 — Docker /data 所有権（mkdir + chown を VOLUME 前に）、世代管理のプロジェクト別サブディレクトリ化、自動エクスポートの tmp + rename と実行ロック、バックアップの一時ディレクトリ確定・パス包含拒否・再実行可能性、ZIP 非対応範囲の StorageError 拒否と DOS 時刻規則、CLI bin 実体の package.json 解決、互換契約の Task 2 への固定（Task 8 の循環判断を排除）、MCP テストの 127.0.0.1 統一、CI Docker スモークの単一スクリプト化（再起動後書き込み検証込み）。
   残る 2 件は実装変更せず ops.md の必須記載とした: #6 メモリ（2〜5 人規模でストリーミング zip は YAGNI。ピークメモリの条件を §1 に明記）、#10 レートリミットのプロキシ配下共有キー（trusted proxy 対応は v2 検討。制約を §3 に明記）。
+- **外部レビュー反映（Codex 2 巡目、2026-07-18）**: 指摘 6 件 + 補足 1 件を反映 — outDir は存在自体で拒否し mkdtemp の一時ディレクトリから rename で確定（rename との矛盾解消）、ZIP 上限を sentinel 値（エントリ数 0xFFFF・32bit フィールド 0xFFFFFFFF）**到達**で拒否に修正、自動エクスポートの同秒上書きを「最新スナップショットで置換」の規則として定義、export zip の files/ の用途を「添付の保全・手動移行用」に訂正（自動復元機能は無い。復元は knot backup）、Docker スモークに cookie jar と X-Knot-Client の引き回しを明記、ops.md のメモリ説明から backup を除外、listApiTokens の順序を `created ASC, id ASC` に固定。
