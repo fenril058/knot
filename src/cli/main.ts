@@ -12,6 +12,7 @@ import {
   runTokenRevoke,
   runUserAdd,
 } from './commands.ts';
+import { runBackup } from './backup.ts';
 
 const USAGE = `usage:
   knot init    --data <dir>
@@ -19,6 +20,7 @@ const USAGE = `usage:
   knot export  --data <dir> --project <name> [--format import] [--out <file.json>]
   knot export  --data <dir> --project <name> --with-files --out <file.zip>
   knot reindex --data <dir> [--project <name>]
+  knot backup  --data <dir> --out <destdir>
   knot serve   --data <dir> [--port <n>] [--hostname <s>]
   knot token add --data <dir> --user <name> [--label <s>]
   knot token list --data <dir> --user <name>
@@ -81,6 +83,9 @@ async function main(argv: string[]): Promise<string> {
     case 'reindex':
       if (positionals.length !== 0) throw new CliError(USAGE);
       return runReindex(data, values.project ?? null);
+    case 'backup':
+      if (values.out === undefined || positionals.length !== 0) throw new CliError(USAGE);
+      return runBackup(data, values.out);
     case 'serve': {
       if (positionals.length !== 0) throw new CliError(USAGE);
       const port = values.port === undefined ? 3000 : Number(values.port);
