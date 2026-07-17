@@ -9,6 +9,9 @@ export type ServerConfig = {
   maxUploadBytes: number;
   secureCookie: boolean | 'auto';
   sessionTtlSeconds: number;
+  autoExportDir: string | null;
+  autoExportIntervalHours: number;
+  autoExportKeep: number;
 };
 
 export function defaultConfig(dataDir: string): ServerConfig {
@@ -20,6 +23,9 @@ export function defaultConfig(dataDir: string): ServerConfig {
     maxUploadBytes: 10 * 1024 * 1024,
     secureCookie: 'auto',
     sessionTtlSeconds: 30 * 24 * 60 * 60,
+    autoExportDir: null,
+    autoExportIntervalHours: 24,
+    autoExportKeep: 7,
   };
 }
 
@@ -34,6 +40,9 @@ const VALIDATORS: Record<string, (v: unknown) => boolean> = {
   maxUploadBytes: (v) => typeof v === 'number' && Number.isInteger(v) && v > 0,
   secureCookie: (v) => typeof v === 'boolean' || v === 'auto',
   sessionTtlSeconds: (v) => typeof v === 'number' && Number.isInteger(v) && v > 0,
+  autoExportDir: (v) => v === null || typeof v === 'string',
+  autoExportIntervalHours: (v) => typeof v === 'number' && Number.isInteger(v) && v > 0,
+  autoExportKeep: (v) => typeof v === 'number' && Number.isInteger(v) && v > 0,
 };
 
 export function loadConfig(dataDir: string): ServerConfig {

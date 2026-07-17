@@ -8,6 +8,9 @@ import { defaultConfig, loadConfig } from '../../src/server/config.ts';
 test('config.json が無ければ既定値', () => {
   const dir = mkdtempSync(join(tmpdir(), 'knot-config-'));
   assert.deepEqual(loadConfig(dir), defaultConfig(dir));
+  assert.equal(loadConfig(dir).autoExportDir, null);
+  assert.equal(loadConfig(dir).autoExportIntervalHours, 24);
+  assert.equal(loadConfig(dir).autoExportKeep, 7);
 });
 
 test('config.json が既定値にマージされる', () => {
@@ -36,6 +39,11 @@ test('型・範囲の不正な値はエラー', () => {
     { sessionTtlSeconds: 'thirty days' },
     { secureCookie: 'yes' },
     { allowedImageHosts: ['ok.example', 42] },
+    { autoExportDir: 42 },
+    { autoExportIntervalHours: -1 },
+    { autoExportIntervalHours: 1.5 },
+    { autoExportKeep: -1 },
+    { autoExportKeep: 2.5 },
   ]) {
     const dir = mkdtempSync(join(tmpdir(), 'knot-config-'));
     writeFileSync(join(dir, 'config.json'), JSON.stringify(bad));
