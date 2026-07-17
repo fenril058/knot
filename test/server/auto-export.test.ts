@@ -140,18 +140,21 @@ test('起動直後と周期ごとに実行し、実行中は skip し、stop 後
   t.mock.timers.tick(3_600_000);
   assert.equal(calls, 1);
   release();
+  // setTimeout は mock 対象外（apis: ['setInterval']）なので実時間で待てる。
+  // setImmediate の有界ループはスイート並列実行の負荷下で I/O 完了前に尽きるため使わない。
   const firstExport = join(dataDir, 'exports', 'alpha', '20251009-085500.zip');
-  for (let i = 0; i < 100 && !existsSync(firstExport); i++) {
-    await new Promise<void>((resolve) => setImmediate(resolve));
+  const deadline = Date.now() + 5000;
+  while (!existsSync(firstExport) && Date.now() < deadline) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
   }
   assert.equal(existsSync(firstExport), true);
   // ファイル確定後の世代管理と finally での実行中フラグ解除まで待つ。
-  for (let i = 0; i < 10; i++) await new Promise<void>((resolve) => setImmediate(resolve));
+  await new Promise<void>((resolve) => setTimeout(resolve, 25));
   blocked = Promise.resolve();
   t.mock.timers.tick(3_600_000);
   await Promise.resolve();
   assert.equal(calls, 2);
-  for (let i = 0; i < 10; i++) await new Promise<void>((resolve) => setImmediate(resolve));
+  await new Promise<void>((resolve) => setTimeout(resolve, 25));
   handle.stop();
   t.mock.timers.tick(3_600_000);
   assert.equal(calls, 2);
