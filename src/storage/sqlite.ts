@@ -307,6 +307,13 @@ export class SqliteStorage implements Storage {
     };
   }
 
+  async listAttachments(projectId: string): Promise<Attachment[]> {
+    const rows = this.#db
+      .prepare('SELECT * FROM attachments WHERE project_id = ? ORDER BY created ASC')
+      .all(projectId) as AttachmentRow[];
+    return rows.map((row) => this.#attachmentRowToAttachment(row));
+  }
+
   async getAttachment(id: string): Promise<Attachment | null> {
     const row = this.#db.prepare('SELECT * FROM attachments WHERE id = ?').get(id) as AttachmentRow | undefined;
     return row ? this.#attachmentRowToAttachment(row) : null;

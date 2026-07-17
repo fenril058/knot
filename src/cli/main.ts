@@ -17,6 +17,7 @@ const USAGE = `usage:
   knot init    --data <dir>
   knot import  --data <dir> --project <name> [--on-conflict skip|overwrite] <file.json>
   knot export  --data <dir> --project <name> [--format import] [--out <file.json>]
+  knot export  --data <dir> --project <name> --with-files --out <file.zip>
   knot reindex --data <dir> [--project <name>]
   knot serve   --data <dir> [--port <n>] [--hostname <s>]
   knot token add --data <dir> --user <name> [--label <s>]
@@ -43,6 +44,7 @@ async function main(argv: string[]): Promise<string> {
       'on-conflict': { type: 'string' },
       format: { type: 'string' },
       out: { type: 'string' },
+      'with-files': { type: 'boolean' },
       name: { type: 'string' },
       'display-name': { type: 'string' },
       admin: { type: 'boolean' },
@@ -72,7 +74,9 @@ async function main(argv: string[]): Promise<string> {
       if (values.project === undefined || positionals.length !== 0) throw new CliError(USAGE);
       const format = values.format ?? 'full';
       if (format !== 'full' && format !== 'import') throw new CliError(USAGE);
-      return runExport(data, values.project, format, values.out ?? null);
+      const withFiles = values['with-files'] === true;
+      if (withFiles && (values.out === undefined || format === 'import')) throw new CliError(USAGE);
+      return runExport(data, values.project, format, values.out ?? null, withFiles);
     }
     case 'reindex':
       if (positionals.length !== 0) throw new CliError(USAGE);

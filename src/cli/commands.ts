@@ -7,6 +7,7 @@ import { openDatabase } from '../storage/db.ts';
 import { SqliteStorage } from '../storage/sqlite.ts';
 import { importCosense } from '../storage/import.ts';
 import { exportCosense, type ExportFormat } from '../storage/export.ts';
+import { buildExportZip } from '../storage/exportZip.ts';
 
 export class CliError extends Error {
   constructor(message: string) {
@@ -69,10 +70,25 @@ export async function runExport(
   projectName: string,
   format: ExportFormat,
   out: string | null,
+  withFiles = false,
 ): Promise<string> {
   const storage = openStorage(dataDir);
   try {
-    const exp = await exportCosense(storage, projectName, format, Math.floor(Date.now() / 1000));
+    const now = Math.floor(Date.now() / 1000);
+    if (withFiles) {
+      if (out === null) throw new CliError('--with-files requires --out');
+      if (format === 'import') throw new CliError('--with-files cannot be used with --format import');
+      const project = await storage.getProject(projectName);
+      if (!project) throw new CliError(`unknown project: ${projectName}`);
+      const zip = await buildExportZip(storage, dataDir, projectName, now);
+      const [pages, attachments] = await Promise.all([
+        storage.listPages(project.id),
+        storage.listAttachments(project.id),
+      ]);
+      writeFileSync(out, zip);
+      return `exported ${pages.length} pages and ${attachments.length} files to ${out}`;
+    }
+    const exp = await exportCosense(storage, projectName, format, now);
     const json = JSON.stringify(exp, null, 2);
     if (out === null) return json;
     writeFileSync(out, json);
