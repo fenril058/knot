@@ -24,7 +24,7 @@ MCP サーバは `scrapbox-cosense-mcp`（`API_DOMAIN` で接続先変更可、`
 **採用ツールの調査結果（2026-07-17 時点）:**
 
 - `scrapbox-cosense-mcp@0.7.3`（worldnine 作）: 接続先は env `API_DOMAIN`（既定 scrapbox.io）、認証は env `COSENSE_SID` を `Cookie: connect.sid=<sid>` として送る。knot のセッション cookie と同名・同形式なのでそのまま通る。URL は `https://` 固定のため、テストでは knot を自己署名証明書で HTTPS 起動し、子プロセスに `NODE_EXTRA_CA_CERTS=<証明書パス>` を与えてその証明書を信頼させる（TLS 検証は無効化しない）。読み取り系ツールは `get_page {pageTitle}` / `list_pages` / `search_pages {query}`。
-- `@helpfeel/cosense-cli@1.10.0`: 各コマンドが `<projectUrl>`（例 `http://127.0.0.1:4000/sandbox`）を引数に取り、http origin も受け付ける。認証は env `COSENSE_PAT` の値を `x-personal-access-token` ヘッダで送る。`listPages` は `/api/pages/:project` と `/api/projects/:project/users` を、`readPage` は `/api/pages/v2/:project/:title` と `/api/projects/:project/users` を、`searchFullText` は `/api/pages/:project/search/query` を叩く。`/api/projects/:project/users` が 404 だと listPages / readPage とも失敗する（ユーザー解決が必須経路）。bin は `node_modules/.bin/cosense`（Node >= 24、tsx 経由）。
+- `@helpfeel/cosense-cli@1.10.0`: 各コマンドが `<projectUrl>`（例 `http://127.0.0.1:4000/sandbox`）を引数に取り、http origin も受け付ける。認証は env `COSENSE_PAT` の値を `x-personal-access-token` ヘッダで送る。`listPages` は `/api/pages/:project` と `/api/projects/:project/users` を、`readPage` は `/api/pages/v2/:project/:title` と `/api/projects/:project/users` を、`searchFullText` は `/api/pages/:project/search/query` を叩く。`/api/projects/:project/users` が 404 だと listPages / readPage とも失敗する（ユーザー解決が必須経路）。bin 実体はパッケージの package.json `bin` フィールドから解決する（Node >= 24、tsx 経由。`.bin/` shim は OS 依存のため直接使わない）。
 
 ## Global Constraints
 
@@ -122,9 +122,14 @@ Expected: 全部 PASS（既存テストの回帰なし）。
   - `GET /api/pages/v2/:project/:title`: v1 の `/api/pages/:project/:title` と同一 JSON を返す（ハンドラ本体を関数に括り出して両ルートに登録する。重複実装しない）。
   - `GET /api/projects/:project/users`: `{ projectName, users: [{ id, name, displayName }] }`。未知プロジェクトは 404。
 
-**挙動仕様:**
-- @helpfeel/cosense-cli の readPage は v2 レスポンスを寛容に読む（`persistent`、`lines[].userId`、`user`/`users` は無くても动く）ため、v1 と同一形状で受け入れテストに十分である。フィールドの追加豪華化はしない（YAGNI）。
-- どちらも認証必須の api クラス（Task 1 の PAT でもアクセス可能）。
+**挙動仕様（互換契約の固定）:**
+採用バージョン `@helpfeel/cosense-cli@1.10.0` のソース調査（2026-07-17）に基づき、CLI が実際に参照する必須フィールドを契約として固定する。受け入れテスト（Task 8）で失敗しても、この契約の範囲を超える形状変更は行わない。
+
+- `GET /api/pages/:project`（既存 v1）: top-level `count: number` と `pages: 配列`。pages 要素のフィールドは CLI 側が寛容に読む（欠けは許容）。
+- `GET /api/pages/v2/:project/:title`: JSON オブジェクトであること。`persistent: boolean`、`lines: [{ text, id?, userId?, created?, updated? }]`、`user` / `lastUpdateUser` / `users` は**任意**（CLI は `?? []` / null 許容で読む）。よって v1 の `/api/pages/:project/:title` と同一 JSON で契約を満たす。フィールドの追加豪華化はしない（YAGNI）。
+- `GET /api/projects/:project/users`: JSON オブジェクトであること。`users: [{ id, name, displayName }]` を返す（CLI はユーザー表示名の解決に使う。空配列でも動くが、knot は listUsersForProject の結果を返す）。このエンドポイントが 404 だと CLI の listPages / readPage が失敗するため、契約の一部である。
+- `GET /api/pages/:project/search/query`（既存 v1）: 現行形状のまま。
+- どちらの新エンドポイントも認証必須の api クラス（Task 1 の PAT でもアクセス可能）。
 
 - [ ] **Step 1: 失敗するテストを書く**
 
@@ -133,7 +138,7 @@ test/server/read-v2.test.ts:
 - v2 でも未知ページ 404、未認証 401。
 
 test/server/project-users.test.ts:
-- インポート由来の表示ユーザーとログインユーザーが users に載る（id / name / displayName のみ。email や passwordHash が漏れない）。
+- インポート由来の表示ユーザーとログインユーザーが users に載る（id / name / displayName のみ。email や passwordHash が漏れない）。**前提条件に注意**: 現行 `listUsersForProject` はそのプロジェクトの行・コミットに現れるユーザーだけを返すため、ログインユーザーは事前にそのプロジェクトへ書き込ませておく（seedPage の userId に使う等）。
 - 未知プロジェクト 404。PAT 認証でも 200（Task 1 の storage 直接発行を利用）。
 
 - [ ] **Step 2: 落ちることを確認 → Step 3: 実装 → Step 4: 全テスト・型・lint PASS**
@@ -161,8 +166,10 @@ Run: `direnv exec . node --test test/server/read-v2.test.ts test/server/project-
 **挙動仕様:**
 - ローカルファイルヘッダ + central directory + EOCD の最小構成。圧縮メソッドは 8（deflate、`zlib.deflateRawSync`）。CRC32 はテーブル方式で自前実装（writer と reader で共用してよい）。
 - ファイル名は UTF-8 とし、general purpose bit 11（language encoding flag）を立てる。
-- DOS 時刻は mtime（Unix 秒、UTC）から変換する。エントリと mtime が同じなら出力はバイト単位で決定的。
-- ZIP64 は実装しない（4GB 超・65535 エントリ超は対象外。コメントで明記）。
+- DOS 時刻は mtime（Unix 秒、UTC）から変換する。範囲外は clamp（1980-01-01 未満 → 1980-01-01、2107-12-31 超 → 2107-12-31）、秒は偶数へ切り下げる（DOS 時刻は 2 秒粒度）。エントリと mtime が同じなら出力はバイト単位で決定的。
+- ZIP64 は実装しない。非対応範囲は黙って切り詰めず **StorageError で拒否する**: エントリ数 > 65535、エントリの非圧縮サイズ・圧縮後サイズ・ローカルヘッダ offset・central directory のサイズ/offset のいずれかが 0xFFFFFFFF 超。
+- 上限検査は数値を引数に取る小さな検証関数（例 `assertZipLimits`）に括り出し、4GB の実バッファを作らずに単体テストできるようにする。
+- createZip は zip 全体をメモリ上に構築する（v1 の割り切り。ストリーミング化は将来課題としてコメントに明記）。
 
 - [ ] **Step 1: 失敗するテストを書く**
 
@@ -172,6 +179,8 @@ test/storage/zip.test.ts:
 - 同一入力・同一 mtime で 2 回 createZip した Buffer が equal（決定性）。
 - data を 1 バイト改竄した zip を readZip すると CRC 不一致で throw。
 - マジックナンバー確認: 出力先頭 4 バイトが `PK\x03\x04`、末尾に EOCD シグネチャ `PK\x05\x06` が存在する。
+- 上限: 65536 エントリ（全部 0 バイトで可）の createZip が StorageError。検証関数の数値テストで 0xFFFFFFFF 境界（ちょうど / +1）の合否を確認。
+- DOS 時刻境界: 1980 年未満と 2107 年超の mtime が clamp され、奇数秒が偶数へ切り下がる（readZip またはヘッダのバイト検査で確認）。
 
 - [ ] **Step 2: 落ちることを確認 → Step 3: 実装 → Step 4: PASS 確認**
 
@@ -235,18 +244,20 @@ test/cli/export-with-files.test.ts:
   - CLI: `knot backup --data <dir> --out <destdir>`。
 
 **挙動仕様（設計書 27 の順序を厳守）:**
-1. outDir が存在して空でなければ CliError（上書きによる過去バックアップ破壊を防ぐ）。
-2. **先に** `dataDir/files/` を outDir/files/ へ再帰コピー（cpSync）。`config.json` があればコピー。
-3. **その後** ソース DB を openDatabase で開き、`backup()` で outDir/knot.db へスナップショット（WAL 中でも一貫スナップショットになる。これが files 先行コピーと合わせて「DB が参照するファイルが欠けない」根拠。理由をコードコメントに残す）。
-4. 完了後の検証: outDir/knot.db を開き attachments 全行の id について outDir/files/<id> の存在を確認。欠けがあれば欠落 id を列挙して CliError。
-5. 成功時 `backed up to <outDir> (N attachments verified)` を返す。
+1. パス検査: dataDir と outDir を realpath（親ディレクトリまで）解決し、同一・相互包含（outDir が dataDir 配下、dataDir が outDir 配下）なら CliError。outDir が存在して空でなければ CliError（上書きによる過去バックアップ破壊を防ぐ）。
+2. 出力は outDir と同じ親ディレクトリの一時ディレクトリ（例 `.<basename>.tmp-<pid>`）へ組み立て、**全工程成功後に rename で outDir へ確定**する。失敗時は一時ディレクトリを削除して CliError（部分出力を残さず、同じコマンドをそのまま再実行できる）。
+3. **先に** `dataDir/files/` を一時ディレクトリの files/ へ再帰コピー（cpSync）。`config.json` があればコピー。
+4. **その後** ソース DB を openDatabase で開き、`backup()` で一時ディレクトリの knot.db へスナップショット（WAL 中でも一貫スナップショットになる。これが files 先行コピーと合わせて「DB が参照するファイルが欠けない」根拠。理由をコードコメントに残す）。
+5. 完了後の検証: スナップショット DB を開き attachments 全行の id について files/<id> の存在を確認。欠けがあれば欠落 id を列挙して CliError。
+6. rename して成功時 `backed up to <outDir> (N attachments verified)` を返す。
+7. 稼働中サーバに対する backup は、files コピーと DB スナップショットの間に添付アップロードが割り込むと検証失敗になり得る。これは仕様（fail loudly）であり、backup の再実行で解決する。コードコメントと ops.md（Task 11 §5）に明記する。
 
 - [ ] **Step 1: 失敗するテストを書く**
 
 test/cli/backup.test.ts:
 - **復元テスト（スペックの受け入れ条件）**: init → import fixture → 添付 1 件（DB 行 + 実ファイル）→ runBackup → バックアップ先を dataDir として SqliteStorage + createApp を組み、ログイン → `GET /api/pages/:project/:title` 200、`GET /files/:id`（既存 files ルートの実パスに合わせる）200 を確認。
-- 検証の失敗系: dataDir/files から実ファイルを消してから runBackup → reject（メッセージに欠落 id）。
-- outDir 非空 → reject。
+- 検証の失敗系: dataDir/files から実ファイルを消してから runBackup → reject（メッセージに欠落 id）。**失敗後に outDir も一時ディレクトリも残っておらず、ファイルを戻して同じ引数で再実行すると成功する。**
+- outDir 非空 → reject。outDir が dataDir 自身・dataDir 配下（例 dataDir/files/bk）・dataDir を包含する親 → いずれも reject。
 - バックアップ実行後に元 DB へ書き込んでもバックアップ側が変化しない（スナップショットである）ことを 1 ケース。
 
 - [ ] **Step 2: 落ちることを確認 → Step 3: 実装 → Step 4: PASS 確認 → Step 5: コミット**
@@ -275,17 +286,21 @@ test/cli/backup.test.ts:
     - `startAutoExport(deps: { storage: Storage; dataDir: string; config: ServerConfig; now?: () => number }): { stop(): void }`
 
 **挙動仕様:**
-- ファイル名は `<projectName>-<YYYYMMDD-HHMMSS>.zip`（UTC、now から生成）。出力先ディレクトリは mkdir -p する。
-- 世代管理: 同一プロジェクトのファイルを名前降順に並べ、新しい方から keep 件を残して削除。
-- `startAutoExport` は起動直後に 1 回実行し、以後 intervalHours ごと（`setInterval`、`unref()` してプロセス終了を妨げない）。
+- 保存形式は**プロジェクトごとのサブディレクトリ** `<autoExportDir>/<projectName>/<YYYYMMDD-HHMMSS>.zip`（UTC、now から生成）。ファイル名からプロジェクトを判定するパース処理は書かない（`a` と `a-b` のような prefix 衝突を構造で排除する）。出力先は mkdir -p する。
+- 書き込みは同ディレクトリの一時名（例 `<name>.zip.tmp`）へ書いてから rename で確定する（途中終了による破損 zip を最終名で残さない）。同秒衝突で最終名が既に存在する場合は rename の上書きで確定してよい（同一 now からの再生成は同内容）。
+- 世代管理: **各プロジェクトのサブディレクトリ内だけ**を対象に、`*.zip` を名前降順に並べ新しい方から keep 件を残して削除。`.tmp` は対象外。
+- 実行ロック: プロセス内で「実行中フラグ」を持ち、前回の runAutoExportOnce が終わっていなければその周期は skip する（多重実行しない）。knot v1 は単一プロセス運用が前提であり、プロセス間ロックは実装しない（前提をコメントに明記）。
+- `startAutoExport` は起動直後に 1 回実行し、以後 intervalHours ごと（`setInterval`、`unref()` してプロセス終了を妨げない）。`stop()` はタイマーを解除するだけで進行中の実行は待たない（tmp + rename により最終名の破損は起きない）。
 - 1 回の実行中の失敗（プロジェクト単位の StorageError など）は console.error に記録して serve は落とさない。次周期で再試行される。
-- `runServe` は `config.autoExportDir` が設定されているときだけ start する。
+- `runServe` は `config.autoExportDir` が設定されているときだけ start する。autoExportDir は dataDir 外を推奨（ops.md に記載。`knot backup` の対象は files/ + knot.db + config.json のみで、自動エクスポート zip はバックアップに含まれない）。
 
 - [ ] **Step 1: 失敗するテストを書く**
 
 test/server/auto-export.test.ts:
-- プロジェクト 2 つを仕込み runAutoExportOnce → dir に 2 ファイル、written に 2 パス、zip が readZip で読める。
+- プロジェクト 2 つを仕込み runAutoExportOnce → 各サブディレクトリに 1 ファイル、written に 2 パス、zip が readZip で読める。`.tmp` が残っていない。
 - keep=2 で now を進めながら 3 回実行 → 各プロジェクトのファイルが 2 件に刈り込まれ、pruned が最古を指す。
+- prefix 衝突: プロジェクト `a` と `a-b` を両方仕込み、片方の刈り込みがもう片方のファイルに触れない。
+- 同一 now で 2 回実行してもエラーにならず、ファイルは 1 件のまま。
 - 添付欠落プロジェクトがあっても他プロジェクトの zip は書かれ、reject しない（エラーは握って継続）。
 - `startAutoExport` は `node:test` の `mock.timers`（setInterval を mock）で、起動時 1 回 + interval 経過でもう 1 回走ることを確認し、`stop()` 後は走らないこと。
 
@@ -313,7 +328,7 @@ config.test.ts 追記: 新キー 3 つの既定値、型不正（負数・非整
 - テストの構成:
   1. in-memory SqliteStorage + createApp（secureCookie: false）を node:https で 127.0.0.1 の空きポート（port 0 → `server.address()` で実ポート取得）に起動。
   2. プロジェクト `sandbox` にページを 2〜3 件 seed（本文に検索で引っかかる一意な文字列を入れる）。ユーザーとセッションを storage 直接操作で作成し sid を得る。
-  3. `StdioClientTransport` で MCP サーバを子プロセス起動。command は `process.execPath`、args は scrapbox-cosense-mcp の bin 実体（`node_modules/scrapbox-cosense-mcp/package.json` の bin フィールドを require.resolve で解決）。env: `API_DOMAIN=localhost:<port>`、`COSENSE_PROJECT_NAME=sandbox`、`COSENSE_SID=<sid>`、`NODE_EXTRA_CA_CERTS=test/fixtures/tls/localhost-cert.pem`（絶対パスに解決して渡す。自己署名証明書を子プロセスの信頼ストアに追加する。`NODE_TLS_REJECT_UNAUTHORIZED=0` による検証無効化はしない。openssl req -x509 の既定で CA:TRUE が付くため信頼アンカーとして機能する）。
+  3. `StdioClientTransport` で MCP サーバを子プロセス起動。command は `process.execPath`、args は scrapbox-cosense-mcp の bin 実体（`node_modules/scrapbox-cosense-mcp/package.json` の bin フィールドを require.resolve で解決）。env: `API_DOMAIN=127.0.0.1:<port>`（サーバの bind と同じ 127.0.0.1 に統一する。`localhost` は環境により ::1 を優先して IPv4 bind に届かないため使わない。証明書に IP SAN 127.0.0.1 を含めるのはこのため）、`COSENSE_PROJECT_NAME=sandbox`、`COSENSE_SID=<sid>`、`NODE_EXTRA_CA_CERTS=test/fixtures/tls/localhost-cert.pem`（絶対パスに解決して渡す。自己署名証明書を子プロセスの信頼ストアに追加する。`NODE_TLS_REJECT_UNAUTHORIZED=0` による検証無効化はしない。openssl req -x509 の既定で CA:TRUE が付くため信頼アンカーとして機能する）。
   4. `client.callTool` で `list_pages` → 返却テキストに seed したタイトルが含まれる。`get_page {pageTitle}` → 本文行が含まれる。`search_pages {query}` → 一意文字列のページがヒットする。
   5. 後始末: client.close / server.close。テストが失敗しても子プロセスが残らないよう try/finally。
 
@@ -357,7 +372,7 @@ Expected: 受け入れテスト含め全 PASS。3 ツール（list_pages / get_p
 **挙動仕様:**
 - knot を **http** で 127.0.0.1 の空きポートに起動（この CLI は http origin を受け付けるので TLS 不要）。
 - ユーザー作成 → `generateApiToken` + `storage.createApiToken` で PAT を仕込む。
-- `node_modules/.bin/cosense` を `execFile(process.execPath, [bin, <command>, ...])` で起動し、env に `COSENSE_PAT=<token>` を渡す。
+- 起動方法は Task 7 と統一する: `require.resolve('@helpfeel/cosense-cli/package.json')` でパッケージ位置を解決し、その `bin` フィールドが指す実体ファイルを `execFile(process.execPath, [binPath, <command>, ...])` で起動する（`.bin/` の shim は OS 依存があるため使わない）。env に `COSENSE_PAT=<token>` を渡す。
 - 検証コマンドと期待:
   - `listPages http://127.0.0.1:<port>/sandbox` → stdout の JSON に `count` と seed したタイトル。
   - `readPage http://127.0.0.1:<port>/sandbox/<タイトル>` → 本文行のテキスト。
@@ -371,7 +386,7 @@ Run: `npm install -D @helpfeel/cosense-cli@^1.10.0` → `direnv reload`
 - [ ] **Step 2: 失敗するテストを書く → Step 3: 通す**
 
 Run: `direnv exec . node --test test/acceptance/cosense-cli.test.ts` → 修正 → `direnv exec . npm test` 全 PASS。
-（このテストが落ちる場合の典型は Task 2 のエンドポイント形状。CLI のエラー出力に落ちた URL が出るので、それを見て knot 側ではなくテストの期待を直すか、互換上必要なら knot 側の形状を直す判断をする。「受け入れテストのツールが参照するフィールドを優先する」が判断基準。）
+（このテストが落ちる場合の典型は Task 2 のエンドポイント形状。CLI のエラー出力に落ちた URL が出る。**判断基準は Task 2 に固定した互換契約であり、実装者はその範囲内で knot 側を直す。契約に無いフィールド・エンドポイントの不足が判明した場合は、勝手に契約を広げずユーザーに報告して判断を仰ぐ。**）
 
 - [ ] **Step 4: コミット**
 
@@ -382,7 +397,7 @@ Run: `direnv exec . node --test test/acceptance/cosense-cli.test.ts` → 修正 
 ### Task 9: Docker イメージ
 
 **Files:**
-- Create: `Dockerfile`, `.dockerignore`
+- Create: `Dockerfile`, `.dockerignore`, `scripts/docker-smoke.sh`
 
 **Interfaces:**
 - Consumes: 既存の `npm run build:client`、`knot serve --data /data --hostname 0.0.0.0`。
@@ -390,29 +405,31 @@ Run: `direnv exec . node --test test/acceptance/cosense-cli.test.ts` → 修正 
 
 **挙動仕様:**
 - 多段ビルド。build ステージ（node:24-slim）: package.json / package-lock.json / rolldown.config.ts を COPY → `npm ci` → src と public を COPY → `npm run build:client` → `npm prune --omit=dev`。
-- runtime ステージ（node:24-slim）: pruned node_modules、src、public（build 成果物込み）、package.json を COPY。`USER node`、`VOLUME /data`、`EXPOSE 3000`、`ENTRYPOINT ["node", "src/cli/main.ts"]`、`CMD ["serve", "--data", "/data", "--port", "3000", "--hostname", "0.0.0.0"]`。
+- runtime ステージ（node:24-slim）: pruned node_modules、src、public（build 成果物込み）、package.json を COPY。**`RUN mkdir -p /data && chown node:node /data` を `VOLUME /data` 宣言より前に置く**（named volume は初回マウント時にイメージ側ディレクトリの所有権を引き継ぐため、これで node ユーザーの init / 書き込みが通る。bind mount の場合はホスト側の所有権合わせが運用者の責任になる旨を ops.md に書く）。`USER node`、`VOLUME /data`、`EXPOSE 3000`、`ENTRYPOINT ["node", "src/cli/main.ts"]`、`CMD ["serve", "--data", "/data", "--port", "3000", "--hostname", "0.0.0.0"]`。
 - サーバは type stripping で src をそのまま実行する（ビルドしない方針は Docker 内でも同じ）。
 - init は自動化しない（serve の「init 済みでなければ落ちる」ガードを尊重）。初期化・ユーザー追加は `docker run --rm -v <vol>:/data knot init --data /data` のように CMD を差し替えて行う。手順は Task 11 の ops.md に書く。
 - `.dockerignore`: `node_modules`, `data`, `test`, `test-results`, `e2e`, `docs`, `.git`, `public/build`, `*.md` など。COPY 対象が最小になること。
 
 - [ ] **Step 1: Dockerfile と .dockerignore を書く**
 
-- [ ] **Step 2: ビルドとスモークを手元で確認する（docker が使える環境の場合）**
+- [ ] **Step 2: スモークスクリプトを書く（CI と共用の単一ソース）**
 
-Run:
-```
-docker build -t knot:dev .
-docker volume create knot-smoke
-docker run --rm -v knot-smoke:/data knot:dev init --data /data
-echo -n 'pw12345678' | docker run --rm -i -v knot-smoke:/data knot:dev user add --data /data --name alice
-docker run -d --name knot-smoke -p 127.0.0.1:3000:3000 -v knot-smoke:/data knot:dev
-curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/pages/none   # 401 を期待
-docker rm -f knot-smoke && docker volume rm knot-smoke
-```
-Expected: build 成功、401（未認証応答 = サーバ起動確認）。
-docker が無い環境では Step 2 をスキップし、Task 10 の CI job で検証されることを明記してコミットする。
+`scripts/docker-smoke.sh` を作り、Task 10 の CI job はこれをそのまま実行する（手順の二重管理をしない）。内容:
+1. `docker build -t knot:smoke .`
+2. `docker volume create knot-smoke-$$`（一意名）
+3. `init --data /data` → `user add`（stdin でパスワード、`--name alice`）
+4. `docker run -d` で serve を起動し、`/api/pages/none` が 401 を返すまでリトライ付きで待機（最大 30 秒、curl 失敗は継続）。
+5. ログイン検証: `POST /api/knot/session` に `content-type: application/json` + `X-Knot-Client` ヘッダと `{"name":"alice","password":...}` を送り 200 を確認。
+6. **再起動後の volume 書き込み検証**: コンテナを restart し、ログイン → `POST /api/knot/projects/smoke` が 200（named volume の所有権と永続化の確認。指摘 #1 の回帰テスト）。
+7. cleanup は trap で必ず実行（`docker rm -f` + `docker volume rm`）。失敗時も残骸を残さない。
 
-- [ ] **Step 3: コミット**
+- [ ] **Step 3: 手元で実行して確認する（docker が使える環境の場合）**
+
+Run: `bash scripts/docker-smoke.sh`
+Expected: exit 0。
+docker が無い環境ではこの Step をスキップし、Task 10 の CI job で検証されることを明記してコミットする。
+
+- [ ] **Step 4: コミット**
 
 `feat(docker): node:24-slim 多段ビルドの Docker イメージ`
 
@@ -430,7 +447,7 @@ docker が無い環境では Step 2 をスキップし、Task 10 の CI job で�
 **挙動仕様:**
 - job `test`: ubuntu-latest、actions/checkout + actions/setup-node（node-version: 24, cache: npm）→ `npm ci` → `npm run typecheck` → `npm run lint` → `npm run build:client` → `npm test`。受け入れテストはここで一緒に走る（外部ネットワーク不要。ツールは npm ci で入る）。
 - job `e2e`: `npm ci` → `npx playwright install --with-deps chromium` → `npm run test:e2e`。
-- job `docker`: `docker build -t knot:ci .` → Task 9 Step 2 と同じスモーク（init → user add → serve → curl 401 とログイン 200）をシェルステップで実行。
+- job `docker`: `bash scripts/docker-smoke.sh` を実行する（Task 9 で定義した単一ソース。build → init → user add → 起動待機 → 401 → ログイン 200 → 再起動後書き込み → cleanup を含む）。
 - nix / direnv は CI では使わない（プレーン npm で完結することが Global Constraints の範囲で成り立つ）。
 
 - [ ] **Step 1: workflow を書く**
@@ -455,13 +472,13 @@ Run: `npm ci && npm run typecheck && npm run lint && npm run build:client && npm
 - Produces: 配布物としての運用ドキュメント。
 
 **挙動仕様（章立てと必須内容）:**
-1. **起動と設定**: `knot serve` のフラグ、config.json の全キー表（allowedImageHosts 〜 autoExportKeep。既定値と意味）。想定リソース（メモリ 200MB 程度）。
+1. **起動と設定**: `knot serve` のフラグ、config.json の全キー表（allowedImageHosts 〜 autoExportKeep。既定値と意味）。想定リソース: 通常運用でメモリ 200MB 程度。ただし export --with-files / 自動エクスポート / backup の実行中は zip をメモリ上に構築するため、対象プロジェクトの添付合計サイズぶんのピークが上乗せされる（数 GB 規模の添付を持つ運用は v1 の対象外）と明記する。
 2. **ユーザーとトークン**: `knot user add`、`knot token add/list/revoke`、PAT の使い方（`x-personal-access-token` ヘッダ / 公式 cosense-cli の `COSENSE_PAT`）。
-3. **リバースプロキシ設定例**: nginx と Caddy の 2 例。必須ポイントを本文で説明する — `X-Forwarded-Proto`、HTTPS 終端時に secureCookie が auto で secure になる条件（serve の hostname が loopback かどうかで決まる現実装の挙動を正確に書く）、`client_max_body_size`（アップロード上限 maxUploadBytes と揃える）、`/files/` と `/assets/` を含む全パス転送。
+3. **リバースプロキシ設定例**: nginx と Caddy の 2 例。必須ポイントを本文で説明する — `X-Forwarded-Proto`、HTTPS 終端時に secureCookie が auto で secure になる条件（serve の hostname が loopback かどうかで決まる現実装の挙動を正確に書く）、`client_max_body_size`（アップロード上限 maxUploadBytes と揃える）、`/files/` と `/assets/` を含む全パス転送。**既知の制約として必ず書く**: ログイン試行のレートリミットは接続元 socket アドレスをキーにしており `X-Forwarded-For` を解釈しないため、プロキシ・Cloudflare Tunnel 配下では全利用者が同一キーを共有する（誰かの失敗 10 回で全員が 10 分ロックアウトされ得る。trusted proxy 対応は v2 検討事項）。
 4. **Cloudflare Tunnel**: 自宅 PC + 0 円構成の設定例（cloudflared の config 断片）。
-5. **バックアップと復元**: `knot backup` の手順と原理（files 先行 → DB スナップショット → 検証の順序の理由）、復元手順（バックアップディレクトリをそのまま `--data` に指定 / 置き換え）、cron 設定例。
-6. **定期自動エクスポート**: autoExport 3 キーの設定例と、これが「DB 形式に依存しない保険」であるという位置づけ。zip の中身（`<project>.json` + `files/`）と Cosense へ持ち込む場合の手順（`--format import` との関係）。
-7. **Docker 運用**: ボリューム作成 → init → user add → serve の一連、docker compose 例、イメージ更新手順。
+5. **バックアップと復元**: `knot backup` の手順と原理（files 先行 → DB スナップショット → 検証の順序の理由）、復元手順（バックアップディレクトリをそのまま `--data` に指定 / 置き換え）、cron 設定例。稼働中サーバへの backup は添付アップロードと競合すると検証エラーで失敗することがあり、**再実行すれば解決する**（部分出力は残らない）こと。バックアップ対象は files/ + knot.db + config.json のみで、自動エクスポート zip は含まれないこと。
+6. **定期自動エクスポート**: autoExport 3 キーの設定例と、これが「DB 形式に依存しない保険」であるという位置づけ。autoExportDir は dataDir の外に置くことを推奨。zip の中身（`<project>.json` + `files/`）と Cosense へ持ち込む場合の手順（`--format import` との関係。**制約として明記**: 本文中の添付 URL は knot の相対 URL のままであり、Cosense 側へのファイル移行・URL 書き換えは自動化しない。files/ は knot への再取り込み・自己復元用である）。
+7. **Docker 運用**: ボリューム作成 → init → user add → serve の一連、docker compose 例、イメージ更新手順。bind mount を使う場合はホスト側ディレクトリの所有権を node ユーザー（uid 1000）に合わせる必要があること（named volume はイメージ側の所有権を引き継ぐため不要）。
 8. **互換性の約束**: 動作保証する周辺ツールの列挙 — `scrapbox-cosense-mcp@0.7.x`（get_page / list_pages / search_pages、`API_DOMAIN` と `COSENSE_SID` の設定方法）と `@helpfeel/cosense-cli@1.10.x`（listPages / readPage / searchFullText、`COSENSE_PAT`）。「フィールドの網羅は保証せず、受け入れテストが参照する範囲を保証する」という原則の明記。
 
 - [ ] **Step 1: docs/ops.md を書く（上記 8 章。一文一行）**
@@ -481,3 +498,5 @@ Run: `npm ci && npm run typecheck && npm run lint && npm run build:client && npm
 - **スペックからの逸脱（承認済み）**: PAT 認証と `/api/pages/v2`・`/api/projects/:project/users` はスペック未記載の追加。公式 CLI を受け入れテストに採用するための前提であり、2026-07-17 にユーザーが承認した。
 - **型整合**: `createZip(entries): Buffer`（Task 3）を Task 4 の `buildExportZip` が使い、それを Task 6 の `runAutoExportOnce` が使う。`generateApiToken` は Task 1 定義・Task 8 消費。`listAttachments` は Task 4 で追加し Task 4・5 で消費（Task 5 はバックアップ先 DB を直接 SELECT してもよい）。
 - **プレースホルダ**: コピー用コードを置かない方針（plan-04 errata）に基づき、各タスクは挙動仕様とテスト仕様で完結させた。外部ツールの引数並びなど実行時にしか確定しない 2 点（cosense-cli の searchFullText 引数、scrapbox-cosense-mcp の bin 実体パス）は「--help / package.json で確認する」手順として明示した。
+- **外部レビュー反映（Codex、2026-07-17）**: 指摘 12 件中 10 件を計画へ反映 — Docker /data 所有権（mkdir + chown を VOLUME 前に）、世代管理のプロジェクト別サブディレクトリ化、自動エクスポートの tmp + rename と実行ロック、バックアップの一時ディレクトリ確定・パス包含拒否・再実行可能性、ZIP 非対応範囲の StorageError 拒否と DOS 時刻規則、CLI bin 実体の package.json 解決、互換契約の Task 2 への固定（Task 8 の循環判断を排除）、MCP テストの 127.0.0.1 統一、CI Docker スモークの単一スクリプト化（再起動後書き込み検証込み）。
+  残る 2 件は実装変更せず ops.md の必須記載とした: #6 メモリ（2〜5 人規模でストリーミング zip は YAGNI。ピークメモリの条件を §1 に明記）、#10 レートリミットのプロキシ配下共有キー（trusted proxy 対応は v2 検討。制約を §3 に明記）。
