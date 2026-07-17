@@ -87,7 +87,7 @@ export function registerReadRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     });
   };
 
-  app.get('/api/pages/:project', async (c) => {
+  const listPages = async (c: Context<ApiEnv>): Promise<Response> => {
     const project = await resolveProject(storage, c);
     if (!project) return jsonError(c, 404, 'not_found');
     const skip = Number(c.req.query('skip') ?? '0');
@@ -103,7 +103,11 @@ export function registerReadRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     const limit = Math.min(limitRaw, 1000);
     const { count, pages } = await storage.listPageSummaries(project.id, { skip, limit, sort });
     return c.json({ projectName: project.name, skip, limit, count, pages: pages.map(summaryToJson) });
-  });
+  };
+
+  app.get('/api/pages/:project', listPages);
+  // 公式 cosense-cli の listPages は末尾スラッシュ付き URL を構築するため、両方を受ける
+  app.get('/api/pages/:project/', listPages);
 
   app.get('/api/pages/:project/search/titles', async (c) => {
     const project = await resolveProject(storage, c);

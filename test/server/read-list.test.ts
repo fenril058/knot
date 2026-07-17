@@ -94,3 +94,16 @@ test('タイトルの percent-encoding が解決される', async () => {
   // 不正な percent-encoding は 500 にせず 404
   assert.equal((await s.request('/api/pages/proj/%E0%A4%A/text', {}, cookie)).status, 404);
 });
+
+test('GET /api/pages/:project/ （末尾スラッシュ）も同じ一覧を返す', async () => {
+  const s = await makeServer();
+  await s.addUser('alice', 'pw12345678');
+  const cookie = await s.login('alice', 'pw12345678');
+  await seedProject(s);
+  const [plain, slashed] = await Promise.all([
+    s.request('/api/pages/proj', {}, cookie),
+    s.request('/api/pages/proj/', {}, cookie),
+  ]);
+  assert.equal(slashed.status, 200);
+  assert.deepEqual(await slashed.json(), await plain.json());
+});
