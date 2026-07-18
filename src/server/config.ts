@@ -41,7 +41,8 @@ const VALIDATORS: Record<string, (v: unknown) => boolean> = {
   secureCookie: (v) => typeof v === 'boolean' || v === 'auto',
   sessionTtlSeconds: (v) => typeof v === 'number' && Number.isInteger(v) && v > 0,
   autoExportDir: (v) => v === null || typeof v === 'string',
-  autoExportIntervalHours: (v) => typeof v === 'number' && Number.isInteger(v) && v > 0,
+  // Node.js の setInterval は 32-bit 符号付き整数を超える遅延を 1 ms に丸める。
+  autoExportIntervalHours: (v) => typeof v === 'number' && Number.isInteger(v) && v > 0 && v <= 596,
   autoExportKeep: (v) => typeof v === 'number' && Number.isInteger(v) && v > 0,
 };
 

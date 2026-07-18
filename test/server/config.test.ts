@@ -33,6 +33,16 @@ test('未知キーはエラー', () => {
   assert.throws(() => loadConfig(dir), /unknown config key: tyop/);
 });
 
+test('autoExportIntervalHours は 596 を許可し 597 を拒否する', () => {
+  const acceptedDir = mkdtempSync(join(tmpdir(), 'knot-config-'));
+  writeFileSync(join(acceptedDir, 'config.json'), JSON.stringify({ autoExportIntervalHours: 596 }));
+  assert.equal(loadConfig(acceptedDir).autoExportIntervalHours, 596);
+
+  const rejectedDir = mkdtempSync(join(tmpdir(), 'knot-config-'));
+  writeFileSync(join(rejectedDir, 'config.json'), JSON.stringify({ autoExportIntervalHours: 597 }));
+  assert.throws(() => loadConfig(rejectedDir), /invalid config value for autoExportIntervalHours/);
+});
+
 test('型・範囲の不正な値はエラー', () => {
   for (const bad of [
     { maxUploadBytes: -1 },

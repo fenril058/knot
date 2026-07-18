@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { StorageError } from '../../src/storage/types.ts';
-import { assertZipLimits, createZip, type ZipEntry } from '../../src/storage/zip.ts';
+import { accumulateCentralDirectorySize, assertZipLimits, createZip, type ZipEntry } from '../../src/storage/zip.ts';
 import { readZip } from '../helpers/zip.ts';
 
 const MTIME = Date.UTC(2024, 5, 7, 8, 9, 11) / 1000;
@@ -53,6 +53,12 @@ test('ZIP64 の 32-bit sentinel 値をすべての対象フィールドで拒否
     values[index] = 0xffffffff;
     assert.throws(() => assertZipLimits(...(values as [number, number, number, number, number, number])), StorageError);
   }
+});
+
+test('central directory の累積サイズを Buffer.concat 前に検査する', () => {
+  assert.equal(accumulateCentralDirectorySize(10, 46, 4), 60);
+  assert.equal(accumulateCentralDirectorySize(0xfffffffe - 50, 46, 4), 0xfffffffe);
+  assert.throws(() => accumulateCentralDirectorySize(0xfffffffe - 49, 46, 4), /central directory size requires ZIP64/);
 });
 
 function localDosDateTime(zip: Buffer): { date: number; time: number } {

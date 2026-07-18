@@ -30,14 +30,14 @@ knot serve --data <dir> [--port <n>] [--hostname <s>]
 | `secureCookie` | `"auto"` | セッション Cookie に `Secure` 属性を付けるかを `true`、`false`、`"auto"` で指定します。 |
 | `sessionTtlSeconds` | `2592000` | セッションの有効期間を秒単位で指定し、既定値は 30 日です。 |
 | `autoExportDir` | `null` | 自動エクスポートの出力先で、`null` は無効を意味し、相対パスはデータディレクトリを基準に解決されます。 |
-| `autoExportIntervalHours` | `24` | 自動エクスポートの実行間隔を時間単位で指定します。 |
+| `autoExportIntervalHours` | `24` | 自動エクスポートの実行間隔を時間単位で指定します。上限は 596 時間です。 |
 | `autoExportKeep` | `7` | プロジェクトごとに保存する自動エクスポートの世代数です。 |
 
 ホスト名の配列では `*.example.com` のようなワイルドカードを指定できます。
 ワイルドカードはサブドメインだけに一致します。
 
 通常運用で必要なメモリの目安は 200 MB 程度です。
-ただし、`knot export --with-files` と自動エクスポートは zip をメモリ上に構築するため、実行中は対象プロジェクトの添付ファイル合計サイズに相当するピークメモリが上乗せされます。
+ただし、`knot export --with-files` と自動エクスポートは zip をメモリ上に構築するため、実行中は対象プロジェクトの添付ファイル合計の約 3 倍（未圧縮 Buffer、圧縮 Buffer、最終 zip）と zlib の作業領域に相当するピークメモリが上乗せされます。
 数 GB 規模の添付ファイルを持つ運用は v1 の対象外です。
 `knot backup` はファイルのコピーと SQLite の backup API を使い、メモリ上に zip を作らないため、この上乗せの対象外です。
 
@@ -80,14 +80,14 @@ COSENSE_PAT="$KNOT_PAT" cosense listPages https://wiki.example.com/notes
 HTTPS を終端する場合は、バックエンドへ `X-Forwarded-Proto` を渡します。
 
 nginx の設定例は次のとおりです。
-この例の `client_max_body_size` は、`maxUploadBytes` の既定値 10 MiB に合わせています。
+この例の `client_max_body_size` は、`maxUploadBytes` の既定値 10 MiB と multipart オーバーヘッド 64 KiB を受け入れられる値にしています。
 
 ```nginx
 server {
     listen 443 ssl;
     server_name wiki.example.com;
 
-    client_max_body_size 10m;
+    client_max_body_size 11m;
 
     location / {
         proxy_pass http://127.0.0.1:3000;
@@ -97,7 +97,7 @@ server {
 }
 ```
 
-`maxUploadBytes` を変更した場合は `client_max_body_size` も同じ上限以上に変更します。
+`maxUploadBytes` を変更した場合は `client_max_body_size` も `maxUploadBytes` と multipart オーバーヘッドの合計より大きくします。
 `location /` を使うことで、API、ページ、`/files/`、`/assets/` をまとめて転送します。
 
 Caddy の設定例は次のとおりです。
@@ -106,7 +106,7 @@ Caddy の `reverse_proxy` は受信したプロトコルに基づく `X-Forwarde
 ```caddyfile
 wiki.example.com {
     request_body {
-        max_size 10MB
+        max_size 11MiB
     }
 
     reverse_proxy 127.0.0.1:3000 {
@@ -114,6 +114,8 @@ wiki.example.com {
     }
 }
 ```
+
+`request_body` ディレクティブを利用できるかは Caddy のバージョンに依存するため、使用するバージョンの公式ドキュメントで確認してください。
 
 `secureCookie: "auto"` は `X-Forwarded-Proto` ではなく、`knot serve` に渡した `--hostname` だけで解決されます。
 hostname が `127.0.0.1`、`localhost`、`::1` のいずれかなら `false`、それ以外なら `true` になります。
@@ -163,7 +165,8 @@ knot backup --data /srv/knot --out /srv/knot-backups/2026-07-18
 ファイルを先にコピーすることで、後から作る DB スナップショットに記録された添付ファイルがバックアップ内に存在する状態を作ります。
 
 稼働中のサーバへバックアップを実行すると、添付ファイルのアップロードと競合して検証に失敗することがあります。
-この失敗は再実行すれば解決し、失敗時の部分出力は残りません。
+この失敗は再実行すれば解決し、処理可能な失敗では部分出力は残りません。
+SIGKILL や電源断では `.knot-backup-*` 一時ディレクトリが残ることがありますが、手動で削除して構いません。
 
 バックアップ対象は `files/`、`knot.db`、存在する場合の `config.json` だけです。
 自動エクスポートの zip は含まれません。

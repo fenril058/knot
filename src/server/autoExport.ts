@@ -21,11 +21,12 @@ export async function runAutoExportOnce(
   const projects = await storage.listProjects();
 
   for (const project of projects) {
+    let temporaryPath: string | undefined;
     try {
       const projectDir = join(opts.dir, project.name);
       await mkdir(projectDir, { recursive: true });
       const finalPath = join(projectDir, `${timestamp(now)}.zip`);
-      const temporaryPath = `${finalPath}.tmp`;
+      temporaryPath = `${finalPath}.tmp`;
       const zip = await buildExportZip(storage, dataDir, project.name, now);
       await writeFile(temporaryPath, zip);
       await rename(temporaryPath, finalPath);
@@ -40,6 +41,15 @@ export async function runAutoExportOnce(
         pruned.push(path);
       }
     } catch (error) {
+      if (temporaryPath !== undefined) {
+        try {
+          await unlink(temporaryPath);
+        } catch (cleanupError) {
+          if ((cleanupError as NodeJS.ErrnoException).code !== 'ENOENT') {
+            console.error(`auto export cleanup failed for project ${project.name}:`, cleanupError);
+          }
+        }
+      }
       console.error(`auto export failed for project ${project.name}:`, error);
     }
   }

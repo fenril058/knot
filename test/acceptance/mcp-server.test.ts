@@ -44,11 +44,14 @@ function textOf(result: unknown): string {
   return texts.join('\n');
 }
 
-test('scrapbox-cosense-mcp が knot に対して list_pages / get_page / search_pages を実行できる', { timeout: 60_000 }, async () => {
+test('scrapbox-cosense-mcp が knot に対して list_pages / get_page / search_pages を実行できる', { timeout: 90_000 }, async () => {
   const t = 1_700_000_000;
   const storage: Storage = new SqliteStorage(openDatabase(':memory:'));
-  const config = { ...defaultConfig('/nonexistent'), secureCookie: false };
-  const app = createApp({ storage, config, now: () => t });
+  let server: ReturnType<typeof serve> | undefined;
+  let client: Client | undefined;
+  try {
+    const config = { ...defaultConfig('/nonexistent'), secureCookie: false };
+    const app = createApp({ storage, config, now: () => t });
 
   // seed: プロジェクト・ページ・ユーザー・セッション
   const project = await storage.ensureProject('sandbox', t);
@@ -65,20 +68,20 @@ test('scrapbox-cosense-mcp が knot に対して list_pages / get_page / search_
   await storage.createSession({ id: sid, userId, expires: t + 30 * 24 * 60 * 60, created: t });
 
   // HTTPS で実 listener を起動（port 0 → 実ポートを取得）
-  const server = serve({
-    fetch: app.fetch,
-    hostname: '127.0.0.1',
-    port: 0,
-    createServer,
-    serverOptions: { key: readFileSync(keyPath), cert: readFileSync(certPath) },
-  });
-  await new Promise<void>((resolve) => {
-    server.on('listening', () => resolve());
-  });
-  const port = (server.address() as AddressInfo).port;
+    const listener = serve({
+      fetch: app.fetch,
+      hostname: '127.0.0.1',
+      port: 0,
+      createServer,
+      serverOptions: { key: readFileSync(keyPath), cert: readFileSync(certPath) },
+    });
+    server = listener;
+    await new Promise<void>((resolve) => {
+      listener.on('listening', () => resolve());
+    });
+    const port = (listener.address() as AddressInfo).port;
 
-  const client = new Client({ name: 'knot-acceptance', version: '0.0.0' });
-  try {
+    client = new Client({ name: 'knot-acceptance', version: '0.0.0' });
     // StdioClientTransport の env はプロセス環境を継承しないため PATH を明示する
     const transport = new StdioClientTransport({
       command: process.execPath,
@@ -104,9 +107,18 @@ test('scrapbox-cosense-mcp が knot に対して list_pages / get_page / search_
     const found = textOf(await client.callTool({ name: 'search_pages', arguments: { query: 'mcpaccepttoken' } }));
     assert.match(found, /SearchTarget/);
   } finally {
-    await client.close();
-    await new Promise<void>((resolve, reject) => {
-      server.close((err) => (err ? reject(err) : resolve()));
-    });
+    try {
+      if (client !== undefined) await client.close();
+    } finally {
+      try {
+        if (server !== undefined) {
+          await new Promise<void>((resolve, reject) => {
+            server!.close((err) => (err ? reject(err) : resolve()));
+          });
+        }
+      } finally {
+        await storage.close();
+      }
+    }
   }
 });

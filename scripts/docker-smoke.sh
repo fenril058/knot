@@ -4,7 +4,7 @@
 # ログイン 200 → 再起動後の volume 書き込み 200 → cleanup。
 set -euo pipefail
 
-IMAGE=knot:smoke
+IMAGE="knot:smoke-$$"
 VOLUME="knot-smoke-$$"
 CONTAINER="knot-smoke-$$"
 PORT="${KNOT_SMOKE_PORT:-13000}"
@@ -31,7 +31,7 @@ docker run -d --name "$CONTAINER" -p "127.0.0.1:$PORT:3000" -v "$VOLUME":/data "
 
 wait_ready() {
   for _ in $(seq 1 60); do
-    code="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/pages/none" || true)"
+    code="$(curl --connect-timeout 2 --max-time 10 -s -o /dev/null -w '%{http_code}' "$BASE/api/pages/none" || true)"
     if [ "$code" = "401" ]; then return 0; fi
     sleep 0.5
   done
@@ -41,7 +41,7 @@ wait_ready() {
 }
 
 login() {
-  curl -s -o /dev/null -w '%{http_code}' -c "$COOKIES" \
+  curl --connect-timeout 2 --max-time 10 -s -o /dev/null -w '%{http_code}' -c "$COOKIES" \
     -H 'content-type: application/json' -H 'X-Knot-Client: smoke' \
     -d '{"name":"alice","password":"pw12345678"}' \
     "$BASE/api/knot/session"
@@ -56,7 +56,7 @@ docker restart "$CONTAINER" >/dev/null
 wait_ready
 code="$(login)"
 [ "$code" = "200" ] || { echo "re-login failed: $code" >&2; exit 1; }
-code="$(curl -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST \
+code="$(curl --connect-timeout 2 --max-time 10 -s -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST \
   -H 'X-Knot-Client: smoke' "$BASE/api/knot/projects/smoke")"
 [ "$code" = "200" ] || { echo "project create failed: $code" >&2; exit 1; }
 

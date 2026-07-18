@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -109,6 +109,8 @@ test('添付が欠落したプロジェクトを記録して他プロジェク�
     sha256: 'a'.repeat(64), userId: 'user-bad', created: NOW,
   };
   await storage.createAttachment(attachment);
+  mkdirSync(join(dir, 'bad'));
+  writeFileSync(join(dir, 'bad', '20251009-085500.zip.tmp'), 'partial');
   const errors: unknown[][] = [];
   t.mock.method(console, 'error', (...args: unknown[]) => { errors.push(args); });
 
@@ -116,6 +118,7 @@ test('添付が欠落したプロジェクトを記録して他プロジェク�
 
   assert.deepEqual(result.written, [join(dir, 'good', '20251009-085500.zip')]);
   assert.equal(errors.length, 1);
+  assert.deepEqual(readdirSync(join(dir, 'bad')), []);
   await storage.close();
 });
 
@@ -126,6 +129,7 @@ test('起動直後と周期ごとに実行し、実行中は skip し、stop 後
   await addProject(storage, 'alpha');
   const originalListProjects = storage.listProjects.bind(storage);
   let calls = 0;
+  const callCount = () => calls;
   let release!: () => void;
   let blocked = new Promise<void>((resolve) => { release = resolve; });
   storage.listProjects = async () => {
@@ -134,6 +138,10 @@ test('起動直後と周期ごとに実行し、実行中は skip し、stop 後
     return originalListProjects();
   };
   const config = { ...defaultConfig(dataDir), autoExportDir: 'exports', autoExportIntervalHours: 1 };
+  config.autoExportKeep = 1;
+  mkdirSync(join(dataDir, 'exports', 'alpha'), { recursive: true });
+  const prunedExport = join(dataDir, 'exports', 'alpha', '00000000-000000.zip');
+  writeFileSync(prunedExport, 'old');
 
   const handle = startAutoExport({ storage, dataDir, config, now: () => NOW });
   assert.equal(calls, 1);
@@ -148,13 +156,19 @@ test('起動直後と周期ごとに実行し、実行中は skip し、stop 後
     await new Promise<void>((resolve) => setTimeout(resolve, 5));
   }
   assert.equal(existsSync(firstExport), true);
-  // ファイル確定後の世代管理と finally での実行中フラグ解除まで待つ。
-  await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  // ファイル確定後の世代管理（prune 対象の消滅）と finally まで待つ。
+  const pruneDeadline = Date.now() + 2000;
+  while (existsSync(prunedExport) && Date.now() < pruneDeadline) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(existsSync(prunedExport), false);
   blocked = Promise.resolve();
   t.mock.timers.tick(3_600_000);
-  await Promise.resolve();
+  const callsDeadline = Date.now() + 2000;
+  while (callCount() !== 2 && Date.now() < callsDeadline) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+  }
   assert.equal(calls, 2);
-  await new Promise<void>((resolve) => setTimeout(resolve, 25));
   handle.stop();
   t.mock.timers.tick(3_600_000);
   assert.equal(calls, 2);

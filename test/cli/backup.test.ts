@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import {
   existsSync,
+  lstatSync,
   mkdtempSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -118,6 +120,37 @@ test('symlink 経由の包含パスも拒否する', async (t) => {
   symlinkSync(dataDir, link, 'dir');
 
   await assert.rejects(runBackup(dataDir, join(link, 'files', 'bk')));
+});
+
+test('symlink と .. を含む outDir は字句的に正規化した dataDir 外へ作る', async (t) => {
+  const root = tempRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const dataDir = join(root, 'data');
+  await runInit(dataDir);
+  const link = join(root, 'link');
+  symlinkSync(join(dataDir, 'files'), link, 'dir');
+  const outDir = `${link}/../bk`;
+
+  assert.equal(await runBackup(dataDir, outDir), `backed up to ${join(root, 'bk')} (0 attachments verified)`);
+  assert.equal(existsSync(join(root, 'bk', 'knot.db')), true);
+  assert.equal(existsSync(join(dataDir, 'bk')), false);
+});
+
+test('symlink 添付を実体としてコピーする', async (t) => {
+  const root = tempRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const { dataDir, attachmentId } = await populatedData(root);
+  const sourceFile = join(dataDir, 'files', attachmentId);
+  const targetFile = join(root, 'attachment-target');
+  writeFileSync(targetFile, 'restorable attachment');
+  rmSync(sourceFile);
+  symlinkSync(targetFile, sourceFile);
+  const outDir = join(root, 'backup');
+
+  await runBackup(dataDir, outDir);
+
+  assert.equal(readFileSync(join(outDir, 'files', attachmentId), 'utf8'), 'restorable attachment');
+  assert.equal(lstatSync(join(outDir, 'files', attachmentId)).isSymbolicLink(), false);
 });
 
 test('outDir の dangling symlink も既存パスとして拒否する', async (t) => {

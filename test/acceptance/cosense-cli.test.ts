@@ -47,8 +47,11 @@ test(
   async (t) => {
     const at = 1_700_000_000;
     const storage: Storage = new SqliteStorage(openDatabase(':memory:'));
-    const config = { ...defaultConfig('/nonexistent'), secureCookie: false };
-    const app = createApp({ storage, config, now: () => at });
+    let server: ReturnType<typeof serve> | undefined;
+    let home: string | undefined;
+    try {
+      const config = { ...defaultConfig('/nonexistent'), secureCookie: false };
+      const app = createApp({ storage, config, now: () => at });
 
     // seed: プロジェクト・ユーザー・ページ
     const project = await storage.ensureProject('sandbox', at);
@@ -68,21 +71,21 @@ test(
     await storage.createApiToken({ id: ulid(at * 1000), userId, label: 'cli', tokenHash, created: at });
 
     // HTTP（TLS 不要）で実 listener を起動。この CLI は http origin を受け付ける
-    const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: 0 });
-    await new Promise<void>((resolve) => {
-      server.on('listening', () => resolve());
-    });
-    const port = (server.address() as AddressInfo).port;
-    const projectUrl = `http://127.0.0.1:${port}/sandbox`;
+      const listener = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: 0 });
+      server = listener;
+      await new Promise<void>((resolve) => {
+        listener.on('listening', () => resolve());
+      });
+      const port = (listener.address() as AddressInfo).port;
+      const projectUrl = `http://127.0.0.1:${port}/sandbox`;
 
-    // ~/.cosense/settings.json を読みに行かないよう HOME を空の一時ディレクトリにする
-    const home = mkdtempSync(join(tmpdir(), 'knot-cosense-cli-'));
-    const baseEnv: Record<string, string> = {
-      PATH: process.env.PATH ?? '',
-      HOME: home,
-    };
+      // ~/.cosense/settings.json を読みに行かないよう HOME を空の一時ディレクトリにする
+      home = mkdtempSync(join(tmpdir(), 'knot-cosense-cli-'));
+      const baseEnv: Record<string, string> = {
+        PATH: process.env.PATH ?? '',
+        HOME: home,
+      };
 
-    try {
       await t.test('listPages: count と seed したタイトルが返る', async () => {
         const { stdout } = await runCosense(['listPages', projectUrl], {
           ...baseEnv,
@@ -129,10 +132,19 @@ test(
         );
       });
     } finally {
-      rmSync(home, { recursive: true, force: true });
-      await new Promise<void>((resolve, reject) => {
-        server.close((err) => (err ? reject(err) : resolve()));
-      });
+      try {
+        if (home !== undefined) rmSync(home, { recursive: true, force: true });
+      } finally {
+        try {
+          if (server !== undefined) {
+            await new Promise<void>((resolve, reject) => {
+              server!.close((err) => (err ? reject(err) : resolve()));
+            });
+          }
+        } finally {
+          await storage.close();
+        }
+      }
     }
   },
 );

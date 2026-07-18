@@ -44,6 +44,12 @@ export function assertZipLimits(
   }
 }
 
+export function accumulateCentralDirectorySize(currentSize: number, headerLength: number, nameLength: number): number {
+  const nextSize = currentSize + headerLength + nameLength;
+  assertZipLimits(0, 0, 0, 0, nextSize, 0);
+  return nextSize;
+}
+
 function dosDateTime(mtime: number): { date: number; time: number } {
   const milliseconds = Math.min(MAX_DOS_TIME_MS, Math.max(MIN_DOS_TIME_MS, mtime * 1000));
   const value = new Date(milliseconds);
@@ -58,13 +64,15 @@ export function createZip(entries: ZipEntry[]): Buffer {
   const localParts: Buffer[] = [];
   const centralParts: Buffer[] = [];
   let localOffset = 0;
+  let centralDirectorySize = 0;
 
   for (const entry of entries) {
     const name = Buffer.from(entry.name, 'utf8');
     if (name.length > MAX_UINT16) throw new StorageError('ZIP entry name is too long');
 
+    assertZipLimits(entries.length, entry.data.length, 0, localOffset, 0, 0);
     const compressed = deflateRawSync(entry.data);
-    assertZipLimits(entries.length, entry.data.length, compressed.length, localOffset, 0, 0);
+    assertZipLimits(entries.length, 0, compressed.length, localOffset, 0, 0);
     const checksum = crc32(entry.data);
     const { date, time } = dosDateTime(entry.mtime);
 
@@ -95,18 +103,19 @@ export function createZip(entries: ZipEntry[]): Buffer {
     centralHeader.writeUInt16LE(name.length, 28);
     centralHeader.writeUInt32LE(localOffset, 42);
     centralParts.push(centralHeader, name);
+    centralDirectorySize = accumulateCentralDirectorySize(centralDirectorySize, centralHeader.length, name.length);
 
     localOffset += localHeader.length + name.length + compressed.length;
   }
 
-  const centralDirectory = Buffer.concat(centralParts);
-  assertZipLimits(entries.length, 0, 0, 0, centralDirectory.length, localOffset);
+  assertZipLimits(entries.length, 0, 0, 0, centralDirectorySize, localOffset);
+  const centralDirectory = Buffer.concat(centralParts, centralDirectorySize);
 
   const eocd = Buffer.alloc(22);
   eocd.writeUInt32LE(0x06054b50, 0);
   eocd.writeUInt16LE(entries.length, 8);
   eocd.writeUInt16LE(entries.length, 10);
-  eocd.writeUInt32LE(centralDirectory.length, 12);
+  eocd.writeUInt32LE(centralDirectorySize, 12);
   eocd.writeUInt32LE(localOffset, 16);
 
   // v1 は ZIP 全体をメモリ上に構築する。ストリーミング化は将来課題とする。
