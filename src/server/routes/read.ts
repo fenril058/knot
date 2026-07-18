@@ -20,6 +20,7 @@ function summaryToJson(p: PageSummary) {
     created: p.created,
     updated: p.updated,
     accessed: p.updated,
+    version: p.version, // knot 拡張: 同期 CLI 用
   };
 }
 

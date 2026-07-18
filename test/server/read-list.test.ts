@@ -43,6 +43,9 @@ test('GET /api/pages/:project が Cosense 形状で返す', async () => {
   assert.equal(alpha.views, 0);
   assert.equal(alpha.linked, 1);
   assert.equal(alpha.accessed, alpha.updated);
+  // knot 拡張: 同期 CLI が差分検出に使う version
+  assert.equal(typeof alpha.version, 'number');
+  assert.ok(alpha.version >= 1);
 });
 
 test('skip / limit / sort パラメータ', async () => {
