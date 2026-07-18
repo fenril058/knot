@@ -59,6 +59,6 @@ test('state: 無ければ空、保存後は読み戻せる、tmp ファイルが
     };
     saveState(dir, state);
     assert.deepEqual(loadState(dir), state);
-    assert.deepEqual(readdirSync(join(dir, '.knot')).sort(), ['state.json']);
+    assert.deepEqual(readdirSync(join(dir, '.knot')).toSorted(), ['state.json']);
   } finally { rmSync(dir, { recursive: true }); }
 });

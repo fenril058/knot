@@ -13,6 +13,7 @@ import {
   runUserAdd,
 } from './commands.ts';
 import { runBackup } from './backup.ts';
+import { runSync } from './sync/commands.ts';
 
 const USAGE = `usage:
   knot init    --data <dir>
@@ -26,7 +27,9 @@ const USAGE = `usage:
   knot token list --data <dir> --user <name>
   knot token revoke --data <dir> --id <id>
   knot user add --data <dir> --name <name> [--display-name <name>] [--admin]
-                (パスワードは標準入力から読む: echo -n 'pass' | knot user add ...)`;
+                (パスワードは標準入力から読む: echo -n 'pass' | knot user add ...)
+  knot sync init <dir> --url <base-url> --project <name>
+  knot sync pull|push|status [--dir <dir>]   (詳細: knot sync --help 相当は SYNC_USAGE)`;
 
 async function readStdin(): Promise<string> {
   let data = '';
@@ -37,6 +40,11 @@ async function readStdin(): Promise<string> {
 
 async function main(argv: string[]): Promise<string> {
   const [command, ...rest] = argv;
+  if (command === 'sync') {
+    const result = await runSync(rest);
+    process.exitCode = result.exitCode;
+    return result.output;
+  }
   const { values, positionals } = parseArgs({
     args: rest,
     allowPositionals: true,
