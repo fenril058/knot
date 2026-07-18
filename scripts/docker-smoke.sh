@@ -14,6 +14,7 @@ COOKIES="$(mktemp)"
 cleanup() {
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
   docker volume rm "$VOLUME" >/dev/null 2>&1 || true
+  docker rmi "$IMAGE" >/dev/null 2>&1 || true
   rm -f "$COOKIES"
 }
 trap cleanup EXIT
