@@ -21,6 +21,7 @@
             pinact
             zizmor
             ghalint
+            actionlint
             typescript-language-server
             biome
             npm-check-updates
