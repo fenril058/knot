@@ -4,9 +4,9 @@ import { parseArgs } from 'node:util';
 import { titleLc } from '../../core/title.ts';
 import { CliError } from '../commands.ts';
 import { canonicalizeText, contentHash } from './canonical.ts';
-import { makeSyncClient, type SyncClient } from './client.ts';
+import { makeSyncClient, SyncHttpError, type SyncClient } from './client.ts';
 import { loadSyncConfig, normalizeBaseUrl, resolveToken, writeSyncConfig } from './config.ts';
-import { planPull } from './decisions.ts';
+import { planPull, planPush } from './decisions.ts';
 import { titleToFilename } from './filenames.ts';
 import { loadState, saveState, type SyncState } from './state.ts';
 
@@ -20,6 +20,11 @@ export const SYNC_USAGE = `usage:
   knot sync status [--dir <dir>] [--remote]`;
 
 export type LocalFile = { firstLine: string; contentHash: string; canonical: string };
+
+// 401 は runPush のどこで起きても即 exitCode 2。副次呼び出し内では投げ直してループ外の catch で拾う。
+function is401(e: unknown): boolean {
+  return e instanceof SyncHttpError && e.status === 401;
+}
 
 // 同期ディレクトリ直下の .txt を走査する（.knot/ とサブディレクトリは対象外）
 export function readLocalFiles(dir: string): Map<string, LocalFile> {
@@ -224,6 +229,123 @@ async function runPull(values: Record<string, unknown>, deps: SyncDeps): Promise
   }
   return { exitCode: dirty ? 1 : 0, output: report.length === 0 ? 'up to date' : report.join('\n') };
 }
-async function runPush(_values: Record<string, unknown>, _deps: SyncDeps): Promise<SyncResult> {
-  throw new CliError('push is not implemented yet');
+async function runPush(values: Record<string, unknown>, deps: SyncDeps): Promise<SyncResult> {
+  const dir = (values.dir as string | undefined) ?? '.';
+  const force = values.force === true;
+  const { client } = openClient(dir, deps);
+  const state = loadState(dir);
+  const local = readLocalFiles(dir);
+  let remote;
+  try {
+    remote = await client.listPages();
+  } catch (e) {
+    if (e instanceof SyncHttpError) return { exitCode: 2, output: e.message };
+    // transport 失敗（接続拒否・DNS・タイムアウト等）でもクラッシュさせず exitCode 2 で終える
+    return { exitCode: 2, output: e instanceof Error ? e.message : String(e) };
+  }
+  const remoteTitleLcs = new Set(remote.map((p) => titleLc(p.title)));
+  const report: string[] = [];
+  let dirty = false;
+  const markDirty = (msg: string): void => { report.push(msg); dirty = true; };
+
+  // 結果不明の PUT を再送すると二重コミットになるため、詳細を取り直して本文一致で成功判定する。
+  // filename は呼び出し側（action.filename）から受け取る。内容一致での逆引きはしない
+  // （同一内容のファイルが複数あると別ファイルの state を誤更新するため）。
+  // 401 は握り潰さず投げ直し、それ以外の失敗は「未確認（false）」にする。
+  const confirmByRefetch = async (
+    title: string, pageId: string | null, filename: string, canonical: string,
+  ): Promise<boolean> => {
+    let detail;
+    try {
+      detail = await client.getPage(title);
+    } catch (e) {
+      if (is401(e)) throw e;
+      return false;
+    }
+    if (detail === null || (pageId !== null && detail.id !== pageId)) return false;
+    if (detail.text !== canonical) return false;
+    state.pages[detail.id] = { title: detail.title, filename, version: detail.version, contentHash: contentHash(canonical) };
+    saveState(dir, state);
+    return true;
+  };
+
+  try {
+    for (const action of planPush({
+      state,
+      localFiles: new Map([...local].map(([n, f]) => [n, { firstLine: f.firstLine, contentHash: f.contentHash }])),
+      remoteTitleLcs,
+    })) {
+      if (action.kind === 'skip-rename') {
+        markDirty(`skipped (rename not supported; restore first line to "${action.stateTitle}"): ${action.filename}`);
+        continue;
+      }
+      if (action.kind === 'skip-title-mismatch') {
+        markDirty(`skipped (first line "${action.fileTitle}" does not match filename): ${action.filename}`);
+        continue;
+      }
+      if (action.kind === 'skip-duplicate') {
+        markDirty(`skipped (title already exists; run knot sync pull first): ${action.filename}`);
+        continue;
+      }
+      const file = local.get(action.filename)!;
+      const title = action.title;
+      const baseVersion = action.kind === 'update' ? action.baseVersion : 0;
+      const pageId = action.kind === 'update' ? action.pageId : null;
+      let result;
+      try {
+        result = await client.putText(title, baseVersion, file.canonical);
+      } catch (e) {
+        if (is401(e)) throw e;
+        // 通信断など結果不明: 再送せず本文一致で確認する（confirmByRefetch は 401 を投げ直す）
+        const confirmed = await confirmByRefetch(title, pageId, action.filename, file.canonical);
+        if (confirmed) report.push(`pushed (confirmed after error): ${action.filename}`);
+        else markDirty(`failed: ${action.filename}`);
+        continue;
+      }
+      if (result.kind === 'conflict' && force && pageId !== null) {
+        // force-with-lease: 最新 version を取り直して 1 回だけ再試行する。
+        // 401 は上位へ、それ以外の副次呼び出し失敗はこのページを conflict 扱いにして継続する。
+        try {
+          const detail = await client.getPage(title);
+          if (detail !== null && detail.id === pageId) {
+            result = await client.putText(title, detail.version, file.canonical);
+          }
+        } catch (e) {
+          if (is401(e)) throw e;
+          markDirty(`conflict (pull and merge, or push --force): ${action.filename}`);
+          continue;
+        }
+      }
+      if (result.kind === 'conflict') {
+        markDirty(`conflict (pull and merge, or push --force): ${action.filename}`);
+        continue;
+      }
+      if (pageId !== null) {
+        state.pages[pageId] = { title, filename: action.filename, version: result.version, contentHash: file.contentHash };
+        saveState(dir, state);
+      } else {
+        // 新規作成: PUT 応答は pageId を返さないため、詳細を取り直して記録する。
+        // 401 は上位へ。再取得が失敗/null のときは pageId 未記録なので失敗扱いにする（pushed は記録成功時だけ）。
+        let detail;
+        try {
+          detail = await client.getPage(title);
+        } catch (e) {
+          if (is401(e)) throw e;
+          markDirty(`failed (created but state not recorded): ${action.filename}`);
+          continue;
+        }
+        if (detail === null) {
+          markDirty(`failed (created but state not recorded): ${action.filename}`);
+          continue;
+        }
+        state.pages[detail.id] = { title: detail.title, filename: action.filename, version: detail.version, contentHash: contentHash(detail.text) };
+        saveState(dir, state);
+      }
+      report.push(`pushed: ${action.filename}`);
+    }
+  } catch (e) {
+    if (is401(e)) return { exitCode: 2, output: (e as SyncHttpError).message };
+    throw e;
+  }
+  return { exitCode: dirty ? 1 : 0, output: report.length === 0 ? 'up to date' : report.join('\n') };
 }

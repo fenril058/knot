@@ -200,3 +200,104 @@ test('pull: 詳細取得が transport 例外を投げたページはスキップ
     assert.equal(Object.values(state.pages)[0]!.filename, 'Beta.txt');
   } finally { env.close(); }
 });
+
+test('push: ローカル編集を送信し version と hash を state に反映する', async () => {
+  const env = await makeEnv();
+  try {
+    await seedPage(env.storage, env.projectId, 'Alpha', ['v1 body'], env.clock.t);
+    await runSync(['pull', '--dir', env.dir]);
+    writeFileSync(join(env.dir, 'Alpha.txt'), 'Alpha\nedited body\n');
+    const result = await runSync(['push', '--dir', env.dir]);
+    assert.equal(result.exitCode, 0);
+    const pageId = Object.keys(loadState(env.dir).pages)[0]!;
+    const page = await env.storage.getPageById(pageId);
+    assert.deepEqual(page!.lines.map((l) => l.text), ['Alpha', 'edited body']);
+    assert.equal(loadState(env.dir).pages[pageId]!.version, page!.version);
+    // push 後は clean
+    assert.equal((await runSync(['status', '--dir', env.dir])).output, 'clean');
+  } finally { env.close(); }
+});
+
+test('push: 新規ファイルはページを作成し pageId を state に記録する', async () => {
+  const env = await makeEnv();
+  try {
+    await runSync(['pull', '--dir', env.dir]);
+    writeFileSync(join(env.dir, 'Brand New.txt'), 'Brand New\nhello world\n');
+    const result = await runSync(['push', '--dir', env.dir]);
+    assert.equal(result.exitCode, 0);
+    const state = loadState(env.dir);
+    const entry = Object.entries(state.pages).find(([, st]) => st.title === 'Brand New');
+    assert.ok(entry);
+    const page = await env.storage.getPageById(entry![0]);
+    assert.deepEqual(page!.lines.map((l) => l.text), ['Brand New', 'hello world']);
+  } finally { env.close(); }
+});
+
+test('push: 409 は該当ページだけスキップし exitCode 1、--force で上書きできる', async () => {
+  const env = await makeEnv();
+  try {
+    await seedPage(env.storage, env.projectId, 'Alpha', ['v1 body'], env.clock.t);
+    await seedPage(env.storage, env.projectId, 'Beta', ['beta body'], env.clock.t + 1);
+    await runSync(['pull', '--dir', env.dir]);
+    // リモートの Alpha を先に進める
+    const state = loadState(env.dir);
+    const alphaId = Object.entries(state.pages).find(([, st]) => st.title === 'Alpha')![0];
+    const page = await env.storage.getPageById(alphaId);
+    env.clock.t += 10;
+    await env.storage.commit({
+      projectId: env.projectId, pageId: alphaId, commitId: ulid(env.clock.t * 1000),
+      baseVersion: page!.version,
+      ops: [{ type: 'insert', id: ulid(env.clock.t * 1000), after: page!.lines.at(-1)!.id, text: 'remote add' }],
+      userId: 'u', now: env.clock.t,
+    });
+    // ローカルも両方編集する
+    writeFileSync(join(env.dir, 'Alpha.txt'), 'Alpha\nlocal alpha\n');
+    writeFileSync(join(env.dir, 'Beta.txt'), 'Beta\nlocal beta\n');
+    const result = await runSync(['push', '--dir', env.dir]);
+    assert.equal(result.exitCode, 1); // Alpha は conflict、Beta は成功
+    assert.match(result.output, /conflict/);
+    const beta = await env.storage.getPageById(
+      Object.entries(loadState(env.dir).pages).find(([, st]) => st.title === 'Beta')![0],
+    );
+    assert.deepEqual(beta!.lines.map((l) => l.text), ['Beta', 'local beta']);
+    // --force は最新 version を取り直して 1 回だけ上書きする
+    const forced = await runSync(['push', '--dir', env.dir, '--force']);
+    assert.equal(forced.exitCode, 0);
+    const alpha = await env.storage.getPageById(alphaId);
+    assert.deepEqual(alpha!.lines.map((l) => l.text), ['Alpha', 'local alpha']);
+  } finally { env.close(); }
+});
+
+test('push: create 後の詳細取得が null なら pushed を報告せず exit1（state 未記録）', async () => {
+  const env = await makeEnv();
+  try {
+    await runSync(['pull', '--dir', env.dir]);
+    writeFileSync(join(env.dir, 'Brand New.txt'), 'Brand New\nhello world\n');
+    // create の PUT は通すが、直後の詳細取得（GET /api/pages/notes/<title>）だけ 404 を返す
+    const patched: typeof fetch = async (input, init) => {
+      if (detailPath(input) !== null) return new Response('not found', { status: 404 });
+      return fetch(input, init);
+    };
+    const result = await runSync(['push', '--dir', env.dir], { fetchFn: patched });
+    assert.equal(result.exitCode, 1);
+    assert.match(result.output, /created but state not recorded/);
+    assert.doesNotMatch(result.output, /^pushed:/m);
+    // pageId は state に未記録
+    assert.equal(Object.keys(loadState(env.dir).pages).length, 0);
+  } finally { env.close(); }
+});
+
+test('push: 1 行目を書き換えたファイル（リネーム企図）は送信しない', async () => {
+  const env = await makeEnv();
+  try {
+    await seedPage(env.storage, env.projectId, 'Alpha', ['body'], env.clock.t);
+    await runSync(['pull', '--dir', env.dir]);
+    writeFileSync(join(env.dir, 'Alpha.txt'), 'Renamed Title\nbody\n');
+    const result = await runSync(['push', '--dir', env.dir]);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.output, /rename/);
+    const pageId = Object.keys(loadState(env.dir).pages)[0]!;
+    const page = await env.storage.getPageById(pageId);
+    assert.equal(page!.lines[0]!.text, 'Alpha'); // リモートは不変
+  } finally { env.close(); }
+});
