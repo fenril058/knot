@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -353,6 +353,131 @@ test('pull: 特殊文字タイトルのファイル名エスケープと round-t
     const page = await env.storage.getPageById(pageId);
     assert.deepEqual(page!.lines.map((l) => l.text), ['a/b: c', 'edited']); // リモートに反映された
   } finally { env.close(); }
+});
+
+test('pull: 詳細取得が 401 を返したら exitCode 2 で中断し、ファイル/state は変更しない', async () => {
+  const env = await makeEnv();
+  try {
+    await seedPage(env.storage, env.projectId, 'Alpha', ['body'], env.clock.t);
+    // 一覧は通常どおり 200 を返し、詳細取得（GET /api/pages/notes/<title>）だけ 401 を返す
+    const patched: typeof fetch = async (input, init) => {
+      if (detailPath(input) !== null) return new Response('unauthorized', { status: 401 });
+      return fetch(input, init);
+    };
+    const result = await runSync(['pull', '--dir', env.dir], { fetchFn: patched });
+    assert.equal(result.exitCode, 2);
+    assert.ok(!existsSync(join(env.dir, 'Alpha.txt')));
+    assert.equal(Object.keys(loadState(env.dir).pages).length, 0);
+  } finally { env.close(); }
+});
+
+test('status --remote: 認証エラーは例外を投げずに exitCode 2 を返す', async () => {
+  const env = await makeEnv();
+  try {
+    const result = await runSync(
+      ['status', '--dir', env.dir, '--remote'],
+      { fetchFn: async () => new Response('unauthorized', { status: 401 }) },
+    );
+    assert.equal(result.exitCode, 2);
+  } finally { env.close(); }
+});
+
+test('pull: ローカルが既にリモートと同内容なら偽の競合として reconciled する（state 保存喪失の復旧）', async () => {
+  const env = await makeEnv();
+  try {
+    const pageId = await seedPage(env.storage, env.projectId, 'Alpha', ['v1 body'], env.clock.t);
+    await runSync(['pull', '--dir', env.dir]);
+    // リモートを進める
+    const page = await env.storage.getPageById(pageId);
+    env.clock.t += 10;
+    await env.storage.commit({
+      projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
+      baseVersion: page!.version,
+      ops: [{ type: 'insert', id: ulid(env.clock.t * 1000), after: page!.lines.at(-1)!.id, text: 'v2 line' }],
+      userId: 'u', now: env.clock.t,
+    });
+    // 直前の pull がファイル書き込み後・state 保存前にクラッシュしていた状況を模す：
+    // ローカルファイルは既に新しいリモート内容と一致しているが、state はまだ古いまま。
+    writeFileSync(join(env.dir, 'Alpha.txt'), 'Alpha\nv1 body\nv2 line\n');
+    const result = await runSync(['pull', '--dir', env.dir]);
+    assert.equal(result.exitCode, 0);
+    assert.match(result.output, /^reconciled: Alpha\.txt$/m);
+    assert.ok(!existsSync(join(env.dir, '.knot', 'conflicts', pageId)));
+    const page2 = await env.storage.getPageById(pageId);
+    assert.equal(loadState(env.dir).pages[pageId]!.version, page2!.version);
+  } finally { env.close(); }
+});
+
+test('push: リモートが既にローカルと同内容なら偽の競合として reconciled する（state 保存喪失の復旧）', async () => {
+  const env = await makeEnv();
+  try {
+    await seedPage(env.storage, env.projectId, 'Alpha', ['v1 body'], env.clock.t);
+    await runSync(['pull', '--dir', env.dir]);
+    writeFileSync(join(env.dir, 'Alpha.txt'), 'Alpha\nedited body\n');
+    const state = loadState(env.dir);
+    const pageId = Object.keys(state.pages)[0]!;
+    const page = await env.storage.getPageById(pageId);
+    // push の PUT はサーバに届いて成功していたが、state 保存の直前でクラッシュした状況を
+    // 直接コミットで模す（state はまだ旧 version/hash のまま）。
+    env.clock.t += 10;
+    await env.storage.commit({
+      projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
+      baseVersion: page!.version,
+      ops: [{ type: 'update', id: page!.lines[1]!.id, text: 'edited body' }],
+      userId: 'u', now: env.clock.t,
+    });
+    const result = await runSync(['push', '--dir', env.dir]);
+    assert.equal(result.exitCode, 0);
+    assert.match(result.output, /^reconciled: Alpha\.txt$/m);
+    const finalPage = await env.storage.getPageById(pageId);
+    assert.equal(loadState(env.dir).pages[pageId]!.version, finalPage!.version);
+  } finally { env.close(); }
+});
+
+test('pull: 追跡ファイル名の位置に通常の symlink があれば書き込みを拒否し、リンク先を変えない', async () => {
+  const env = await makeEnv();
+  const outside = mkdtempSync(join(tmpdir(), 'knot-sync-evil-'));
+  try {
+    const pageId = await seedPage(env.storage, env.projectId, 'Alpha', ['v1 body'], env.clock.t);
+    await runSync(['pull', '--dir', env.dir]);
+    // Alpha.txt を「同期ディレクトリ外」を指す通常の symlink に置き換える
+    const target = join(outside, 'target.txt');
+    writeFileSync(target, 'ORIGINAL\n');
+    rmSync(join(env.dir, 'Alpha.txt'));
+    symlinkSync(target, join(env.dir, 'Alpha.txt'));
+    // リモートを進めて write を誘発する
+    const page = await env.storage.getPageById(pageId);
+    env.clock.t += 10;
+    await env.storage.commit({
+      projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
+      baseVersion: page!.version,
+      ops: [{ type: 'insert', id: ulid(env.clock.t * 1000), after: page!.lines.at(-1)!.id, text: 'v2 line' }],
+      userId: 'u', now: env.clock.t,
+    });
+    const result = await runSync(['pull', '--dir', env.dir]);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.output, /skipped \(refusing to write through symlink\): Alpha\.txt/);
+    assert.equal(readFileSync(target, 'utf8'), 'ORIGINAL\n'); // リンク先は書き換わらない
+  } finally { rmSync(outside, { recursive: true }); env.close(); }
+});
+
+test('pull: 追跡ファイル名の位置にダングリング symlink があっても書き込みを拒否しリンク先を作らない', async () => {
+  const env = await makeEnv();
+  const outside = mkdtempSync(join(tmpdir(), 'knot-sync-evil-'));
+  try {
+    await seedPage(env.storage, env.projectId, 'Alpha', ['v1 body'], env.clock.t);
+    await runSync(['pull', '--dir', env.dir]);
+    // リンク先が存在しない（ダングリング）symlink に置き換える。existsSync は symlink を辿るため
+    // false を返すが、ガードは無条件 lstat なので symlink を検出して拒否しなければならない。
+    const target = join(outside, 'does-not-exist.txt');
+    rmSync(join(env.dir, 'Alpha.txt'));
+    symlinkSync(target, join(env.dir, 'Alpha.txt'));
+    assert.equal(existsSync(target), false); // 事前条件: リンク先はまだ無い
+    const result = await runSync(['pull', '--dir', env.dir]);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.output, /skipped \(refusing to write through symlink\): Alpha\.txt/);
+    assert.equal(existsSync(target), false); // リンクを辿ってディレクトリ外に作成していない
+  } finally { rmSync(outside, { recursive: true }); env.close(); }
 });
 
 test('status --remote: リモート側の new / changed / deleted を表示する', async () => {

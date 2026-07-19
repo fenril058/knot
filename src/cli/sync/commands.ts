@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { titleLc } from '../../core/title.ts';
@@ -26,6 +26,18 @@ function is401(e: unknown): boolean {
   return e instanceof SyncHttpError && e.status === 401;
 }
 
+// 書き込み先が symlink かどうかを無条件の lstat で判定する。
+// existsSync は symlink を辿るため、ダングリング symlink（リンク先が存在しない）では
+// false を返してガードを素通りさせてしまう。lstat は辿らないので symlink 自体を検出できる。
+// ENOENT（何も無い）は false = 通常の新規書き込み可、とする。
+function isSymlinkAt(path: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
 // 同期ディレクトリ直下の .txt を走査する（.knot/ とサブディレクトリは対象外）
 export function readLocalFiles(dir: string): Map<string, LocalFile> {
   const out = new Map<string, LocalFile>();
@@ -33,7 +45,9 @@ export function readLocalFiles(dir: string): Map<string, LocalFile> {
   for (const name of names) {
     if (!name.endsWith('.txt')) continue;
     const path = join(dir, name);
-    if (!statSync(path).isFile()) continue;
+    const st = lstatSync(path);
+    // symlink はローカルディレクトリ外への読み書きに使われうるため対象外にする（statSync だと辿ってしまう）
+    if (!st.isFile() || st.isSymbolicLink()) continue;
     const canonical = canonicalizeText(readFileSync(path, 'utf8'));
     out.set(name, { firstLine: canonical.split('\n')[0] ?? '', contentHash: contentHash(canonical), canonical });
   }
@@ -75,7 +89,13 @@ async function runStatus(values: Record<string, unknown>, deps: SyncDeps): Promi
     if (!known.has(name)) lines.push(`new:      ${name}`);
   }
   if (values.remote === true) {
-    lines.push(...(await remoteStatusLines(dir, deps)));
+    try {
+      lines.push(...(await remoteStatusLines(dir, deps)));
+    } catch (e) {
+      // SyncHttpError（401 含む）・transport 失敗のどちらも exitCode 2 で終える
+      // （runSync は CliError しか拾わないため、ここで拾わないとクラッシュする）
+      return { exitCode: 2, output: e instanceof Error ? e.message : String(e) };
+    }
   }
   return { exitCode: 0, output: lines.length === 0 ? 'clean' : lines.join('\n') };
 }
@@ -194,9 +214,11 @@ async function runPull(values: Record<string, unknown>, deps: SyncDeps): Promise
     let detail;
     try {
       detail = await client.getPage(action.title);
-    } catch {
-      // SyncHttpError だけでなく、transport 失敗（接続拒否・DNS・タイムアウト等）でも
-      // そのページだけスキップし、他ページの処理は続行する（state/ファイルは不変）。
+    } catch (e) {
+      // 401 は runPush と同様に即座に exitCode 2 で終える（トークン失効を per-page skip で握り潰さない）。
+      if (is401(e)) return { exitCode: 2, output: (e as SyncHttpError).message };
+      // 401 以外（transport 失敗: 接続拒否・DNS・タイムアウト等）はそのページだけスキップし、
+      // 他ページの処理は続行する（state/ファイルは不変）。
       report.push(`skipped (fetch failed): ${action.title}`);
       dirty = true;
       continue;
@@ -207,10 +229,28 @@ async function runPull(values: Record<string, unknown>, deps: SyncDeps): Promise
       continue;
     }
     if (action.kind === 'conflict') {
+      const filename = state.pages[action.pageId]!.filename;
+      // クラッシュ等で直前の pull の state 保存だけが失われていた場合、ローカルは既にリモートと
+      // 同じ内容になっていることがある。その場合は偽の競合として state を追いつかせるだけにする。
+      const remoteHash = contentHash(canonicalizeText(detail.text));
+      const localFile = local.get(filename);
+      if (localFile !== undefined && localFile.contentHash === remoteHash) {
+        state.pages[action.pageId] = { title: detail.title, filename, version: detail.version, contentHash: remoteHash };
+        saveState(dir, state);
+        report.push(`reconciled: ${filename}`);
+        continue;
+      }
       const cdir = join(dir, '.knot', 'conflicts', action.pageId);
       mkdirSync(cdir, { recursive: true });
-      writeFileSync(join(cdir, 'remote.txt'), `${detail.text}\n`);
-      report.push(`conflict: ${state.pages[action.pageId]!.filename} (remote copy in .knot/conflicts/${action.pageId}/)`);
+      const remotePath = join(cdir, 'remote.txt');
+      // symlink を辿って隔離ディレクトリ外へ書き込まない
+      if (isSymlinkAt(remotePath)) {
+        report.push(`skipped (refusing to write through symlink): ${filename}`);
+        dirty = true;
+        continue;
+      }
+      writeFileSync(remotePath, `${detail.text}\n`);
+      report.push(`conflict: ${filename} (remote copy in .knot/conflicts/${action.pageId}/)`);
       dirty = true;
       continue;
     }
@@ -219,7 +259,14 @@ async function runPull(values: Record<string, unknown>, deps: SyncDeps): Promise
     const filename = prev !== undefined && titleLc(prev.title) === titleLc(detail.title)
       ? prev.filename
       : chooseFilename(dir, state, action.pageId, detail.title);
-    writeFileSync(join(dir, filename), `${detail.text}\n`);
+    const targetPath = join(dir, filename);
+    // symlink を辿って同期ディレクトリ外へ書き込まない
+    if (isSymlinkAt(targetPath)) {
+      report.push(`skipped (refusing to write through symlink): ${filename}`);
+      dirty = true;
+      continue;
+    }
+    writeFileSync(targetPath, `${detail.text}\n`);
     if (prev !== undefined && prev.filename !== filename) rmSync(join(dir, prev.filename), { force: true });
     state.pages[action.pageId] = {
       title: detail.title, filename, version: detail.version, contentHash: contentHash(detail.text),
@@ -304,20 +351,51 @@ async function runPush(values: Record<string, unknown>, deps: SyncDeps): Promise
       }
       if (result.kind === 'conflict' && force && pageId !== null) {
         // force-with-lease: 最新 version を取り直して 1 回だけ再試行する。
-        // 401 は上位へ、それ以外の副次呼び出し失敗はこのページを conflict 扱いにして継続する。
+        // 401 は上位へ。detail 取得の失敗はこのページを conflict 扱いにして継続する。
+        let detail;
         try {
-          const detail = await client.getPage(title);
-          if (detail !== null && detail.id === pageId) {
-            result = await client.putText(title, detail.version, file.canonical);
-          }
+          detail = await client.getPage(title);
         } catch (e) {
           if (is401(e)) throw e;
           markDirty(`conflict (pull and merge, or push --force): ${action.filename}`);
           continue;
         }
+        if (detail !== null && detail.id === pageId) {
+          try {
+            result = await client.putText(title, detail.version, file.canonical);
+          } catch (e) {
+            if (is401(e)) throw e;
+            // 再試行 PUT の通信断: サーバには届いたが応答が失われた可能性があるため、
+            // 再送はせず本文一致で確認する（主 PUT の応答喪失パスと同じ扱い）。
+            const confirmed = await confirmByRefetch(title, pageId, action.filename, file.canonical);
+            if (confirmed) report.push(`pushed (confirmed after error): ${action.filename}`);
+            else markDirty(`failed: ${action.filename}`);
+            continue;
+          }
+        }
       }
       if (result.kind === 'conflict') {
-        markDirty(`conflict (pull and merge, or push --force): ${action.filename}`);
+        // 直前の push の state 保存だけが失われていた可能性がある: リモートが既にローカルと
+        // 一致していれば偽の競合として state を追いつかせる（本物の競合はそのまま報告する）。
+        let reconciled = false;
+        if (pageId !== null) {
+          try {
+            const remoteDetail = await client.getPage(title);
+            if (remoteDetail !== null && remoteDetail.id === pageId
+              && contentHash(canonicalizeText(remoteDetail.text)) === file.contentHash) {
+              state.pages[pageId] = {
+                title: remoteDetail.title, filename: action.filename, version: remoteDetail.version, contentHash: file.contentHash,
+              };
+              saveState(dir, state);
+              report.push(`reconciled: ${action.filename}`);
+              reconciled = true;
+            }
+          } catch (e) {
+            if (is401(e)) throw e;
+            // 再取得の失敗は通常の conflict 報告へフォールバックする
+          }
+        }
+        if (!reconciled) markDirty(`conflict (pull and merge, or push --force): ${action.filename}`);
         continue;
       }
       if (pageId !== null) {

@@ -85,6 +85,7 @@ direnv exec . node src/cli/main.ts sync status --dir ./wiki --remote
   手でマージしてから push するか、`knot sync push --force` で最新版に対して一度だけローカル内容を再送する。
 - このテキスト形式は行メタデータ（行ごとの作成者・時刻）を持たないベストエフォートの経路。
   完全なバックアップは `knot export` / `knot backup` を使う。
+- リモートでタイトルの大文字小文字だけを変更した場合、ファイル内容は更新されるがファイル名の大文字小文字は元のまま残る（v1 の既知の制限）。
 - 同期ディレクトリはそのまま git 管理できる。
   ただしトークンと同期状態が入る `.knot/` は必ず gitignore する（`sync init` 実行後に案内が出る）。
 
