@@ -158,6 +158,13 @@ function detailPath(input: RequestInfo | URL): string | null {
   return pathname.startsWith('/api/pages/notes/') ? pathname : null;
 }
 
+// PUT はサーバに届くが応答が失われる状況を再現する fetch ラッパ。
+const putLosesResponse: typeof fetch = async (url, init) => {
+  const res = await fetch(url, init);
+  if (init?.method === 'PUT') throw new TypeError('network error after send');
+  return res;
+};
+
 test('pull: 一覧後の詳細が別 id を返したページはスキップし、ファイルも state も変えない', async () => {
   const env = await makeEnv();
   try {
@@ -299,5 +306,63 @@ test('push: 1 行目を書き換えたファイル（リネーム企図）は送
     const pageId = Object.keys(loadState(env.dir).pages)[0]!;
     const page = await env.storage.getPageById(pageId);
     assert.equal(page!.lines[0]!.text, 'Alpha'); // リモートは不変
+  } finally { env.close(); }
+});
+
+test('push: PUT の応答が失われても再送せず、確認再取得で state が揃う', async () => {
+  const env = await makeEnv();
+  try {
+    await seedPage(env.storage, env.projectId, 'Alpha', ['v1 body'], env.clock.t);
+    await runSync(['pull', '--dir', env.dir]);
+    writeFileSync(join(env.dir, 'Alpha.txt'), 'Alpha\nedited\n');
+    const result = await runSync(['push', '--dir', env.dir], { fetchFn: putLosesResponse });
+    assert.equal(result.exitCode, 0);
+    assert.match(result.output, /confirmed after error/);
+    const pageId = Object.keys(loadState(env.dir).pages)[0]!;
+    assert.equal(loadState(env.dir).pages[pageId]!.contentHash !== undefined, true);
+    const page = await env.storage.getPageById(pageId);
+    assert.deepEqual(page!.lines.map((l) => l.text), ['Alpha', 'edited']);
+    assert.equal(loadState(env.dir).pages[pageId]!.version, page!.version);
+  } finally { env.close(); }
+});
+
+test('pull → push: CRLF で保存されたファイルも差分なしなら no-op', async () => {
+  const env = await makeEnv();
+  try {
+    await seedPage(env.storage, env.projectId, 'Alpha', ['body line'], env.clock.t);
+    await runSync(['pull', '--dir', env.dir]);
+    // エディタが CRLF で保存し直した想定（内容は同一）
+    writeFileSync(join(env.dir, 'Alpha.txt'), 'Alpha\r\nbody line\r\n');
+    assert.equal((await runSync(['status', '--dir', env.dir])).output, 'clean');
+    assert.equal((await runSync(['push', '--dir', env.dir])).output, 'up to date');
+  } finally { env.close(); }
+});
+
+test('pull: 特殊文字タイトルのファイル名エスケープと round-trip push', async () => {
+  const env = await makeEnv();
+  try {
+    await seedPage(env.storage, env.projectId, 'a/b: c', ['body'], env.clock.t);
+    await runSync(['pull', '--dir', env.dir]);
+    const filename = 'a%2Fb%3A c.txt';
+    assert.equal(readFileSync(join(env.dir, filename), 'utf8'), 'a/b: c\nbody\n');
+    writeFileSync(join(env.dir, filename), 'a/b: c\nedited\n');
+    const result = await runSync(['push', '--dir', env.dir]);
+    assert.equal(result.exitCode, 0);
+    assert.match(result.output, /^pushed:/m); // no-op（up to date）ではなく実際に送信されたこと
+    const pageId = Object.keys(loadState(env.dir).pages)[0]!;
+    const page = await env.storage.getPageById(pageId);
+    assert.deepEqual(page!.lines.map((l) => l.text), ['a/b: c', 'edited']); // リモートに反映された
+  } finally { env.close(); }
+});
+
+test('status --remote: リモート側の new / changed / deleted を表示する', async () => {
+  const env = await makeEnv();
+  try {
+    await seedPage(env.storage, env.projectId, 'Alpha', ['body'], env.clock.t);
+    await runSync(['pull', '--dir', env.dir]);
+    await seedPage(env.storage, env.projectId, 'Fresh', ['new page'], env.clock.t + 10);
+    const result = await runSync(['status', '--dir', env.dir, '--remote']);
+    assert.equal(result.exitCode, 0);
+    assert.match(result.output, /remote-new:\s+Fresh/);
   } finally { env.close(); }
 });
