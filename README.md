@@ -56,6 +56,38 @@ Cosense のエクスポート JSON がある場合は、curl の代わりに `kn
 
 あとは http://127.0.0.1:3000/notes を開くと、一覧の「新規作成」ボタンや `/notes/<タイトル>/edit` への直接アクセスでページを書ける。
 
+## 外部エディタ同期（knot sync）
+
+ページを「1 ページ = 1 テキストファイル」でローカルに書き出し、Emacs や Vim などの外部エディタで編集して手動 pull / push で同期できる。
+`knot sync` は HTTP クライアントとして動くため、サーバと別マシンで実行してよい。
+
+```sh
+# API トークンを作る（サーバのデータディレクトリに対して実行する）
+direnv exec . node src/cli/main.ts token add --data ./data --user ril --label sync
+
+# 同期ディレクトリを初期化して初回 pull（クライアント側。dir は自動で作成される）
+direnv exec . node src/cli/main.ts sync init ./wiki --url http://127.0.0.1:3000 --project notes
+export KNOT_TOKEN=knot_...   # または ./wiki/.knot/token に保存して chmod 600
+direnv exec . node src/cli/main.ts sync pull --dir ./wiki
+
+# 編集して push。リモートが先に進んでいたページはスキップされるので pull してから再 push する
+direnv exec . node src/cli/main.ts sync push --dir ./wiki
+direnv exec . node src/cli/main.ts sync status --dir ./wiki --remote
+```
+
+`sync status` は既定ではネットワークへアクセスせず、ローカルファイルと `.knot/state.json` の差分だけを見る。
+`--remote` を付けるとトークンでサーバへ問い合わせ、リモート側の新規・変更・削除も表示する。
+
+- 削除・リネームは push で伝播しない。
+  ページの削除・改名は wiki の UI で行い、pull で反映する。
+  ローカルでファイルを消しても、次回 pull で元の内容が復元される。
+- 競合したページ（ローカル・リモート双方が変更されている）はファイルを上書きせず、`.knot/conflicts/<pageId>/remote.txt` にリモート本文を書き出して報告する。
+  手でマージしてから push するか、`knot sync push --force` で最新版に対して一度だけローカル内容を再送する。
+- このテキスト形式は行メタデータ（行ごとの作成者・時刻）を持たないベストエフォートの経路。
+  完全なバックアップは `knot export` / `knot backup` を使う。
+- 同期ディレクトリはそのまま git 管理できる。
+  ただしトークンと同期状態が入る `.knot/` は必ず gitignore する（`sync init` 実行後に案内が出る）。
+
 運用ガイド: [docs/ops.md](docs/ops.md)
 
 ## 外部画像の許可ホスト
