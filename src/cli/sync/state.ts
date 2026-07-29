@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-export type PageState = {
+type PageState = {
   title: string;
   filename: string;
   version: number;

@@ -14,7 +14,10 @@
     "typecheck": "tsc --noEmit",
     "build:client": "rolldown -c",
     "watch:client": "rolldown -c --watch",
-    "lint": "oxlint src public test e2e",
+    "lint": "oxlint src public test e2e config",
+    "lint:duplicates": "jscpd .",
+    "lint:dead-code": "knip",
+    "quality": "npm run typecheck && npm run lint && npm run lint:duplicates && npm run lint:dead-code",
     "test:e2e": "playwright test"
   },
   "dependencies": {
@@ -31,6 +34,9 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@playwright/test": "^1.61.1",
     "@types/node": "^26.1.1",
+    "eslint-plugin-sonarjs": "4.2.0",
+    "jscpd": "^5.0.14",
+    "knip": "^6.29.0",
     "oxlint": "^1.74.0",
     "rolldown": "^1.2.0",
     "scrapbox-cosense-mcp": "^0.7.3",

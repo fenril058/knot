@@ -2,9 +2,9 @@ import { parse, type Node } from '@progfay/scrapbox-parser';
 import { titleLc } from './title.ts';
 import { classifyUrl, isAttachmentUrl } from './media.ts';
 
-export const LINE_ID_RE = /^([0-9a-f]{24}|[0-9A-HJKMNP-TV-Z]{26})$/;
+const LINE_ID_RE = /^([0-9a-f]{24}|[0-9A-HJKMNP-TV-Z]{26})$/;
 
-export type LinkTarget = { title: string; titleLc: string };
+type LinkTarget = { title: string; titleLc: string };
 export type PageRefs = { linkTargets: LinkTarget[]; image: string | null };
 
 const HASHTAG_UNSAFE_RE = /[\s[\]#`]/;

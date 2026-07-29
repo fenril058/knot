@@ -10,7 +10,7 @@ export type CosensePage = {
   lines: CosenseLine[];
 };
 
-export type CosenseUser = { id: string; name: string; displayName?: string; email?: string };
+type CosenseUser = { id: string; name: string; displayName?: string; email?: string };
 
 export type CosenseExport = {
   name?: string;

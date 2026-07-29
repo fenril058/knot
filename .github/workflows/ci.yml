@@ -39,8 +39,40 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
+      - run: npm run lint:dead-code
       - run: npm run build:client
       - run: npm test
+
+  duplication:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - id: duplicates
+        run: npm run lint:duplicates
+      - name: Upload duplication results
+        if: >-
+          ${{
+            !cancelled()
+            && (steps.duplicates.outcome == 'success' || steps.duplicates.outcome == 'failure')
+            && hashFiles('.jscpd/jscpd-report.sarif') != ''
+            && (github.event_name != 'pull_request'
+                || github.event.pull_request.head.repo.full_name == github.repository)
+          }}
+        uses: github/codeql-action/upload-sarif@adfda868f108ac4222129de456ea554034a27db7 # v4
+        with:
+          sarif_file: .jscpd/jscpd-report.sarif
 
   e2e:
     runs-on: ubuntu-latest

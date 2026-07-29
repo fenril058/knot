@@ -1,8 +1,8 @@
 import { encodeTitleForUrl } from '../../core/title.ts';
 
 export type PageEntry = { id: string; title: string; version: number };
-export type RemotePage = { id: string; title: string; version: number; text: string };
-export type PutTextResult = { kind: 'ok'; version: number } | { kind: 'conflict' };
+type RemotePage = { id: string; title: string; version: number; text: string };
+type PutTextResult = { kind: 'ok'; version: number } | { kind: 'conflict' };
 
 export class SyncHttpError extends Error {
   readonly status?: number;
