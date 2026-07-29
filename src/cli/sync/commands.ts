@@ -13,13 +13,13 @@ import { loadState, saveState, type SyncState } from './state.ts';
 export type SyncResult = { output: string; exitCode: 0 | 1 | 2 };
 export type SyncDeps = { fetchFn?: typeof fetch; env?: NodeJS.ProcessEnv };
 
-export const SYNC_USAGE = `usage:
+const SYNC_USAGE = `usage:
   knot sync init <dir> --url <base-url> --project <name>
   knot sync pull   [--dir <dir>]
   knot sync push   [--dir <dir>] [--force]
   knot sync status [--dir <dir>] [--remote]`;
 
-export type LocalFile = { firstLine: string; contentHash: string; canonical: string };
+type LocalFile = { firstLine: string; contentHash: string; canonical: string };
 
 // 401 は runPush のどこで起きても即 exitCode 2。副次呼び出し内では投げ直してループ外の catch で拾う。
 function is401(e: unknown): boolean {
@@ -39,7 +39,7 @@ function isSymlinkAt(path: string): boolean {
 }
 
 // 同期ディレクトリ直下の .txt を走査する（.knot/ とサブディレクトリは対象外）
-export function readLocalFiles(dir: string): Map<string, LocalFile> {
+function readLocalFiles(dir: string): Map<string, LocalFile> {
   const out = new Map<string, LocalFile>();
   const names = readdirSync(dir).toSorted();
   for (const name of names) {

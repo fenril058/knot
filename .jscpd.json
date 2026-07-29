@@ -1,0 +1,10 @@
+{
+  "threshold": 3,
+  "minLines": 8,
+  "minTokens": 50,
+  "reporters": ["console", "sarif"],
+  "output": ".jscpd",
+  "format": ["typescript", "javascript"],
+  "pattern": "{src,public}/**/*.{ts,js}",
+  "ignore": ["public/build/**"]
+}

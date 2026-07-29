@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const MIGRATIONS_DIR = fileURLToPath(new URL('./migrations/', import.meta.url));
 
-export function migrate(db: DatabaseSync): void {
+function migrate(db: DatabaseSync): void {
   const files = readdirSync(MIGRATIONS_DIR)
     .filter((f) => /^\d{4}_.*\.sql$/.test(f))
     .toSorted();

@@ -12,7 +12,7 @@ Cosense (Scrapbox) 互換のセルフホスト wiki。
 ```sh
 direnv exec . npm test              # node --test
 direnv exec . npx tsc --noEmit      # 型検査
-direnv exec . npm run lint          # oxlint (src / public / test / e2e)
+direnv exec . npm run quality       # 型・複雑度・重複・デッドコード
 direnv exec . npm run build:client  # クライアントバンドル生成
 direnv exec . npm run watch:client  # バンドルの watch
 ```
