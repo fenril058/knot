@@ -63,18 +63,6 @@
       }
     },
     {
-      "files": ["src/cli/sync/commands.ts"],
-      "rules": {
-        "complexity": ["error", { "max": 38 }],
-        "max-depth": ["error", 6],
-        "max-lines-per-function": [
-          "error",
-          { "max": 132, "skipBlankLines": true, "skipComments": true }
-        ],
-        "sonarjs/cognitive-complexity": ["error", 84]
-      }
-    },
-    {
       "files": ["src/cli/main.ts"],
       "rules": {
         "complexity": ["error", { "max": 52 }],
