@@ -295,25 +295,28 @@ async function runPush(values: Record<string, unknown>, deps: SyncDeps): Promise
   let dirty = false;
   const markDirty = (msg: string): void => { report.push(msg); dirty = true; };
 
-  // 結果不明の PUT を再送すると二重コミットになるため、詳細を取り直して本文一致で成功判定する。
+  // PUT の応答喪失（通信断など結果不明）の共通処理。再送すると二重コミットになるため、
+  // 詳細を取り直して本文一致で成功判定し、確認できたときだけ state を記録する。
   // filename は呼び出し側（action.filename）から受け取る。内容一致での逆引きはしない
   // （同一内容のファイルが複数あると別ファイルの state を誤更新するため）。
-  // 401 は握り潰さず投げ直し、それ以外の失敗は「未確認（false）」にする。
-  const confirmByRefetch = async (
+  // 401 は握り潰さず投げ直し、それ以外の失敗は「未確認」として failed を報告する。
+  const settleLostResponse = async (
     title: string, pageId: string | null, filename: string, canonical: string,
-  ): Promise<boolean> => {
+  ): Promise<void> => {
     let detail;
     try {
       detail = await client.getPage(title);
     } catch (e) {
       if (is401(e)) throw e;
-      return false;
+      detail = null;
     }
-    if (detail === null || (pageId !== null && detail.id !== pageId)) return false;
-    if (detail.text !== canonical) return false;
+    if (detail === null || (pageId !== null && detail.id !== pageId) || detail.text !== canonical) {
+      markDirty(`failed: ${filename}`);
+      return;
+    }
     state.pages[detail.id] = { title: detail.title, filename, version: detail.version, contentHash: contentHash(canonical) };
     saveState(dir, state);
-    return true;
+    report.push(`pushed (confirmed after error): ${filename}`);
   };
 
   try {
@@ -343,10 +346,8 @@ async function runPush(values: Record<string, unknown>, deps: SyncDeps): Promise
         result = await client.putText(title, baseVersion, file.canonical);
       } catch (e) {
         if (is401(e)) throw e;
-        // 通信断など結果不明: 再送せず本文一致で確認する（confirmByRefetch は 401 を投げ直す）
-        const confirmed = await confirmByRefetch(title, pageId, action.filename, file.canonical);
-        if (confirmed) report.push(`pushed (confirmed after error): ${action.filename}`);
-        else markDirty(`failed: ${action.filename}`);
+        // 通信断など結果不明: 再送せず本文一致で確認する
+        await settleLostResponse(title, pageId, action.filename, file.canonical);
         continue;
       }
       if (result.kind === 'conflict' && force && pageId !== null) {
@@ -367,9 +368,7 @@ async function runPush(values: Record<string, unknown>, deps: SyncDeps): Promise
             if (is401(e)) throw e;
             // 再試行 PUT の通信断: サーバには届いたが応答が失われた可能性があるため、
             // 再送はせず本文一致で確認する（主 PUT の応答喪失パスと同じ扱い）。
-            const confirmed = await confirmByRefetch(title, pageId, action.filename, file.canonical);
-            if (confirmed) report.push(`pushed (confirmed after error): ${action.filename}`);
-            else markDirty(`failed: ${action.filename}`);
+            await settleLostResponse(title, pageId, action.filename, file.canonical);
             continue;
           }
         }

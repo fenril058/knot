@@ -65,13 +65,13 @@
     {
       "files": ["src/cli/sync/commands.ts"],
       "rules": {
-        "complexity": ["error", { "max": 40 }],
+        "complexity": ["error", { "max": 38 }],
         "max-depth": ["error", 6],
         "max-lines-per-function": [
           "error",
-          { "max": 134, "skipBlankLines": true, "skipComments": true }
+          { "max": 132, "skipBlankLines": true, "skipComments": true }
         ],
-        "sonarjs/cognitive-complexity": ["error", 94]
+        "sonarjs/cognitive-complexity": ["error", 84]
       }
     },
     {
