@@ -23,6 +23,47 @@ jobs:
       - run: nix develop --command zizmor .github/workflows/*.yml
       - run: nix develop --command ghalint run
 
+  quality-ratchet:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      # PR は対象ブランチ、push は直前の tip を base にする。
+      # base を解決できない場合はスクリプト側が失敗するので、検査が黙って飛ぶことはない。
+      - name: Resolve base ref
+        id: base
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+            echo "ref=origin/$BASE_REF" >> "$GITHUB_OUTPUT"
+          elif [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            # ブランチの初回 push には比較対象が無い。PR 側の同ジョブで検査される。
+            echo "ref=" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=$BEFORE" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Check quality gate ratchet
+        env:
+          BASE: ${{ steps.base.outputs.ref }}
+        run: |
+          if [ -z "$BASE" ]; then
+            echo "初回 push のため base 無し: 検査をスキップ"
+            exit 0
+          fi
+          node scripts/quality-ratchet.ts "$BASE" HEAD
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15

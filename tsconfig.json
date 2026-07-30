@@ -11,5 +11,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "e2e/**/*.ts", "rolldown.config.ts", "playwright.config.ts"]
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "e2e/**/*.ts", "rolldown.config.ts", "playwright.config.ts"]
 }

@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit",
     "build:client": "rolldown -c",
     "watch:client": "rolldown -c --watch",
-    "lint": "oxlint src public test e2e config",
+    "lint": "oxlint src scripts public test e2e config",
     "lint:duplicates": "jscpd .",
     "lint:dead-code": "knip",
     "quality": "npm run typecheck && npm run lint && npm run lint:duplicates && npm run lint:dead-code",
