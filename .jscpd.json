@@ -1,5 +1,5 @@
 {
-  "threshold": 3,
+  "threshold": 0,
   "minLines": 8,
   "minTokens": 50,
   "reporters": ["console", "sarif"],
