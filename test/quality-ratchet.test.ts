@@ -123,7 +123,7 @@ test('typeAware の無効化を落とす（型情報つきルールが一斉に�
   assert.deepEqual(run({ oxlint: OXLINT.replace('"typeAware": true', '"typeAware": false') }), ['oxlint:typeAware']);
 });
 
-test('型情報つきルールの移行用の柵にファイルを足すのを落とす', () => {
+test('型情報つきルールの移行用の例外リストにファイルを足すのを落とす', () => {
   // 足したファイル（src/b.ts）の実効値が base の root（error）から off へ緩むので違反になる。
   const base = OXLINT.replace('"overrides": [', '"overrides": [\n    { "files": ["src/a.ts"], "rules": { "typescript/no-explicit-any": "off" } },');
   const head = base.replace('"files": ["src/a.ts"]', '"files": ["src/a.ts", "src/b.ts"]');
@@ -131,7 +131,7 @@ test('型情報つきルールの移行用の柵にファイルを足すのを�
   assert.ok(keys.includes('oxlint:src/b.ts|typescript/no-explicit-any'), keys.join(','));
 });
 
-test('型情報つきルールの柵からファイルを外すのは許す', () => {
+test('型情報つきルールの例外リストからファイルを外すのは許す', () => {
   const base = OXLINT.replace('"overrides": [', '"overrides": [\n    { "files": ["src/a.ts", "src/b.ts"], "rules": { "typescript/no-explicit-any": "off" } },');
   const head = base.replace('"files": ["src/a.ts", "src/b.ts"]', '"files": ["src/a.ts"]');
   const keys = compareGuards(extractGuards({ ...BASE, oxlint: base }, head), extractGuards({ ...BASE, oxlint: head }, base), []).map((v) => v.key);

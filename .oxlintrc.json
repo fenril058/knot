@@ -39,8 +39,8 @@
   },
   "overrides": [
     {
-      // no-unsafe-type-assertion の既存違反 37 ファイル。移行用の柵であり、
-      // 該当ファイルを改修するときに違反を直してこの一覧から external する。
+      // no-unsafe-type-assertion の既存違反 36 ファイル。移行用の例外リストであり、
+      // 該当ファイルを改修するときに違反を直してこの一覧から外す。
       "files": [
         "scripts/quality-ratchet.ts",
         "src/cli/backup.ts",
