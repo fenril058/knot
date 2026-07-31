@@ -99,17 +99,27 @@ function readRule(value: unknown): NumericGuard {
   return { severity, max: typeof max === 'number' ? max : null };
 }
 
-function overrideScopeKey(entry: Record<string, unknown>): string {
-  return asStringArray(entry.files).toSorted().join(',');
+// scope は override の files 配列を join した文字列ではなく、glob 1 つ 1 つ。
+// join で識別すると ["a","b"] と ["a"] が無関係な scope になり、files からファイルを
+// 外す（＝ root の厳しい値へ戻す）強化操作を緩和と誤判定する。
+function overrideScopes(config: Record<string, unknown>): Map<string, Record<string, unknown>> {
+  const overrides = Array.isArray(config.overrides) ? config.overrides.map(asRecord) : [];
+  const byScope = new Map<string, Record<string, unknown>>();
+  for (const entry of overrides) {
+    for (const glob of asStringArray(entry.files)) {
+      // 同じ glob を複数の override が指す場合は後勝ち（oxlint の適用順に合わせる）
+      byScope.set(glob, { ...byScope.get(glob), ...asRecord(entry.rules) });
+    }
+  }
+  return byScope;
 }
 
-// scope（root と各 override）× rule の実効上限を作る。
+// scope（root と各 glob）× rule の実効上限を作る。
 // override が該当ルールを持たない scope では root の値が効くため、override の削除は
 // 常に強化方向になり、override の追加・緩和だけが違反として残る。
 function effectiveOxlintRules(config: Record<string, unknown>, scopes: string[], rules: string[]): Map<string, NumericGuard> {
   const rootRules = asRecord(config.rules);
-  const overrides = Array.isArray(config.overrides) ? config.overrides.map(asRecord) : [];
-  const byScope = new Map(overrides.map((o) => [overrideScopeKey(o), asRecord(o.rules)]));
+  const byScope = overrideScopes(config);
   const out = new Map<string, NumericGuard>();
   for (const scope of scopes) {
     const scoped = scope === '' ? undefined : byScope.get(scope);
@@ -126,10 +136,9 @@ function oxlintScopesAndRules(configs: Record<string, unknown>[]): { scopes: str
   const rules = new Set<string>();
   for (const config of configs) {
     for (const rule of Object.keys(asRecord(config.rules))) rules.add(rule);
-    const overrides = Array.isArray(config.overrides) ? config.overrides.map(asRecord) : [];
-    for (const entry of overrides) {
-      scopes.add(overrideScopeKey(entry));
-      for (const rule of Object.keys(asRecord(entry.rules))) rules.add(rule);
+    for (const [glob, scopedRules] of overrideScopes(config)) {
+      scopes.add(glob);
+      for (const rule of Object.keys(scopedRules)) rules.add(rule);
     }
   }
   return { scopes: [...scopes], rules: [...rules] };
@@ -144,6 +153,8 @@ function addOxlintGuards(guards: Guards, config: Record<string, unknown>, scopes
   }
   const plugins = Array.isArray(config.jsPlugins) ? config.jsPlugins.map((p) => String(asRecord(p).name)) : [];
   guards.supersets.set('oxlint:jsPlugins', plugins);
+  // typeAware を落とすと型情報つきルールが一斉に黙る。ルール定義を残したまま無効化できてしまうため個別に見る。
+  guards.flags.set('oxlint:typeAware', asRecord(config.options).typeAware === true);
   guards.subsets.set('oxlint:ignorePatterns', asStringArray(config.ignorePatterns));
 }
 
