@@ -30,10 +30,7 @@
     "typescript/no-explicit-any": "error",
     "typescript/no-unsafe-type-assertion": "error",
     "typescript/switch-exhaustiveness-check": "error",
-    // typeAware を立てると categories 内の型情報つきルールが全部有効になる。
-    // 以下は既存違反が多く見送っているもの。件数と解消方針は issue #8 に置く
-    // （コメントに数値を書くと実態から乖離するため）。
-    "typescript/no-unnecessary-type-assertion": "off"
+    "typescript/no-unnecessary-type-assertion": "error"
   },
   "overrides": [
     // 既存コードの超過値を移行用の上限としてファイル単位で固定する。

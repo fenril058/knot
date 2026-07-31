@@ -133,7 +133,7 @@ void test('flush は PendingRecord を永続化し、JSON 往復と不正入力�
     baseLines: base,
     title: 'Title',
   });
-  assert.deepEqual(parsePendingRecord(serializePendingRecord(record!)), record);
+  assert.deepEqual(parsePendingRecord(serializePendingRecord(record)), record);
   assert.equal(parsePendingRecord('{broken'), null);
   assert.equal(parsePendingRecord(JSON.stringify({ ...record, ops: [{ type: 'wat' }] })), null);
 });
@@ -234,6 +234,6 @@ void test('pending 復元: ackConflict は元 inflight を破棄して新しい 
   const send = effect(sync.ackConflict({ version: 2, title: 'Title', lines: latest }), 'send');
   assert.notEqual(send?.commit.commitId, 'pending-commit');
   assert.equal(send?.commit.baseVersion, 2);
-  const applied = applyOps(latest, send!.commit.ops, { userId: 'self', now: 100, version: 3 });
+  const applied = applyOps(latest, send.commit.ops, { userId: 'self', now: 100, version: 3 });
   assert.deepEqual(applied.map(({ text }) => text), ['Title', 'mine', 'theirs']);
 });

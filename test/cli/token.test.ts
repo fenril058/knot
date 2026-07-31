@@ -29,7 +29,7 @@ void test('token add、list、revoke が通る', async () => {
   const storage = new SqliteStorage(openDatabase(join(dir, 'knot.db')));
   const user = await storage.getUserByApiTokenHash(hashApiToken(token));
   assert.equal(user?.name, 'alice');
-  const [issued] = await storage.listApiTokens(user!.id);
+  const [issued] = await storage.listApiTokens(user.id);
   assert.ok(issued);
 
   const list = execFileSync(process.execPath, [MAIN, 'token', 'list', '--data', dir, '--user', 'alice'], {

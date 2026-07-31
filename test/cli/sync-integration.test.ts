@@ -237,7 +237,7 @@ void test('push: 新規ファイルはページを作成し pageId を state に
     const state = loadState(env.dir);
     const entry = Object.entries(state.pages).find(([, st]) => st.title === 'Brand New');
     assert.ok(entry);
-    const page = await env.storage.getPageById(entry![0]);
+    const page = await env.storage.getPageById(entry[0]);
     assert.deepEqual(page!.lines.map((l) => l.text), ['Brand New', 'hello world']);
   } finally { env.close(); }
 });
