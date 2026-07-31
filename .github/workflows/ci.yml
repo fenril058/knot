@@ -59,17 +59,34 @@ jobs:
             echo "ref=$BEFORE" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          echo "event.before ($BEFORE) を解決できないため既定ブランチとの分岐点を base にする"
+          echo "event.before ($BEFORE) を解決できない"
+          if ! git rev-parse --verify --quiet HEAD~1 >/dev/null; then
+            # リポジトリ最初の commit。比較対象の設定がそもそも存在しない。
+            echo "HEAD に親が無いため比較対象なし"
+            echo "ref=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           git fetch --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
           FORK_POINT=$(git merge-base "origin/$DEFAULT_BRANCH" HEAD)
-          if [ "$FORK_POINT" = "$(git rev-parse HEAD)" ]; then
-            FORK_POINT=$(git rev-parse HEAD~1)
+          if [ "$FORK_POINT" != "$(git rev-parse HEAD)" ]; then
+            echo "既定ブランチとの分岐点を base にする"
+            echo "ref=$FORK_POINT" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          echo "ref=$FORK_POINT" >> "$GITHUB_OUTPUT"
+          # 既定ブランチ自体の履歴が書き換えられた場合。書き換え前の commit は到達不能で、
+          # 分岐点も HEAD に一致するため、何と比べるべきかを決められない。
+          # HEAD~1 で代用すると、書き換えられた古い commit に含まれる緩和を見逃す。
+          echo "::error::既定ブランチの履歴が書き換えられており base を決められない。手元で quality-ratchet を実行して確認すること"
+          exit 1
       - name: Check quality gate ratchet
         env:
           BASE: ${{ steps.base.outputs.ref }}
-        run: node scripts/quality-ratchet.ts "$BASE" HEAD
+        run: |
+          if [ -z "$BASE" ]; then
+            echo "比較対象なし（リポジトリ最初の commit）: 検査をスキップ"
+            exit 0
+          fi
+          node scripts/quality-ratchet.ts "$BASE" HEAD
 
   test:
     runs-on: ubuntu-latest
