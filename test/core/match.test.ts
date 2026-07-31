@@ -2,32 +2,32 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fuzzyScore, normalizeForMatch, rankTitles } from '../../src/core/match.ts';
 
-test('normalizeForMatch: 大文字小文字とひらがな・カタカナを同一視する', () => {
+void test('normalizeForMatch: 大文字小文字とひらがな・カタカナを同一視する', () => {
   assert.equal(normalizeForMatch('ScRaP カタカナ'), 'scrap かたかな');
 });
 
-test('fuzzyScore: 飛ばし部分列に一致する', () => {
+void test('fuzzyScore: 飛ばし部分列に一致する', () => {
   assert.notEqual(fuzzyScore('sbx', 'Scrapbox'), null);
 });
 
-test('fuzzyScore: 部分列に一致しなければ null を返す', () => {
+void test('fuzzyScore: 部分列に一致しなければ null を返す', () => {
   assert.equal(fuzzyScore('xyz', 'Scrapbox'), null);
 });
 
-test('fuzzyScore: ひらがなとカタカナを同一視する', () => {
+void test('fuzzyScore: ひらがなとカタカナを同一視する', () => {
   assert.notEqual(fuzzyScore('かたかな', 'カタカナ'), null);
 });
 
-test('fuzzyScore: 空白区切りの全語に語順を問わず一致する', () => {
+void test('fuzzyScore: 空白区切りの全語に語順を問わず一致する', () => {
   assert.notEqual(fuzzyScore('box scrap', 'Scrapbox Box'), null);
   assert.equal(fuzzyScore('box missing', 'Scrapbox Box'), null);
 });
 
-test('fuzzyScore: 大文字小文字を同一視する', () => {
+void test('fuzzyScore: 大文字小文字を同一視する', () => {
   assert.notEqual(fuzzyScore('SCRAP', 'Scrapbox'), null);
 });
 
-test('rankTitles: 連続一致を飛ばし一致より上位にし、同じ入力の順位は決定的になる', () => {
+void test('rankTitles: 連続一致を飛ばし一致より上位にし、同じ入力の順位は決定的になる', () => {
   const titles = ['s-c-r-a-p', 'Scrapbook', 'Scrapbox'];
   const expected = ['Scrapbox', 'Scrapbook', 's-c-r-a-p'];
 
@@ -35,14 +35,14 @@ test('rankTitles: 連続一致を飛ばし一致より上位にし、同じ入�
   assert.deepEqual(rankTitles('scrap', titles, (title) => title), expected);
 });
 
-test('rankTitles: 同点は候補文字列の辞書順にする', () => {
+void test('rankTitles: 同点は候補文字列の辞書順にする', () => {
   assert.deepEqual(
     rankTitles('x', ['x-b', 'x-a'], (title) => title),
     ['x-a', 'x-b'],
   );
 });
 
-test('rankTitles: 空クエリは原本を元の順で全件返す', () => {
+void test('rankTitles: 空クエリは原本を元の順で全件返す', () => {
   const items = [{ title: 'c' }, { title: 'a' }, { title: 'b' }];
   const ranked = rankTitles('  ', items, (item) => item.title);
 
@@ -50,7 +50,7 @@ test('rankTitles: 空クエリは原本を元の順で全件返す', () => {
   assert.equal(ranked[0], items[0]);
 });
 
-test('rankTitles: limit 件で打ち切り、既定値は 20 件にする', () => {
+void test('rankTitles: limit 件で打ち切り、既定値は 20 件にする', () => {
   const titles = Array.from({ length: 25 }, (_, index) => `match ${String(index).padStart(2, '0')}`);
 
   assert.equal(rankTitles('match', titles, (title) => title).length, 20);

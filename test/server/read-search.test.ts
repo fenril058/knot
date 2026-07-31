@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { loginAs, makeServer } from '../helpers/server.ts';
 import { seedPage } from '../helpers/pages.ts';
 
-test('search/query が Cosense 形状で返す', async () => {
+void test('search/query が Cosense 形状で返す', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
@@ -24,7 +24,7 @@ test('search/query が Cosense 形状で返す', async () => {
   assert.equal((await s.request('/api/pages/proj/search/query?q=%20%20', {}, cookie)).status, 400);
 });
 
-test('existsExactTitleMatch はタイトル lc 一致で true', async () => {
+void test('existsExactTitleMatch はタイトル lc 一致で true', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
@@ -34,7 +34,7 @@ test('existsExactTitleMatch はタイトル lc 一致で true', async () => {
   assert.equal(body.existsExactTitleMatch, true);
 });
 
-test('/api/code はコードブロックを返す', async () => {
+void test('/api/code はコードブロックを返す', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);

@@ -51,7 +51,7 @@ async function makeEnv(): Promise<Env> {
   };
 }
 
-test('pull: 初回同期でリモートの全ページがファイルになる', async () => {
+void test('pull: 初回同期でリモートの全ページがファイルになる', async () => {
   const env = await makeEnv();
   try {
     await seedPage(env.storage, env.projectId, 'Alpha', ['first line'], env.clock.t);
@@ -68,7 +68,7 @@ test('pull: 初回同期でリモートの全ページがファイルになる',
   } finally { env.close(); }
 });
 
-test('pull: 2 回目は no-op、リモート更新は上書き、ローカル編集は温存', async () => {
+void test('pull: 2 回目は no-op、リモート更新は上書き、ローカル編集は温存', async () => {
   const env = await makeEnv();
   try {
     await seedPage(env.storage, env.projectId, 'Alpha', ['v1 body'], env.clock.t);
@@ -83,7 +83,7 @@ test('pull: 2 回目は no-op、リモート更新は上書き、ローカル編
   } finally { env.close(); }
 });
 
-test('pull: 両方変更は conflicts に隔離し exitCode 1', async () => {
+void test('pull: 両方変更は conflicts に隔離し exitCode 1', async () => {
   const env = await makeEnv();
   try {
     await seedPage(env.storage, env.projectId, 'Alpha', ['v1 body'], env.clock.t);
@@ -110,7 +110,7 @@ test('pull: 両方変更は conflicts に隔離し exitCode 1', async () => {
   } finally { env.close(); }
 });
 
-test('pull: リモートのリネームは旧ファイルを消して新名で書く', async () => {
+void test('pull: リモートのリネームは旧ファイルを消して新名で書く', async () => {
   const env = await makeEnv();
   try {
     await seedPage(env.storage, env.projectId, 'Alpha', ['body'], env.clock.t);
@@ -132,7 +132,7 @@ test('pull: リモートのリネームは旧ファイルを消して新名で�
   } finally { env.close(); }
 });
 
-test('pull: リモート削除はローカル未変更なら削除、変更ありなら温存', async () => {
+void test('pull: リモート削除はローカル未変更なら削除、変更ありなら温存', async () => {
   const env = await makeEnv();
   try {
     await seedPage(env.storage, env.projectId, 'Gone', ['body'], env.clock.t);
@@ -165,7 +165,7 @@ const putLosesResponse: typeof fetch = async (url, init) => {
   return res;
 };
 
-test('pull: 一覧後の詳細が別 id を返したページはスキップし、ファイルも state も変えない', async () => {
+void test('pull: 一覧後の詳細が別 id を返したページはスキップし、ファイルも state も変えない', async () => {
   const env = await makeEnv();
   try {
     await seedPage(env.storage, env.projectId, 'Alpha', ['body'], env.clock.t);
@@ -187,7 +187,7 @@ test('pull: 一覧後の詳細が別 id を返したページはスキップし�
   } finally { env.close(); }
 });
 
-test('pull: 詳細取得が transport 例外を投げたページはスキップし、他ページは継続する', async () => {
+void test('pull: 詳細取得が transport 例外を投げたページはスキップし、他ページは継続する', async () => {
   const env = await makeEnv();
   try {
     await seedPage(env.storage, env.projectId, 'Alpha', ['a body'], env.clock.t);
@@ -208,7 +208,7 @@ test('pull: 詳細取得が transport 例外を投げたページはスキップ
   } finally { env.close(); }
 });
 
-test('push: ローカル編集を送信し version と hash を state に反映する', async () => {
+void test('push: ローカル編集を送信し version と hash を state に反映する', async () => {
   const env = await makeEnv();
   try {
     await seedPage(env.storage, env.projectId, 'Alpha', ['v1 body'], env.clock.t);
@@ -225,7 +225,7 @@ test('push: ローカル編集を送信し version と hash を state に反映�
   } finally { env.close(); }
 });
 
-test('push: 新規ファイルはページを作成し pageId を state に記録する', async () => {
+void test('push: 新規ファイルはページを作成し pageId を state に記録する', async () => {
   const env = await makeEnv();
   try {
     await runSync(['pull', '--dir', env.dir]);
@@ -240,7 +240,7 @@ test('push: 新規ファイルはページを作成し pageId を state に記�
   } finally { env.close(); }
 });
 
-test('push: 409 は該当ページだけスキップし exitCode 1、--force で上書きできる', async () => {
+void test('push: 409 は該当ページだけスキップし exitCode 1、--force で上書きできる', async () => {
   const env = await makeEnv();
   try {
     await seedPage(env.storage, env.projectId, 'Alpha', ['v1 body'], env.clock.t);
@@ -275,7 +275,7 @@ test('push: 409 は該当ページだけスキップし exitCode 1、--force で
   } finally { env.close(); }
 });
 
-test('push: create 後の詳細取得が null なら pushed を報告せず exit1（state 未記録）', async () => {
+void test('push: create 後の詳細取得が null なら pushed を報告せず exit1（state 未記録）', async () => {
   const env = await makeEnv();
   try {
     await runSync(['pull', '--dir', env.dir]);
@@ -294,7 +294,7 @@ test('push: create 後の詳細取得が null なら pushed を報告せず exit
   } finally { env.close(); }
 });
 
-test('push: 1 行目を書き換えたファイル（リネーム企図）は送信しない', async () => {
+void test('push: 1 行目を書き換えたファイル（リネーム企図）は送信しない', async () => {
   const env = await makeEnv();
   try {
     await seedPage(env.storage, env.projectId, 'Alpha', ['body'], env.clock.t);
@@ -309,7 +309,7 @@ test('push: 1 行目を書き換えたファイル（リネーム企図）は送
   } finally { env.close(); }
 });
 
-test('push: PUT の応答が失われても再送せず、確認再取得で state が揃う', async () => {
+void test('push: PUT の応答が失われても再送せず、確認再取得で state が揃う', async () => {
   const env = await makeEnv();
   try {
     await seedPage(env.storage, env.projectId, 'Alpha', ['v1 body'], env.clock.t);
@@ -326,7 +326,7 @@ test('push: PUT の応答が失われても再送せず、確認再取得で sta
   } finally { env.close(); }
 });
 
-test('pull → push: CRLF で保存されたファイルも差分なしなら no-op', async () => {
+void test('pull → push: CRLF で保存されたファイルも差分なしなら no-op', async () => {
   const env = await makeEnv();
   try {
     await seedPage(env.storage, env.projectId, 'Alpha', ['body line'], env.clock.t);
@@ -338,7 +338,7 @@ test('pull → push: CRLF で保存されたファイルも差分なしなら no
   } finally { env.close(); }
 });
 
-test('pull: 特殊文字タイトルのファイル名エスケープと round-trip push', async () => {
+void test('pull: 特殊文字タイトルのファイル名エスケープと round-trip push', async () => {
   const env = await makeEnv();
   try {
     await seedPage(env.storage, env.projectId, 'a/b: c', ['body'], env.clock.t);
@@ -355,7 +355,7 @@ test('pull: 特殊文字タイトルのファイル名エスケープと round-t
   } finally { env.close(); }
 });
 
-test('pull: 詳細取得が 401 を返したら exitCode 2 で中断し、ファイル/state は変更しない', async () => {
+void test('pull: 詳細取得が 401 を返したら exitCode 2 で中断し、ファイル/state は変更しない', async () => {
   const env = await makeEnv();
   try {
     await seedPage(env.storage, env.projectId, 'Alpha', ['body'], env.clock.t);
@@ -371,7 +371,7 @@ test('pull: 詳細取得が 401 を返したら exitCode 2 で中断し、ファ
   } finally { env.close(); }
 });
 
-test('status --remote: 認証エラーは例外を投げずに exitCode 2 を返す', async () => {
+void test('status --remote: 認証エラーは例外を投げずに exitCode 2 を返す', async () => {
   const env = await makeEnv();
   try {
     const result = await runSync(
@@ -382,7 +382,7 @@ test('status --remote: 認証エラーは例外を投げずに exitCode 2 を返
   } finally { env.close(); }
 });
 
-test('pull: ローカルが既にリモートと同内容なら偽の競合として reconciled する（state 保存喪失の復旧）', async () => {
+void test('pull: ローカルが既にリモートと同内容なら偽の競合として reconciled する（state 保存喪失の復旧）', async () => {
   const env = await makeEnv();
   try {
     const pageId = await seedPage(env.storage, env.projectId, 'Alpha', ['v1 body'], env.clock.t);
@@ -408,7 +408,7 @@ test('pull: ローカルが既にリモートと同内容なら偽の競合と�
   } finally { env.close(); }
 });
 
-test('push: リモートが既にローカルと同内容なら偽の競合として reconciled する（state 保存喪失の復旧）', async () => {
+void test('push: リモートが既にローカルと同内容なら偽の競合として reconciled する（state 保存喪失の復旧）', async () => {
   const env = await makeEnv();
   try {
     await seedPage(env.storage, env.projectId, 'Alpha', ['v1 body'], env.clock.t);
@@ -434,7 +434,7 @@ test('push: リモートが既にローカルと同内容なら偽の競合と�
   } finally { env.close(); }
 });
 
-test('pull: 追跡ファイル名の位置に通常の symlink があれば書き込みを拒否し、リンク先を変えない', async () => {
+void test('pull: 追跡ファイル名の位置に通常の symlink があれば書き込みを拒否し、リンク先を変えない', async () => {
   const env = await makeEnv();
   const outside = mkdtempSync(join(tmpdir(), 'knot-sync-evil-'));
   try {
@@ -461,7 +461,7 @@ test('pull: 追跡ファイル名の位置に通常の symlink があれば書�
   } finally { rmSync(outside, { recursive: true }); env.close(); }
 });
 
-test('pull: 追跡ファイル名の位置にダングリング symlink があっても書き込みを拒否しリンク先を作らない', async () => {
+void test('pull: 追跡ファイル名の位置にダングリング symlink があっても書き込みを拒否しリンク先を作らない', async () => {
   const env = await makeEnv();
   const outside = mkdtempSync(join(tmpdir(), 'knot-sync-evil-'));
   try {
@@ -480,7 +480,7 @@ test('pull: 追跡ファイル名の位置にダングリング symlink があ�
   } finally { rmSync(outside, { recursive: true }); env.close(); }
 });
 
-test('status --remote: リモート側の new / changed / deleted を表示する', async () => {
+void test('status --remote: リモート側の new / changed / deleted を表示する', async () => {
   const env = await makeEnv();
   try {
     await seedPage(env.storage, env.projectId, 'Alpha', ['body'], env.clock.t);

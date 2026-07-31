@@ -17,7 +17,7 @@ async function setup() {
   return { s, project, cookie, rename };
 }
 
-test('rename がタイトルを変え、rewritten を返す', async () => {
+void test('rename がタイトルを変え、rewritten を返す', async () => {
   const { s, project, rename } = await setup();
   await seedPage(s.storage, project.id, 'Old Name', ['content'], s.clock.t);
   const srcId = await seedPage(s.storage, project.id, 'Src', ['[Old Name]'], s.clock.t + 1);
@@ -28,7 +28,7 @@ test('rename がタイトルを変え、rewritten を返す', async () => {
   assert.deepEqual(body.rewritten, [{ id: srcId, title: 'Src', version: 2 }]);
 });
 
-test('rewriteLinks 省略時は書き換えない', async () => {
+void test('rewriteLinks 省略時は書き換えない', async () => {
   const { s, project, rename } = await setup();
   await seedPage(s.storage, project.id, 'Old', ['x'], s.clock.t);
   const srcId = await seedPage(s.storage, project.id, 'Src', ['[Old]'], s.clock.t + 1);
@@ -39,7 +39,7 @@ test('rewriteLinks 省略時は書き換えない', async () => {
   assert.equal(src!.lines[1].text, '[Old]');
 });
 
-test('rewriteLinks が boolean でなければ 400', async () => {
+void test('rewriteLinks が boolean でなければ 400', async () => {
   const { s, project, rename } = await setup();
   await seedPage(s.storage, project.id, 'Old', ['x'], s.clock.t);
   const res = await rename('Old', { baseVersion: 1, newTitle: 'New', rewriteLinks: 'true' });
@@ -47,7 +47,7 @@ test('rewriteLinks が boolean でなければ 400', async () => {
   assert.deepEqual(await res.json(), { error: 'bad_request', message: 'rewriteLinks must be a boolean' });
 });
 
-test('占有タイトルへの rename は 409 reason title、baseVersion 不一致は 409 reason version', async () => {
+void test('占有タイトルへの rename は 409 reason title、baseVersion 不一致は 409 reason version', async () => {
   const { s, project, rename } = await setup();
   await seedPage(s.storage, project.id, 'Taken', ['x'], s.clock.t);
   await seedPage(s.storage, project.id, 'Old', ['x'], s.clock.t + 1);
@@ -61,7 +61,7 @@ test('占有タイトルへの rename は 409 reason title、baseVersion 不一�
   assert.equal((await stale.json()).reason, 'version');
 });
 
-test('不正な body は 400、不在ページは 404', async () => {
+void test('不正な body は 400、不在ページは 404', async () => {
   const { rename } = await setup();
   assert.equal((await rename('Ghost', { baseVersion: 1, newTitle: 'X' })).status, 404);
   const { s, project, rename: rename2 } = await setup();

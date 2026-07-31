@@ -41,7 +41,7 @@ const fixture = (): CosenseExport => ({
   ],
 });
 
-test('メタデータ付きの行が ID・時刻・userId ごと保存される', async () => {
+void test('メタデータ付きの行が ID・時刻・userId ごと保存される', async () => {
   const { storage } = makeStorage();
   const summary = await importCosense(storage, fixture(), { projectName: 'sandbox', now: 1760000000 });
   assert.deepEqual(summary, { created: 2, overwritten: 0, skipped: 0, users: 1 });
@@ -62,7 +62,7 @@ test('メタデータ付きの行が ID・時刻・userId ごと保存される'
   await storage.close();
 });
 
-test('文字列行はインポート時刻と knot-import ユーザーで埋まる', async () => {
+void test('文字列行はインポート時刻と knot-import ユーザーで埋まる', async () => {
   const { db, storage } = makeStorage();
   await importCosense(storage, fixture(), { projectName: 'sandbox', now: 1760000000 });
   const project = await storage.getProject('sandbox');
@@ -81,7 +81,7 @@ test('文字列行はインポート時刻と knot-import ユーザーで埋ま�
   await storage.close();
 });
 
-test('インポートはコミットとして残り、導出データも更新される', async () => {
+void test('インポートはコミットとして残り、導出データも更新される', async () => {
   const { db, storage } = makeStorage();
   await importCosense(storage, fixture(), { projectName: 'sandbox', now: 1760000000 });
   const commit = db
@@ -106,7 +106,7 @@ test('インポートはコミットとして残り、導出データも更新�
   await storage.close();
 });
 
-test('再インポートは既定でスキップされ、内容が変わらない', async () => {
+void test('再インポートは既定でスキップされ、内容が変わらない', async () => {
   const { storage } = makeStorage();
   await importCosense(storage, fixture(), { projectName: 'sandbox', now: 1760000000 });
   const summary = await importCosense(storage, fixture(), { projectName: 'sandbox', now: 1770000000 });
@@ -120,7 +120,7 @@ test('再インポートは既定でスキップされ、内容が変わらな�
   await storage.close();
 });
 
-test('overwrite は既存ページを新しいコミットとして置き換える', async () => {
+void test('overwrite は既存ページを新しいコミットとして置き換える', async () => {
   const { db, storage } = makeStorage();
   await importCosense(storage, fixture(), { projectName: 'sandbox', now: 1760000000 });
   const modified = fixture();
@@ -156,7 +156,7 @@ test('overwrite は既存ページを新しいコミットとして置き換え�
   await storage.close();
 });
 
-test('page id が衝突したら新しい ULID で取り込む（別プロジェクトへの同一エクスポート）', async () => {
+void test('page id が衝突したら新しい ULID で取り込む（別プロジェクトへの同一エクスポート）', async () => {
   const { storage } = makeStorage();
   await importCosense(storage, fixture(), { projectName: 'sandbox', now: 1760000000 });
   const summary = await importCosense(storage, fixture(), { projectName: 'mirror', now: 1770000000 });
@@ -170,7 +170,7 @@ test('page id が衝突したら新しい ULID で取り込む（別プロジェ
   await storage.close();
 });
 
-test('不正な JSON と重複行 ID は拒否する', async () => {
+void test('不正な JSON と重複行 ID は拒否する', async () => {
   const { storage } = makeStorage();
   await assert.rejects(importCosense(storage, { nope: true }, { projectName: 'sandbox' }), /pages/);
   const dup = fixture();
@@ -184,7 +184,7 @@ test('不正な JSON と重複行 ID は拒否する', async () => {
   await storage.close();
 });
 
-test('同名別 ID のユーザーは既存 ID に統合され、行の userId も再マップされる', async () => {
+void test('同名別 ID のユーザーは既存 ID に統合され、行の userId も再マップされる', async () => {
   const { storage } = makeStorage();
   const now = 1700000000;
   await storage.upsertDisplayUser({ id: 'A1', name: 'alice', displayName: 'Alice' }, now);
@@ -210,7 +210,7 @@ test('同名別 ID のユーザーは既存 ID に統合され、行の userId �
   await storage.close();
 });
 
-test('エクスポート元の displayName がプロジェクトに反映される', async () => {
+void test('エクスポート元の displayName がプロジェクトに反映される', async () => {
   const { storage } = makeStorage();
   const now = 1700000000;
   const data = {

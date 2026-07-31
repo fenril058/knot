@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDatabase } from '../../src/storage/db.ts';
 
-test('マイグレーションで全テーブルが作られ user_version が進む', () => {
+void test('マイグレーションで全テーブルが作られ user_version が進む', () => {
   const db = openDatabase(':memory:');
   const names = (
     db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]
@@ -20,7 +20,7 @@ test('マイグレーションで全テーブルが作られ user_version が進
   db.close();
 });
 
-test('再オープンしても適用済みマイグレーションを二重適用しない', () => {
+void test('再オープンしても適用済みマイグレーションを二重適用しない', () => {
   const dir = mkdtempSync(join(tmpdir(), 'knot-db-'));
   const path = join(dir, 'knot.db');
   openDatabase(path).close();
@@ -30,7 +30,7 @@ test('再オープンしても適用済みマイグレーションを二重適�
   db.close();
 });
 
-test('FTS5 trigram が動く（3 文字はヒット、2 文字は 0 件）', () => {
+void test('FTS5 trigram が動く（3 文字はヒット、2 文字は 0 件）', () => {
   const db = openDatabase(':memory:');
   db.prepare('INSERT INTO pages_fts (page_id, project_id, content) VALUES (?, ?, ?)').run(
     'p1', 'pr', 'knot 設計書',
@@ -41,7 +41,7 @@ test('FTS5 trigram が動く（3 文字はヒット、2 文字は 0 件）', () 
   db.close();
 });
 
-test('title_lc の一意性は削除済みページに適用されない', () => {
+void test('title_lc の一意性は削除済みページに適用されない', () => {
   const db = openDatabase(':memory:');
   db.prepare("INSERT INTO projects (id, name, display_name, created, updated) VALUES ('p', 'p', 'p', 0, 0)").run();
   const ins = db.prepare(

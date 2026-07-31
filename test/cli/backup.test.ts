@@ -51,7 +51,7 @@ async function populatedData(root: string): Promise<{ dataDir: string; attachmen
   return { dataDir, attachmentId };
 }
 
-test('backup からページと添付を復元して配信できる', async (t) => {
+void test('backup からページと添付を復元して配信できる', async (t) => {
   const root = tempRoot();
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const { dataDir, attachmentId } = await populatedData(root);
@@ -81,7 +81,7 @@ test('backup からページと添付を復元して配信できる', async (t) 
   assert.equal(await file.text(), 'restorable attachment');
 });
 
-test('添付実体が欠けると部分出力を消し、同じ引数で再実行できる', async (t) => {
+void test('添付実体が欠けると部分出力を消し、同じ引数で再実行できる', async (t) => {
   const root = tempRoot();
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const { dataDir, attachmentId } = await populatedData(root);
@@ -97,7 +97,7 @@ test('添付実体が欠けると部分出力を消し、同じ引数で再実�
   assert.match(await runBackup(dataDir, outDir), /1 attachments verified/);
 });
 
-test('既存 outDir と同一・相互包含パスを拒否する', async (t) => {
+void test('既存 outDir と同一・相互包含パスを拒否する', async (t) => {
   const root = tempRoot();
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const dataDir = join(root, 'container', 'data');
@@ -111,7 +111,7 @@ test('既存 outDir と同一・相互包含パスを拒否する', async (t) =>
   await assert.rejects(runBackup(dataDir, dirname(dataDir)));
 });
 
-test('symlink 経由の包含パスも拒否する', async (t) => {
+void test('symlink 経由の包含パスも拒否する', async (t) => {
   const root = tempRoot();
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const dataDir = join(root, 'data');
@@ -122,7 +122,7 @@ test('symlink 経由の包含パスも拒否する', async (t) => {
   await assert.rejects(runBackup(dataDir, join(link, 'files', 'bk')));
 });
 
-test('symlink と .. を含む outDir は字句的に正規化した dataDir 外へ作る', async (t) => {
+void test('symlink と .. を含む outDir は字句的に正規化した dataDir 外へ作る', async (t) => {
   const root = tempRoot();
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const dataDir = join(root, 'data');
@@ -136,7 +136,7 @@ test('symlink と .. を含む outDir は字句的に正規化した dataDir 外
   assert.equal(existsSync(join(dataDir, 'bk')), false);
 });
 
-test('symlink 添付を実体としてコピーする', async (t) => {
+void test('symlink 添付を実体としてコピーする', async (t) => {
   const root = tempRoot();
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const { dataDir, attachmentId } = await populatedData(root);
@@ -153,7 +153,7 @@ test('symlink 添付を実体としてコピーする', async (t) => {
   assert.equal(lstatSync(join(outDir, 'files', attachmentId)).isSymbolicLink(), false);
 });
 
-test('outDir の dangling symlink も既存パスとして拒否する', async (t) => {
+void test('outDir の dangling symlink も既存パスとして拒否する', async (t) => {
   const root = tempRoot();
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const dataDir = join(root, 'data');
@@ -164,7 +164,7 @@ test('outDir の dangling symlink も既存パスとして拒否する', async (
   await assert.rejects(runBackup(dataDir, outDir), /already exists/);
 });
 
-test('backup は実行後の元 DB の変更を反映しないスナップショットである', async (t) => {
+void test('backup は実行後の元 DB の変更を反映しないスナップショットである', async (t) => {
   const root = tempRoot();
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const { dataDir } = await populatedData(root);
@@ -183,7 +183,7 @@ test('backup は実行後の元 DB の変更を反映しないスナップショ
   }
 });
 
-test('knot backup --data --out を CLI から実行できる', async (t) => {
+void test('knot backup --data --out を CLI から実行できる', async (t) => {
   const root = tempRoot();
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const dataDir = join(root, 'data');

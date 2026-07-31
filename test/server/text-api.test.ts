@@ -17,7 +17,7 @@ async function setup() {
   return { s, put, getText };
 }
 
-test('新規作成 → 全文置換 → GET text で往復', async () => {
+void test('新規作成 → 全文置換 → GET text で往復', async () => {
   const { put, getText } = await setup();
   const create = await put('Doc', { baseVersion: 0, text: 'Doc\nline one\nline two' });
   assert.equal(create.status, 200);
@@ -31,7 +31,7 @@ test('新規作成 → 全文置換 → GET text で往復', async () => {
   assert.equal(await (await getText('Doc')).text(), 'Doc\nline one changed\nline two\nline three');
 });
 
-test('変更のない PUT はコミットを作らない', async () => {
+void test('変更のない PUT はコミットを作らない', async () => {
   const { put } = await setup();
   await put('Doc', { baseVersion: 0, text: 'Doc\nsame' });
   const noop = await put('Doc', { baseVersion: 1, text: 'Doc\nsame' });
@@ -39,7 +39,7 @@ test('変更のない PUT はコミットを作らない', async () => {
   assert.deepEqual(await noop.json(), { version: 1, commitId: null });
 });
 
-test('baseVersion 不一致は 409 で最新状態を返す', async () => {
+void test('baseVersion 不一致は 409 で最新状態を返す', async () => {
   const { put } = await setup();
   await put('Doc', { baseVersion: 0, text: 'Doc\nv1' });
   await put('Doc', { baseVersion: 1, text: 'Doc\nv2' });
@@ -50,7 +50,7 @@ test('baseVersion 不一致は 409 で最新状態を返す', async () => {
   assert.equal(body.page.lines.map((l: { text: string }) => l.text).join('\n'), 'Doc\nv2');
 });
 
-test('編集で残った行の ID とメタデータは保持される', async () => {
+void test('編集で残った行の ID とメタデータは保持される', async () => {
   const { s, put } = await setup();
   await put('Doc', { baseVersion: 0, text: 'Doc\nkeep me\ndrop me' });
   const project = await s.storage.getProject('proj');
@@ -61,7 +61,7 @@ test('編集で残った行の ID とメタデータは保持される', async (
   assert.equal(after!.lines[1].id, keepId); // 不変の行は ID が変わらない
 });
 
-test('形式不正は 400', async () => {
+void test('形式不正は 400', async () => {
   const { put } = await setup();
   assert.equal((await put('Doc', { baseVersion: 0, text: '' })).status, 400);
   assert.equal((await put('Doc', { baseVersion: 0 })).status, 400);

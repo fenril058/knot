@@ -45,7 +45,7 @@ async function setup() {
   return { dataDir, storage, attachments };
 }
 
-test('full export とプロジェクトの添付ファイルを zip に同梱する', async () => {
+void test('full export とプロジェクトの添付ファイルを zip に同梱する', async () => {
   const { dataDir, storage, attachments } = await setup();
   writeFileSync(join(dataDir, 'files', attachments[0]!.id), 'BBB');
   writeFileSync(join(dataDir, 'files', attachments[1]!.id), 'AAA');
@@ -61,13 +61,13 @@ test('full export とプロジェクトの添付ファイルを zip に同梱す
   await storage.close();
 });
 
-test('添付レコードの実ファイルが欠落していれば拒否する', async () => {
+void test('添付レコードの実ファイルが欠落していれば拒否する', async () => {
   const { dataDir, storage } = await setup();
   await assert.rejects(buildExportZip(storage, dataDir, 'project', NOW), StorageError);
   await storage.close();
 });
 
-test('未知プロジェクトを拒否する', async () => {
+void test('未知プロジェクトを拒否する', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'knot-export-zip-'));
   const { storage } = makeStorage();
   await assert.rejects(buildExportZip(storage, dataDir, 'missing', NOW), StorageError);

@@ -16,7 +16,7 @@ function json(status: number, body: unknown): Response {
 const opts = { baseUrl: 'http://h', project: 'proj', token: 'knot_t' };
 const p = (i: number) => ({ id: `id${i}`, title: `T${i}`, version: 1 });
 
-test('listPages: ページングして全件返し、認証ヘッダを送る', async () => {
+void test('listPages: ページングして全件返し、認証ヘッダを送る', async () => {
   const calls: string[] = [];
   const client = makeSyncClient({
     ...opts,
@@ -33,7 +33,7 @@ test('listPages: ページングして全件返し、認証ヘッダを送る', 
   assert.ok(calls.every((u) => u.includes('sort=title')));
 });
 
-test('listPages: version が無いサーバはエラーにする', async () => {
+void test('listPages: version が無いサーバはエラーにする', async () => {
   const client = makeSyncClient({
     ...opts,
     fetchFn: fakeFetch(() => json(200, { count: 1, pages: [{ id: 'a', title: 'A' }] })),
@@ -41,7 +41,7 @@ test('listPages: version が無いサーバはエラーにする', async () => {
   await assert.rejects(client.listPages(), SyncHttpError);
 });
 
-test('listPages: id 重複と件数不一致はエラーにする', async () => {
+void test('listPages: id 重複と件数不一致はエラーにする', async () => {
   const dup = makeSyncClient({
     ...opts,
     fetchFn: fakeFetch(() =>
@@ -55,7 +55,7 @@ test('listPages: id 重複と件数不一致はエラーにする', async () => 
   await assert.rejects(short.listPages(), SyncHttpError);
 });
 
-test('getPage: 詳細を text に組み立てる。404 は null', async () => {
+void test('getPage: 詳細を text に組み立てる。404 は null', async () => {
   const client = makeSyncClient({
     ...opts,
     fetchFn: fakeFetch((url) =>
@@ -70,7 +70,7 @@ test('getPage: 詳細を text に組み立てる。404 は null', async () => {
   assert.equal(await client.getPage('Missing'), null);
 });
 
-test('putText: X-Knot-Client を送り、200 は ok、409 は conflict', async () => {
+void test('putText: X-Knot-Client を送り、200 は ok、409 は conflict', async () => {
   const client = makeSyncClient({
     ...opts,
     fetchFn: fakeFetch((url, init) => {
@@ -84,7 +84,7 @@ test('putText: X-Knot-Client を送り、200 は ok、409 は conflict', async (
   assert.deepEqual(await client.putText('Alpha', 1, 'Alpha\nbody'), { kind: 'conflict' });
 });
 
-test('401 は認証エラーとして SyncHttpError(status=401)', async () => {
+void test('401 は認証エラーとして SyncHttpError(status=401)', async () => {
   const client = makeSyncClient({ ...opts, fetchFn: fakeFetch(() => json(401, { error: 'unauthorized' })) });
   await assert.rejects(client.listPages(), (e: SyncHttpError) => e.status === 401);
 });

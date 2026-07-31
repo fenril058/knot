@@ -41,7 +41,7 @@ async function runCosense(
   });
 }
 
-test(
+void test(
   '公式 cosense-cli(PAT認証) が knot に対して listPages / readPage / searchFullText を実行できる',
   { timeout: 60_000 },
   async (t) => {

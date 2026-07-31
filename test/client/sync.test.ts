@@ -36,7 +36,7 @@ const engine = (lines: Line[], title = lines[0]?.text ?? 'Title') => new SyncEng
 const effect = <T extends SyncEffect['type']>(effects: SyncEffect[], type: T) =>
   effects.find((candidate): candidate is Extract<SyncEffect, { type: T }> => candidate.type === type);
 
-test('基本往復: 編集を送信して成功すると確認済み snapshot と永続化が進む', () => {
+void test('基本往復: 編集を送信して成功すると確認済み snapshot と永続化が進む', () => {
   const sync = engine([line('title', 'Title'), line('body', 'old')]);
 
   assert.deepEqual(sync.bufferChanged(['Title', 'new']), [{ type: 'schedule' }]);
@@ -50,7 +50,7 @@ test('基本往復: 編集を送信して成功すると確認済み snapshot �
   assert.equal(sync.status, 'saved');
 });
 
-test('送信中の追加編集は成功応答後に新 snapshot 基準の第2コミットになる', () => {
+void test('送信中の追加編集は成功応答後に新 snapshot 基準の第2コミットになる', () => {
   const sync = engine([line('title', 'Title'), line('body', 'body')]);
   sync.bufferChanged(['Title', 'first']);
   sync.flush();
@@ -64,7 +64,7 @@ test('送信中の追加編集は成功応答後に新 snapshot 基準の第2コ
   assert.equal(sync.status, 'saving');
 });
 
-test('inflight 中の flush は第2リクエストを送らない', () => {
+void test('inflight 中の flush は第2リクエストを送らない', () => {
   const sync = engine([line('title', 'Title'), line('body', 'body')]);
   sync.bufferChanged(['Title', 'changed']);
   sync.flush();
@@ -72,7 +72,7 @@ test('inflight 中の flush は第2リクエストを送らない', () => {
   assert.deepEqual(sync.flush(), []);
 });
 
-test('409 の3-way rebase は他者の変更を残して自分の変更だけを再送する', () => {
+void test('409 の3-way rebase は他者の変更を残して自分の変更だけを再送する', () => {
   const base = [line('title', 'Title'), line('mine', 'mine before'), line('theirs', 'theirs before')];
   const sync = engine(base);
   sync.bufferChanged(['Title', 'mine changed', 'theirs before']);
@@ -89,7 +89,7 @@ test('409 の3-way rebase は他者の変更を残して自分の変更だけを
   assert.deepEqual(merged.map(({ text }) => text), ['Title', 'mine changed', 'theirs changed']);
 });
 
-test('409 で挿入アンカーが消えてもローカルの挿入内容を再送する', () => {
+void test('409 で挿入アンカーが消えてもローカルの挿入内容を再送する', () => {
   const base = [line('title', 'Title'), line('anchor', 'anchor'), line('tail', 'tail')];
   const sync = engine(base);
   sync.bufferChanged(['Title', 'anchor', 'inserted', 'tail']);
@@ -106,7 +106,7 @@ test('409 で挿入アンカーが消えてもローカルの挿入内容を再�
   assert.ok(merged.some(({ text }) => text === 'inserted'));
 });
 
-test('ackFailure 後の flush は同じ commitId と内容で再送する', () => {
+void test('ackFailure 後の flush は同じ commitId と内容で再送する', () => {
   const sync = engine([line('title', 'Title'), line('body', 'body')]);
   sync.bufferChanged(['Title', 'changed']);
   const first = effect(sync.flush(), 'send');
@@ -118,7 +118,7 @@ test('ackFailure 後の flush は同じ commitId と内容で再送する', () =
   assert.equal(sync.status, 'saving');
 });
 
-test('flush は PendingRecord を永続化し、JSON 往復と不正入力を扱う', () => {
+void test('flush は PendingRecord を永続化し、JSON 往復と不正入力を扱う', () => {
   const base = [line('title', 'Title'), line('body', 'body')];
   const sync = engine(base);
   sync.bufferChanged(['Title', 'changed']);
@@ -138,7 +138,7 @@ test('flush は PendingRecord を永続化し、JSON 往復と不正入力を扱
   assert.equal(parsePendingRecord(JSON.stringify({ ...record, ops: [{ type: 'wat' }] })), null);
 });
 
-test('新規ページは編集イベント前に送らず、初回は version 0 のタイトル insert', () => {
+void test('新規ページは編集イベント前に送らず、初回は version 0 のタイトル insert', () => {
   const sync = new SyncEngine({
     snapshot: { version: 0, lines: [] },
     title: 'New page',
@@ -160,7 +160,7 @@ test('新規ページは編集イベント前に送らず、初回は version 0 
   });
 });
 
-test('タイトル確定後は currentTitle と次の送信先 title が更新される', () => {
+void test('タイトル確定後は currentTitle と次の送信先 title が更新される', () => {
   const sync = engine([line('title', 'Old title'), line('body', 'body')], 'Old title');
   sync.bufferChanged(['New title', 'body']);
   sync.flush();
@@ -171,7 +171,7 @@ test('タイトル確定後は currentTitle と次の送信先 title が更新�
   assert.equal(effect(effects, 'send')?.title, 'New title');
 });
 
-test('lineMeta は keep の元メタを保ち、追加行には自己メタと最大 version を使う', () => {
+void test('lineMeta は keep の元メタを保ち、追加行には自己メタと最大 version を使う', () => {
   const confirmed = [line('a', 'keep', 3, 'other'), line('b', 'remove', 4, 'other-2')];
 
   assert.deepEqual(lineMeta(confirmed, ['keep', 'added'], { userId: 'self', now: 999 }), [
@@ -180,7 +180,7 @@ test('lineMeta は keep の元メタを保ち、追加行には自己メタと�
   ]);
 });
 
-test('pending 復元: ackFailure 後の flush が元の commitId と ops をそのまま再送する', () => {
+void test('pending 復元: ackFailure 後の flush が元の commitId と ops をそのまま再送する', () => {
   const base = [line('title', 'Title'), line('body', 'old')];
   const record = {
     commitId: 'pending-commit',
@@ -211,7 +211,7 @@ test('pending 復元: ackFailure 後の flush が元の commitId と ops をそ�
   assert.deepEqual(sync.confirmedLines.map(({ text }) => text), ['Title', 'new']);
 });
 
-test('pending 復元: ackConflict は元 inflight を破棄して新しい commitId でリベース再送する', () => {
+void test('pending 復元: ackConflict は元 inflight を破棄して新しい commitId でリベース再送する', () => {
   const base = [line('title', 'Title'), line('body', 'old')];
   const record = {
     commitId: 'pending-commit',

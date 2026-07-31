@@ -5,7 +5,7 @@ import { duplicateOps } from '../../src/client/pageMenu/ops.ts';
 
 const ctx = { userId: 'user', now: 1, version: 1 };
 
-test('duplicateOps: タイトルを差し替え、本文を元の順序で複製する', () => {
+void test('duplicateOps: タイトルを差し替え、本文を元の順序で複製する', () => {
   let nextId = 0;
   const ops = duplicateOps(
     [{ text: 'Old title' }, { text: 'first' }, { text: 'second' }],
@@ -20,7 +20,7 @@ test('duplicateOps: タイトルを差し替え、本文を元の順序で複製
   assert.equal(ops[0]?.type === 'insert' ? ops[0].after : undefined, '_head');
 });
 
-test('duplicateOps: タイトルだけのページを複製する', () => {
+void test('duplicateOps: タイトルだけのページを複製する', () => {
   const ops = duplicateOps([{ text: 'Old title' }], 'New title', () => 'new-title');
 
   const lines = applyOps([], ops, ctx);
@@ -28,7 +28,7 @@ test('duplicateOps: タイトルだけのページを複製する', () => {
   assert.deepEqual(lines.map((line) => line.text), ['New title']);
 });
 
-test('duplicateOps: 全 insert id は makeId が生成した一意な値を使う', () => {
+void test('duplicateOps: 全 insert id は makeId が生成した一意な値を使う', () => {
   const generated = ['id-a', 'id-b', 'id-c'];
   let index = 0;
 

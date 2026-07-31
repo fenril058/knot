@@ -5,7 +5,7 @@ import { BadCommitError } from '../../src/storage/types.ts';
 import { opsHash } from '../../src/storage/hash.ts';
 import type { LineOp } from '../../src/core/ops.ts';
 
-test('opsHash はキー順に依存しない決定的ハッシュ', () => {
+void test('opsHash はキー順に依存しない決定的ハッシュ', () => {
   const a: LineOp[] = [{ type: 'insert', id: 'l1', after: '_head', text: 'T' }];
   const reordered = [{ after: '_head', text: 'T', type: 'insert', id: 'l1' }] as LineOp[];
   assert.equal(opsHash('p', 0, a), opsHash('p', 0, reordered));
@@ -18,7 +18,7 @@ async function setup() {
   return { db, storage, project };
 }
 
-test('最初のコミットでページが作られ version 1 になる', async () => {
+void test('最初のコミットでページが作られ version 1 になる', async () => {
   const { storage, project } = await setup();
   const r = await storage.commit({
     projectId: project.id,
@@ -39,7 +39,7 @@ test('最初のコミットでページが作られ version 1 になる', async 
   await storage.close();
 });
 
-test('逐次コミットで version が増え、行順と ord が ops 適用順に決まる', async () => {
+void test('逐次コミットで version が増え、行順と ord が ops 適用順に決まる', async () => {
   const { db, storage, project } = await setup();
   await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c1', baseVersion: 0,
@@ -65,7 +65,7 @@ test('逐次コミットで version が増え、行順と ord が ops 適用順�
   await storage.close();
 });
 
-test('先頭行の変更はタイトル変更になり title_history に残る', async () => {
+void test('先頭行の変更はタイトル変更になり title_history に残る', async () => {
   const { db, storage, project } = await setup();
   await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c1', baseVersion: 0,
@@ -91,7 +91,7 @@ test('先頭行の変更はタイトル変更になり title_history に残る',
   await storage.close();
 });
 
-test('_head への insert による先頭行の入れ替えもタイトル変更になる', async () => {
+void test('_head への insert による先頭行の入れ替えもタイトル変更になる', async () => {
   const { storage, project } = await setup();
   await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c1', baseVersion: 0,
@@ -109,7 +109,7 @@ test('_head への insert による先頭行の入れ替えもタイトル変更
   await storage.close();
 });
 
-test('全行 delete でページが削除され、commits は残る', async () => {
+void test('全行 delete でページが削除され、commits は残る', async () => {
   const { db, storage, project } = await setup();
   await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c1', baseVersion: 0,
@@ -133,7 +133,7 @@ test('全行 delete でページが削除され、commits は残る', async () =
   await storage.close();
 });
 
-test('baseVersion 不一致は conflict と最新スナップショットを返す', async () => {
+void test('baseVersion 不一致は conflict と最新スナップショットを返す', async () => {
   const { storage, project } = await setup();
   await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c1', baseVersion: 0,
@@ -153,7 +153,7 @@ test('baseVersion 不一致は conflict と最新スナップショットを返�
   await storage.close();
 });
 
-test('タイトルの一意制約違反はコミット全体が conflict になる', async () => {
+void test('タイトルの一意制約違反はコミット全体が conflict になる', async () => {
   const { storage, project } = await setup();
   await storage.commit({
     projectId: project.id, pageId: 'pgA', commitId: 'c1', baseVersion: 0,
@@ -193,7 +193,7 @@ test('タイトルの一意制約違反はコミット全体が conflict にな�
   await storage.close();
 });
 
-test('不正 ops は BadCommitError で、コミット全体がロールバックされる', async () => {
+void test('不正 ops は BadCommitError で、コミット全体がロールバックされる', async () => {
   const { storage, project } = await setup();
   await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c1', baseVersion: 0,
@@ -226,7 +226,7 @@ test('不正 ops は BadCommitError で、コミット全体がロールバッ�
   await storage.close();
 });
 
-test('存在しないページ・別プロジェクトのページ・削除済みページへのコミットは BadCommitError', async () => {
+void test('存在しないページ・別プロジェクトのページ・削除済みページへのコミットは BadCommitError', async () => {
   const { storage, project } = await setup();
   await assert.rejects(
     storage.commit({
@@ -263,7 +263,7 @@ test('存在しないページ・別プロジェクトのページ・削除済�
   await storage.close();
 });
 
-test('新規作成コミットの結果が空になるのは BadCommitError（生まれつき削除済みページを作らない）', async () => {
+void test('新規作成コミットの結果が空になるのは BadCommitError（生まれつき削除済みページを作らない）', async () => {
   const { storage, project } = await setup();
   await assert.rejects(
     storage.commit({

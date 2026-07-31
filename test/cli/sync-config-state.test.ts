@@ -11,19 +11,19 @@ function tmp(): string {
   return mkdtempSync(join(tmpdir(), 'knot-sync-'));
 }
 
-test('normalizeBaseUrl: 末尾スラッシュを除去し origin+path を返す', () => {
+void test('normalizeBaseUrl: 末尾スラッシュを除去し origin+path を返す', () => {
   assert.equal(normalizeBaseUrl('http://127.0.0.1:3000/'), 'http://127.0.0.1:3000');
   assert.equal(normalizeBaseUrl('https://wiki.example.com/knot/'), 'https://wiki.example.com/knot');
 });
 
-test('normalizeBaseUrl: userinfo・非 http(s)・query を拒否する', () => {
+void test('normalizeBaseUrl: userinfo・非 http(s)・query を拒否する', () => {
   assert.throws(() => normalizeBaseUrl('http://user:pw@host/'), CliError);
   assert.throws(() => normalizeBaseUrl('ftp://host/'), CliError);
   assert.throws(() => normalizeBaseUrl('http://host/?q=1'), CliError);
   assert.throws(() => normalizeBaseUrl('not a url'), CliError);
 });
 
-test('config の round-trip', () => {
+void test('config の round-trip', () => {
   const dir = tmp();
   try {
     writeSyncConfig(dir, { url: 'http://127.0.0.1:3000', project: 'notes' });
@@ -31,14 +31,14 @@ test('config の round-trip', () => {
   } finally { rmSync(dir, { recursive: true }); }
 });
 
-test('loadSyncConfig: config が無ければ CliError', () => {
+void test('loadSyncConfig: config が無ければ CliError', () => {
   const dir = tmp();
   try {
     assert.throws(() => loadSyncConfig(dir), CliError);
   } finally { rmSync(dir, { recursive: true }); }
 });
 
-test('resolveToken: KNOT_TOKEN 優先、なければ .knot/token、どちらも無ければ CliError', () => {
+void test('resolveToken: KNOT_TOKEN 優先、なければ .knot/token、どちらも無ければ CliError', () => {
   const dir = tmp();
   try {
     assert.throws(() => resolveToken(dir, {}), CliError);
@@ -49,7 +49,7 @@ test('resolveToken: KNOT_TOKEN 優先、なければ .knot/token、どちらも�
   } finally { rmSync(dir, { recursive: true }); }
 });
 
-test('state: 無ければ空、保存後は読み戻せる、tmp ファイルが残らない', () => {
+void test('state: 無ければ空、保存後は読み戻せる、tmp ファイルが残らない', () => {
   const dir = tmp();
   try {
     mkdirSync(join(dir, '.knot'), { recursive: true });

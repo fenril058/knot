@@ -10,7 +10,7 @@ const notationCase = (source: string, kind: SpanKind): void => {
   ]);
 };
 
-test('各 Scrapbox 記法に固定オフセットのスパンを付ける', () => {
+void test('各 Scrapbox 記法に固定オフセットのスパンを付ける', () => {
   notationCase('[page]', 'link');
   notationCase('[https://x タイトル]', 'external-link');
   notationCase('#tag', 'hashtag');
@@ -24,7 +24,7 @@ test('各 Scrapbox 記法に固定オフセットのスパンを付ける', () =
   notationCase('[- strike]', 'strike');
 });
 
-test('複数行コードブロックを行単位で装飾し、後続行の位置を保つ', () => {
+void test('複数行コードブロックを行単位で装飾し、後続行の位置を保つ', () => {
   const docText = 'Title\ncode:name\n line one\n line two\n#after';
 
   assert.deepEqual(highlightSpans(docText), [
@@ -36,7 +36,7 @@ test('複数行コードブロックを行単位で装飾し、後続行の位�
   ]);
 });
 
-test('内容が空白 1 行だけのコードブロックでも後続行の位置を保つ', () => {
+void test('内容が空白 1 行だけのコードブロックでも後続行の位置を保つ', () => {
   const docText = 'Title\ncode:name\n \n#after';
 
   assert.deepEqual(highlightSpans(docText), [
@@ -47,7 +47,7 @@ test('内容が空白 1 行だけのコードブロックでも後続行の位�
   ]);
 });
 
-test('インデントと本文を別々のスパンにする', () => {
+void test('インデントと本文を別々のスパンにする', () => {
   assert.deepEqual(highlightSpans('Title\n  [page]'), [
     { from: 0, to: 5, kind: 'title' },
     { from: 6, to: 8, kind: 'indent' },
@@ -74,7 +74,7 @@ const assertValidSpans = (docText: string, spans: Span[]): void => {
   }
 };
 
-test('複合ドキュメントの全スパンは範囲内にあり、同一行で交差しない', () => {
+void test('複合ドキュメントの全スパンは範囲内にあり、同一行で交差しない', () => {
   const documents = [
     'Title\n  [page] #tag and `code`\n> [https://x label]',
     'Title\n[* outer [/ inner]] and [- removed]\n[name.icon] https://example.com',

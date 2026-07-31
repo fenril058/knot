@@ -6,7 +6,7 @@ import { BadCommitError } from '../../src/storage/types.ts';
 
 const now = 1700000000;
 
-test('rename はタイトル行の update コミットに帰着する', async () => {
+void test('rename はタイトル行の update コミットに帰着する', async () => {
   const { storage } = makeStorage();
   const project = await storage.ensureProject('proj', now);
   const pageId = await seedPage(storage, project.id, 'Old', ['body'], now);
@@ -21,7 +21,7 @@ test('rename はタイトル行の update コミットに帰着する', async ()
   assert.equal(await storage.getPageByTitle(project.id, 'old'), null);
 });
 
-test('rewriteLinks: true でリンク元の本文が書き換わり、リンク索引も更新される', async () => {
+void test('rewriteLinks: true でリンク元の本文が書き換わり、リンク索引も更新される', async () => {
   const { storage } = makeStorage();
   const project = await storage.ensureProject('proj', now);
   const targetId = await seedPage(storage, project.id, 'Old Name', ['content'], now);
@@ -41,7 +41,7 @@ test('rewriteLinks: true でリンク元の本文が書き換わり、リンク�
   assert.equal(rel.hasBackLinks, true);
 });
 
-test('新タイトルの占有は conflict で全体が失敗する（リンク元も書き換わらない）', async () => {
+void test('新タイトルの占有は conflict で全体が失敗する（リンク元も書き換わらない）', async () => {
   const { storage } = makeStorage();
   const project = await storage.ensureProject('proj', now);
   await seedPage(storage, project.id, 'Taken', ['x'], now);
@@ -57,7 +57,7 @@ test('新タイトルの占有は conflict で全体が失敗する（リンク�
   assert.equal(src!.lines[1].text, '[Old]');
 });
 
-test('大文字小文字だけの変更（同じ lc）は衝突しない', async () => {
+void test('大文字小文字だけの変更（同じ lc）は衝突しない', async () => {
   const { storage } = makeStorage();
   const project = await storage.ensureProject('proj', now);
   const pageId = await seedPage(storage, project.id, 'name', ['x'], now);
@@ -69,7 +69,7 @@ test('大文字小文字だけの変更（同じ lc）は衝突しない', async
   assert.equal(page!.title, 'Name');
 });
 
-test('baseVersion 不一致は conflict reason version で最新を返す', async () => {
+void test('baseVersion 不一致は conflict reason version で最新を返す', async () => {
   const { storage } = makeStorage();
   const project = await storage.ensureProject('proj', now);
   const pageId = await seedPage(storage, project.id, 'Old', ['x'], now);
@@ -84,7 +84,7 @@ test('baseVersion 不一致は conflict reason version で最新を返す', asyn
   assert.equal(stale.kind === 'conflict' ? stale.page.title : '', 'Mid');
 });
 
-test('空タイトルと同一タイトルは BadCommitError', async () => {
+void test('空タイトルと同一タイトルは BadCommitError', async () => {
   const { storage } = makeStorage();
   const project = await storage.ensureProject('proj', now);
   const pageId = await seedPage(storage, project.id, 'Old', ['x'], now);

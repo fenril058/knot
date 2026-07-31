@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { makeServer } from '../helpers/server.ts';
 import { seedPage } from '../helpers/pages.ts';
 
-test('DELETE でページが消え、以後の GET は 404', async () => {
+void test('DELETE でページが消え、以後の GET は 404', async () => {
   const s = await makeServer();
   await s.addUser('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');

@@ -23,7 +23,7 @@ async function setup() {
   return { s, cookie };
 }
 
-test('POST /api/knot/projects/:project で空プロジェクトを作れる', async () => {
+void test('POST /api/knot/projects/:project で空プロジェクトを作れる', async () => {
   const { s, cookie } = await setup();
   const res = await s.request('/api/knot/projects/newproj', { method: 'POST' }, cookie);
   assert.equal(res.status, 200);
@@ -34,7 +34,7 @@ test('POST /api/knot/projects/:project で空プロジェクトを作れる', as
   assert.equal((await s.request('/api/knot/projects/newproj', { method: 'POST' }, cookie)).status, 200);
 });
 
-test('import → 読み取り API で見える → export で往復', async () => {
+void test('import → 読み取り API で見える → export で往復', async () => {
   const { s, cookie } = await setup();
   const imp = await s.request('/api/knot/projects/proj/import', {
     method: 'POST',
@@ -59,7 +59,7 @@ test('import → 読み取り API で見える → export で往復', async () =
   assert.ok(out.users.some((u: { name: string }) => u.name === 'bob'));
 });
 
-test('onConflict=skip が既定、overwrite 指定で上書き', async () => {
+void test('onConflict=skip が既定、overwrite 指定で上書き', async () => {
   const { s, cookie } = await setup();
   const post = (query: string) => s.request(`/api/knot/projects/proj/import${query}`, {
     method: 'POST',
@@ -74,7 +74,7 @@ test('onConflict=skip が既定、overwrite 指定で上書き', async () => {
   assert.equal((await post('?onConflict=bogus')).status, 400);
 });
 
-test('不正な body と format は 400', async () => {
+void test('不正な body と format は 400', async () => {
   const { s, cookie } = await setup();
   const bad = await s.request('/api/knot/projects/proj/import', {
     method: 'POST',

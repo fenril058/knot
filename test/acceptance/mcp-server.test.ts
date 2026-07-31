@@ -44,7 +44,7 @@ function textOf(result: unknown): string {
   return texts.join('\n');
 }
 
-test('scrapbox-cosense-mcp が knot に対して list_pages / get_page / search_pages を実行できる', { timeout: 90_000 }, async () => {
+void test('scrapbox-cosense-mcp が knot に対して list_pages / get_page / search_pages を実行できる', { timeout: 90_000 }, async () => {
   const t = 1_700_000_000;
   const storage: Storage = new SqliteStorage(openDatabase(':memory:'));
   let server: ReturnType<typeof serve> | undefined;

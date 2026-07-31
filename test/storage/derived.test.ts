@@ -9,7 +9,7 @@ async function setup() {
   return { db, storage, project };
 }
 
-test('コミットで links にリンク先 title_lc が入る', async () => {
+void test('コミットで links にリンク先 title_lc が入る', async () => {
   const { db, storage, project } = await setup();
   await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c1', baseVersion: 0,
@@ -28,7 +28,7 @@ test('コミットで links にリンク先 title_lc が入る', async () => {
   await storage.close();
 });
 
-test('pages.image は最初の画像 URL になり、無ければ NULL', async () => {
+void test('pages.image は最初の画像 URL になり、無ければ NULL', async () => {
   const { storage, project } = await setup();
   await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c1', baseVersion: 0,
@@ -54,7 +54,7 @@ test('pages.image は最初の画像 URL になり、無ければ NULL', async (
   await storage.close();
 });
 
-test('コミットで pages_fts が更新され、タイトル変更にも追随する', async () => {
+void test('コミットで pages_fts が更新され、タイトル変更にも追随する', async () => {
   const { db, storage, project } = await setup();
   await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c1', baseVersion: 0,
@@ -76,7 +76,7 @@ test('コミットで pages_fts が更新され、タイトル変更にも追随
   await storage.close();
 });
 
-test('ページ削除で links と fts が消え image が NULL になる', async () => {
+void test('ページ削除で links と fts が消え image が NULL になる', async () => {
   const { db, storage, project } = await setup();
   await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c1', baseVersion: 0,
@@ -100,7 +100,7 @@ test('ページ削除で links と fts が消え image が NULL になる', asyn
   await storage.close();
 });
 
-test('links テーブルに原文タイトルが保存される', async () => {
+void test('links テーブルに原文タイトルが保存される', async () => {
   const { storage, db } = makeStorage();
   const now = 1700000000;
   const project = await storage.ensureProject('proj', now);

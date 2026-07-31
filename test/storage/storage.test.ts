@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { makeStorage } from '../helpers/storage.ts';
 import { StorageError } from '../../src/storage/types.ts';
 
-test('ensureProject は無ければ作り、あれば同じものを返す', async () => {
+void test('ensureProject は無ければ作り、あれば同じものを返す', async () => {
   const { storage } = makeStorage();
   const a = await storage.ensureProject('wiki', 100);
   const b = await storage.ensureProject('wiki', 200);
@@ -13,14 +13,14 @@ test('ensureProject は無ければ作り、あれば同じものを返す', asy
   await storage.close();
 });
 
-test('不正・予約語のプロジェクト名を拒否する', async () => {
+void test('不正・予約語のプロジェクト名を拒否する', async () => {
   const { storage } = makeStorage();
   await assert.rejects(storage.ensureProject('Bad Name', 1), StorageError);
   await assert.rejects(storage.ensureProject('api', 1), StorageError);
   await storage.close();
 });
 
-test('listProjects は name 昇順ですべてのプロジェクトを返す', async () => {
+void test('listProjects は name 昇順ですべてのプロジェクトを返す', async () => {
   const { storage } = makeStorage();
   await storage.ensureProject('zeta', 100);
   await storage.ensureProject('alpha', 200);
@@ -31,7 +31,7 @@ test('listProjects は name 昇順ですべてのプロジェクトを返す', a
   await storage.close();
 });
 
-test('upsertDisplayUser は name 一致の既存ユーザー ID を返す', async () => {
+void test('upsertDisplayUser は name 一致の既存ユーザー ID を返す', async () => {
   const { db, storage } = makeStorage();
   const first = await storage.upsertDisplayUser({ id: 'u1', name: 'alice', displayName: 'Alice' }, 1);
   const second = await storage.upsertDisplayUser({ id: 'u2', name: 'alice', displayName: 'Alice2' }, 2);
@@ -42,7 +42,7 @@ test('upsertDisplayUser は name 一致の既存ユーザー ID を返す', asyn
   await storage.close();
 });
 
-test('getPageAuthors は最古と最新のコミットのユーザーを返す', async () => {
+void test('getPageAuthors は最古と最新のコミットのユーザーを返す', async () => {
   const { db, storage } = makeStorage();
   const project = await storage.ensureProject('wiki', 1);
   await storage.upsertDisplayUser({ id: 'creator', name: 'alice', displayName: 'Alice' }, 1);
@@ -65,7 +65,7 @@ test('getPageAuthors は最古と最新のコミットのユーザーを返す',
   await storage.close();
 });
 
-test('getPageByTitle / listPages は削除済みページを除外する', async () => {
+void test('getPageByTitle / listPages は削除済みページを除外する', async () => {
   const { db, storage } = makeStorage();
   const project = await storage.ensureProject('wiki', 100);
   const insertPage = db.prepare(
@@ -100,7 +100,7 @@ test('getPageByTitle / listPages は削除済みページを除外する', async
   await storage.close();
 });
 
-test('listKnownPages は未削除ページの titleLc・title・image だけを返す', async () => {
+void test('listKnownPages は未削除ページの titleLc・title・image だけを返す', async () => {
   const { db, storage } = makeStorage();
   const project = await storage.ensureProject('wiki', 100);
   const insert = db.prepare(

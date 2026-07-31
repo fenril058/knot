@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { ulid } from '../../src/core/id.ts';
 import { makeStorage } from '../helpers/storage.ts';
 
-test('API token の発行、検索、一覧、削除ができる', async () => {
+void test('API token の発行、検索、一覧、削除ができる', async () => {
   const { storage } = makeStorage();
   const now = 1_700_000_000;
   const user = await storage.addUser(
@@ -40,7 +40,7 @@ test('API token の発行、検索、一覧、削除ができる', async () => {
   await storage.close();
 });
 
-test('token_hash の重複を拒否する', async () => {
+void test('token_hash の重複を拒否する', async () => {
   const { storage } = makeStorage();
   const now = 1_700_000_000;
   const user = await storage.addUser(

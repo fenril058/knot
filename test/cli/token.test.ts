@@ -12,7 +12,7 @@ import { SqliteStorage } from '../../src/storage/sqlite.ts';
 const MAIN = fileURLToPath(new URL('../../src/cli/main.ts', import.meta.url));
 const tmp = () => mkdtempSync(join(tmpdir(), 'knot-token-'));
 
-test('token add、list、revoke が通る', async () => {
+void test('token add、list、revoke が通る', async () => {
   const dir = tmp();
   execFileSync(process.execPath, [MAIN, 'init', '--data', dir]);
   execFileSync(process.execPath, [MAIN, 'user', 'add', '--data', dir, '--name', 'alice'], {
@@ -44,7 +44,7 @@ test('token add、list、revoke が通る', async () => {
   await storage.close();
 });
 
-test('token add は未知ユーザーを exit code 1 で拒否する', () => {
+void test('token add は未知ユーザーを exit code 1 で拒否する', () => {
   const dir = tmp();
   execFileSync(process.execPath, [MAIN, 'init', '--data', dir]);
 

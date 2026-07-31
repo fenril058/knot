@@ -20,7 +20,7 @@ async function setup() {
   return { db, storage, project };
 }
 
-test('reindex が links / fts / image を lines から再構築する', async () => {
+void test('reindex が links / fts / image を lines から再構築する', async () => {
   const { db, storage } = await setup();
   const result = await storage.reindex();
   assert.equal(result.pages, 1);
@@ -36,7 +36,7 @@ test('reindex が links / fts / image を lines から再構築する', async ()
   await storage.close();
 });
 
-test('reindex は削除済みページの残骸も掃除する', async () => {
+void test('reindex は削除済みページの残骸も掃除する', async () => {
   const { db, storage, project } = await setup();
   await storage.reindex();
   await storage.commit({
@@ -57,7 +57,7 @@ test('reindex は削除済みページの残骸も掃除する', async () => {
   await storage.close();
 });
 
-test('projectId を指定すると、そのプロジェクトのページだけ数える', async () => {
+void test('projectId を指定すると、そのプロジェクトのページだけ数える', async () => {
   const { db, storage } = await setup();
   const other = await storage.ensureProject('other', 1000);
   await storage.commit({

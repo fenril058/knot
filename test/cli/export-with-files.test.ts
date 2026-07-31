@@ -31,7 +31,7 @@ async function setup() {
   return { dataDir, id };
 }
 
-test('runExport は添付同梱 zip を出力する', async () => {
+void test('runExport は添付同梱 zip を出力する', async () => {
   const { dataDir, id } = await setup();
   const out = join(dataDir, 'export.zip');
   const message = await runExport(dataDir, 'sandbox', 'full', out, true);
@@ -40,7 +40,7 @@ test('runExport は添付同梱 zip を出力する', async () => {
   assert.equal(entries.find((entry) => entry.name === `files/${id}`)?.data.toString(), 'hello');
 });
 
-test('knot export --with-files --out は zip を出力する', async () => {
+void test('knot export --with-files --out は zip を出力する', async () => {
   const { dataDir, id } = await setup();
   const out = join(dataDir, 'export.zip');
   const message = execFileSync(
@@ -53,7 +53,7 @@ test('knot export --with-files --out は zip を出力する', async () => {
   assert.equal(entries.find((entry) => entry.name === `files/${id}`)?.data.toString(), 'hello');
 });
 
-test('--with-files は --out なしと --format import との併用を拒否する', async () => {
+void test('--with-files は --out なしと --format import との併用を拒否する', async () => {
   const { dataDir } = await setup();
   assert.throws(() => execFileSync(
     process.execPath,

@@ -6,7 +6,7 @@ import { BadCommitError } from '../../src/storage/types.ts';
 
 const now = 1700000000;
 
-test('deletePage で deleted が立ち、タイトル解決から消え、commits は残る', async () => {
+void test('deletePage で deleted が立ち、タイトル解決から消え、commits は残る', async () => {
   const { storage } = makeStorage();
   const project = await storage.ensureProject('proj', now);
   const pageId = await seedPage(storage, project.id, 'Doomed', ['a', 'b'], now);
@@ -20,7 +20,7 @@ test('deletePage で deleted が立ち、タイトル解決から消え、commit
   await assert.rejects(storage.deletePage(project.id, pageId, 'u', now + 20), BadCommitError);
 });
 
-test('削除後に同タイトルの新ページを作れる', async () => {
+void test('削除後に同タイトルの新ページを作れる', async () => {
   const { storage } = makeStorage();
   const project = await storage.ensureProject('proj', now);
   const oldId = await seedPage(storage, project.id, 'Title', ['x'], now);

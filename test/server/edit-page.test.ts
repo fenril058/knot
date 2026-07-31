@@ -11,7 +11,7 @@ function dataAttribute(body: string, name: string): string {
   return match[1]!;
 }
 
-test('既存ページの edit はエディタ用 data 属性と nonce 付き CSP を返す', async () => {
+void test('既存ページの edit はエディタ用 data 属性と nonce 付き CSP を返す', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
@@ -33,7 +33,7 @@ test('既存ページの edit はエディタ用 data 属性と nonce 付き CSP
   assert.match(body, /<script type="module" src="\/assets\/build\/editor\.js"><\/script>/);
 });
 
-test('不在ページの edit も URL のタイトルを使う新規作成モードで 200', async () => {
+void test('不在ページの edit も URL のタイトルを使う新規作成モードで 200', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   await s.storage.ensureProject('proj', s.clock.t);
@@ -46,7 +46,7 @@ test('不在ページの edit も URL のタイトルを使う新規作成モー
   assert.equal(dataAttribute(body, 'last-seen-version'), '0');
 });
 
-test('edit 以外の閲覧・一覧・ログインの CSP は既存値から 1 バイトも変わらない', async () => {
+void test('edit 以外の閲覧・一覧・ログインの CSP は既存値から 1 バイトも変わらない', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
@@ -58,14 +58,14 @@ test('edit 以外の閲覧・一覧・ログインの CSP は既存値から 1 �
   }
 });
 
-test('edit は未ログインを next 付き login へリダイレクトする', async () => {
+void test('edit は未ログインを next 付き login へリダイレクトする', async () => {
   const s = await makeServer();
   const res = await s.request('/proj/Alpha/edit');
   assert.equal(res.status, 302);
   assert.equal(res.headers.get('location'), '/login?next=%2Fproj%2FAlpha%2Fedit');
 });
 
-test('edit 本文はインライン script・style・イベントハンドラ属性を含まない', async () => {
+void test('edit 本文はインライン script・style・イベントハンドラ属性を含まない', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   await s.storage.ensureProject('proj', s.clock.t);
@@ -76,7 +76,7 @@ test('edit 本文はインライン script・style・イベントハンドラ属
   assert.doesNotMatch(body, /\son[a-z]+\s*=/i);
 });
 
-test('既存ページの edit は直前の visit を渡して訪問を記録する', async () => {
+void test('既存ページの edit は直前の visit を渡して訪問を記録する', async () => {
   const s = await makeServer();
   const userId = await s.addUser('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
@@ -90,7 +90,7 @@ test('既存ページの edit は直前の visit を渡して訪問を記録す�
   assert.equal((await s.storage.getVisit(userId, pageId))?.lastSeenVersion, 1);
 });
 
-test('存在しないプロジェクトの edit は HTML 404', async () => {
+void test('存在しないプロジェクトの edit は HTML 404', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const res = await s.request('/missing/Alpha/edit', {}, cookie);

@@ -11,7 +11,7 @@ const FIXTURE = fileURLToPath(new URL('../fixtures/cosense-export.json', import.
 const MAIN = fileURLToPath(new URL('../../src/cli/main.ts', import.meta.url));
 const tmp = () => mkdtempSync(join(tmpdir(), 'knot-cli-'));
 
-test('init は knot.db と files/ を作る', async () => {
+void test('init は knot.db と files/ を作る', async () => {
   const dir = tmp();
   const msg = await runInit(dir);
   assert.match(msg, /initialized/);
@@ -19,7 +19,7 @@ test('init は knot.db と files/ を作る', async () => {
   assert.ok(existsSync(join(dir, 'files')));
 });
 
-test('import → export → reindex が通る', async () => {
+void test('import → export → reindex が通る', async () => {
   const dir = tmp();
   await runInit(dir);
   const imported = await runImport(dir, 'sandbox', FIXTURE, 'skip');
@@ -34,7 +34,7 @@ test('import → export → reindex が通る', async () => {
   assert.match(reindexed, /reindexed 3 pages/);
 });
 
-test('export --out はファイルに書き、reindex は未知プロジェクトを拒否する', async () => {
+void test('export --out はファイルに書き、reindex は未知プロジェクトを拒否する', async () => {
   const dir = tmp();
   await runInit(dir);
   await runImport(dir, 'sandbox', FIXTURE, 'skip');
@@ -48,7 +48,7 @@ test('export --out はファイルに書き、reindex は未知プロジェク�
   await assert.rejects(runReindex(dir, 'nope'), /unknown project/);
 });
 
-test('user add がユーザーを作り、同名の再実行は失敗する', async () => {
+void test('user add がユーザーを作り、同名の再実行は失敗する', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'knot-cli-'));
   await runInit(dir);
   const out = await runUserAdd(dir, 'alice', 'Alice', true, 'pw12345678');
@@ -56,14 +56,14 @@ test('user add がユーザーを作り、同名の再実行は失敗する', as
   await assert.rejects(runUserAdd(dir, 'alice', null, false, 'other-pass'), /already exists/);
 });
 
-test('user add は短いパスワードと不正な名前を拒否する', async () => {
+void test('user add は短いパスワードと不正な名前を拒否する', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'knot-cli-'));
   await runInit(dir);
   await assert.rejects(runUserAdd(dir, 'alice', null, false, 'short'), CliError);
   await assert.rejects(runUserAdd(dir, 'Bad Name!', null, false, 'pw12345678'), CliError);
 });
 
-test('CLI 実行ファイルとして通しで動く（spawn）', () => {
+void test('CLI 実行ファイルとして通しで動く（spawn）', () => {
   const dir = tmp();
   execFileSync(process.execPath, [MAIN, 'init', '--data', dir], { stdio: 'pipe' });
   execFileSync(process.execPath, [MAIN, 'import', '--data', dir, '--project', 'sandbox', FIXTURE], { stdio: 'pipe' });

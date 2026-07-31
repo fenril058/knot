@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { makeServer } from '../helpers/server.ts';
 import { seedPage } from '../helpers/pages.ts';
 
-test('GET /api/pages/:project/:title が lines / links / relatedPages を返す', async () => {
+void test('GET /api/pages/:project/:title が lines / links / relatedPages を返す', async () => {
   const s = await makeServer();
   await s.addUser('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
@@ -29,7 +29,7 @@ test('GET /api/pages/:project/:title が lines / links / relatedPages を返す'
   assert.equal((await s.request('/api/pages/proj/None', {}, cookie)).status, 404);
 });
 
-test('GET /api/pages/:project/search/titles', async () => {
+void test('GET /api/pages/:project/search/titles', async () => {
   const s = await makeServer();
   await s.addUser('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');

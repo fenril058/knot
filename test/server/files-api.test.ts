@@ -21,7 +21,7 @@ async function setup() {
   return { s, cookie, upload };
 }
 
-test('PNG のアップロードと配信', async () => {
+void test('PNG のアップロードと配信', async () => {
   const { s, cookie, upload } = await setup();
   const res = await upload(PNG, 'shot.png', 'image/png');
   assert.equal(res.status, 200);
@@ -38,7 +38,7 @@ test('PNG のアップロードと配信', async () => {
   assert.deepEqual(new Uint8Array(await got.arrayBuffer()), PNG);
 });
 
-test('同じ内容の再アップロードは既存レコードを返す', async () => {
+void test('同じ内容の再アップロードは既存レコードを返す', async () => {
   const { upload } = await setup();
   const first = await (await upload(PNG, 'a.png', 'image/png')).json();
   const second = await (await upload(PNG, 'b.png', 'image/png')).json();
@@ -46,7 +46,7 @@ test('同じ内容の再アップロードは既存レコードを返す', async
   assert.equal(second.sha256, first.sha256);
 });
 
-test('インライン許可型の content-type とマジックバイト不一致は 400', async () => {
+void test('インライン許可型の content-type とマジックバイト不一致は 400', async () => {
   const { upload } = await setup();
   const html = new TextEncoder().encode('<script>alert(1)</script>');
   assert.equal((await upload(html, 'fake.png', 'image/png')).status, 400);
@@ -54,7 +54,7 @@ test('インライン許可型の content-type とマジックバイト不一致
   assert.equal((await upload(html, 'fake.mp3', 'audio/mpeg')).status, 400);
 });
 
-test('sha256 の再利用はプロジェクト単位（別プロジェクトには新レコード）', async () => {
+void test('sha256 の再利用はプロジェクト単位（別プロジェクトには新レコード）', async () => {
   const { s, cookie, upload } = await setup();
   await s.storage.ensureProject('other', s.clock.t);
   const first = await (await upload(PNG, 'a.png', 'image/png')).json();
@@ -65,7 +65,7 @@ test('sha256 の再利用はプロジェクト単位（別プロジェクトに�
   assert.notEqual(second.id, first.id);
 });
 
-test('HTML と SVG は attachment で配信される', async () => {
+void test('HTML と SVG は attachment で配信される', async () => {
   const { s, cookie, upload } = await setup();
   for (const [name, type, content] of [
     ['x.html', 'text/html', '<script>alert(1)</script>'],
@@ -82,7 +82,7 @@ test('HTML と SVG は attachment で配信される', async () => {
   }
 });
 
-test('サイズ超過は 413', async () => {
+void test('サイズ超過は 413', async () => {
   const { upload } = await setup();
   const big = new Uint8Array(11 * 1024 * 1024);
   big.set(PNG);
@@ -91,7 +91,7 @@ test('サイズ超過は 413', async () => {
   assert.deepEqual(await res.json(), { error: 'too_large' });
 });
 
-test('Content-Length 超過は multipart 解析前に 413', async () => {
+void test('Content-Length 超過は multipart 解析前に 413', async () => {
   const { s, cookie } = await setup();
   const res = await s.request('/api/knot/files', {
     method: 'POST',
@@ -102,7 +102,7 @@ test('Content-Length 超過は multipart 解析前に 413', async () => {
   assert.deepEqual(await res.json(), { error: 'too_large' });
 });
 
-test('不正な multipart body は 400', async () => {
+void test('不正な multipart body は 400', async () => {
   const { s, cookie } = await setup();
   const res = await s.app.request('/api/knot/files', {
     method: 'POST',
@@ -117,7 +117,7 @@ test('不正な multipart body は 400', async () => {
   assert.deepEqual(await res.json(), { error: 'bad_request', message: 'invalid multipart body' });
 });
 
-test('project 欠落・不在は 400、未認証の配信は 401', async () => {
+void test('project 欠落・不在は 400、未認証の配信は 401', async () => {
   const { s, cookie, upload } = await setup();
   const form = new FormData();
   form.append('file', new File([PNG], 'x.png', { type: 'image/png' }));
@@ -133,7 +133,7 @@ test('project 欠落・不在は 400、未認証の配信は 401', async () => {
   assert.equal((await s.request('/files/01JUNKJUNKJUNKJUNKJUNKJUNK', {}, cookie)).status, 404);
 });
 
-test('GET の filename は無視し、実ファイル不在は 404', async () => {
+void test('GET の filename は無視し、実ファイル不在は 404', async () => {
   const { s, cookie, upload } = await setup();
   const body = await (await upload(PNG, 'x.png', 'image/png')).json();
   assert.equal((await s.request(`/files/${body.id}/ignored`, {}, cookie)).status, 200);
