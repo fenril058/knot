@@ -28,7 +28,8 @@
     "typescript/no-unsafe-type-assertion": "error",
     "typescript/switch-exhaustiveness-check": "error",
     // typeAware を立てると categories 内の型情報つきルールが全部有効になる。
-    // 以下は既存違反が多く今回は見送るもの。件数は導入検討時の実測値。
+    // 以下は既存違反が多く見送っているもの。件数と解消方針は issue #8 に置く
+    // （コメントに数値を書くと実態から乖離するため）。
     "typescript/no-floating-promises": "off",
     "typescript/no-unnecessary-type-assertion": "off",
     "typescript/no-base-to-string": "off",
@@ -39,8 +40,8 @@
   },
   "overrides": [
     {
-      // no-unsafe-type-assertion の既存違反 36 ファイル。移行用の例外リストであり、
-      // 該当ファイルを改修するときに違反を直してこの一覧から外す。
+      // no-unsafe-type-assertion の既存違反を持つファイル。移行用の例外リストであり、
+      // 該当ファイルを改修するときに違反を直してこの一覧から外す。解消方針は issue #9。
       "files": [
         "scripts/quality-ratchet.ts",
         "src/cli/backup.ts",
