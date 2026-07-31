@@ -54,6 +54,7 @@ void test('full export とプロジェクトの添付ファイルを zip に同�
   assert.deepEqual(entries.map((entry) => entry.name), ['project.json', 'files/file-a', 'files/file-b']);
   const json = entries.find((entry) => entry.name === 'project.json');
   assert.ok(json);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const exp = JSON.parse(json.data.toString('utf8')) as { pages: unknown[] };
   assert.equal(exp.pages.length, 2);
   assert.equal(entries.find((entry) => entry.name === 'files/file-a')?.data.toString(), 'AAA');

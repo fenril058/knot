@@ -20,6 +20,7 @@ void test('コミットで links にリンク先 title_lc が入る', async () =
     userId: 'u1', now: 2000,
   });
   const targets = (
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     db.prepare('SELECT target_title_lc FROM links WHERE source_page_id = ? ORDER BY target_title_lc').all('pg1') as {
       target_title_lc: string;
     }[]
@@ -71,6 +72,7 @@ void test('コミットで pages_fts が更新され、タイトル変更にも�
   assert.equal(match.all('"検索対象"').length, 0);
   assert.equal(match.all('"改名済み"').length, 1);
   // fts の行はページごとに 1 行だけ
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const count = (db.prepare('SELECT count(*) AS c FROM pages_fts').get() as { c: number }).c;
   assert.equal(count, 1);
   await storage.close();
@@ -94,8 +96,11 @@ void test('ページ削除で links と fts が消え image が NULL になる',
     ],
     userId: 'u1', now: 3000,
   });
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   assert.equal((db.prepare('SELECT count(*) AS c FROM links WHERE source_page_id = ?').get('pg1') as { c: number }).c, 0);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   assert.equal((db.prepare('SELECT count(*) AS c FROM pages_fts WHERE page_id = ?').get('pg1') as { c: number }).c, 0);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   assert.equal((db.prepare('SELECT image FROM pages WHERE id = ?').get('pg1') as { image: string | null }).image, null);
   await storage.close();
 });
@@ -113,6 +118,7 @@ void test('links テーブルに原文タイトルが保存される', async () 
       { type: 'insert', id: ulid(now * 1000), after: titleId, text: 'see [Foo Bar]' },
     ], userId: 'u', now,
   });
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const rows = db
     .prepare('SELECT target_title_lc, target_title FROM links WHERE source_page_id = ?')
     .all(pageId) as { target_title_lc: string; target_title: string }[];

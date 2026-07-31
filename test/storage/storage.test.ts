@@ -37,6 +37,7 @@ void test('upsertDisplayUser は name 一致の既存ユーザー ID を返す',
   const second = await storage.upsertDisplayUser({ id: 'u2', name: 'alice', displayName: 'Alice2' }, 2);
   assert.equal(first, 'u1');
   assert.equal(second, 'u1');
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const count = (db.prepare('SELECT count(*) AS c FROM users').get() as { c: number }).c;
   assert.equal(count, 1);
   await storage.close();

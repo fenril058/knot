@@ -41,6 +41,7 @@ async function makeEnv(): Promise<Env> {
   await storage.createApiToken({ id: ulid(clock.t * 1000), userId, label: 'sync', tokenHash, created: clock.t });
   const listener = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: 0 });
   await new Promise<void>((resolve) => listener.on('listening', () => resolve()));
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const { port } = listener.address() as AddressInfo;
   const dir = mkdtempSync(join(tmpdir(), 'knot-sync-int-'));
   await runSync(['init', dir, '--url', `http://127.0.0.1:${port}`, '--project', 'notes']);
@@ -173,6 +174,7 @@ void test('pull: 一覧後の詳細が別 id を返したページはスキッ�
     const patched: typeof fetch = async (input, init) => {
       const res = await fetch(input, init);
       if (detailPath(input) !== null) {
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion
         const body = (await res.json()) as { id: string };
         return new Response(JSON.stringify({ ...body, id: 'different0000000000000000' }), {
           status: res.status, headers: { 'content-type': 'application/json' },

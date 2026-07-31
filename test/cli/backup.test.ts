@@ -39,7 +39,9 @@ async function populatedData(root: string): Promise<{ dataDir: string; attachmen
   writeFileSync(join(dataDir, 'files', attachmentId), contents);
   const db = openDatabase(join(dataDir, 'knot.db'));
   try {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const project = db.prepare('SELECT id FROM projects WHERE name = ?').get('sandbox') as { id: string };
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const user = db.prepare('SELECT id FROM users ORDER BY id LIMIT 1').get() as { id: string };
     db.prepare(
       `INSERT INTO attachments (id, project_id, filename, content_type, size, sha256, user_id, created)
@@ -176,6 +178,7 @@ void test('backup は実行後の元 DB の変更を反映しないスナップ�
   source.close();
   const snapshot = openDatabase(join(outDir, 'knot.db'));
   try {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const row = snapshot.prepare('SELECT display_name FROM projects WHERE name = ?').get('sandbox') as { display_name: string };
     assert.equal(row.display_name, 'Sandbox');
   } finally {

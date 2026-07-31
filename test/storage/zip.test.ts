@@ -51,6 +51,7 @@ void test('ZIP64 の 32-bit sentinel 値をすべての対象フィールドで�
   for (let index = 1; index < 6; index++) {
     const values = [0xfffe, accepted, accepted, accepted, accepted, accepted];
     values[index] = 0xffffffff;
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     assert.throws(() => assertZipLimits(...(values as [number, number, number, number, number, number])), StorageError);
   }
 });

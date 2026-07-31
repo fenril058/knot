@@ -79,6 +79,7 @@ void test('putText: X-Knot-Client を送り、200 は ok、409 は conflict', as
       assert.equal(new Headers(init?.headers).get('x-knot-client'), 'knot-sync');
       // init.body は BodyInit（ReadableStream 等を含む）。テストでは文字列しか渡さないので明示的に絞る
       assert.equal(typeof init?.body, 'string');
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       const body = JSON.parse(init?.body as string) as { baseVersion: number };
       return body.baseVersion === 3 ? json(200, { version: 4, commitId: 'c' }) : json(409, { error: 'conflict' });
     }),

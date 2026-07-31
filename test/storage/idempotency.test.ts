@@ -23,8 +23,10 @@ void test('同一 commitId 同一内容の再送は最初の version を返し�
   const { db, storage, first } = await setup();
   const replay = await storage.commit(first);
   assert.deepEqual(replay, { kind: 'applied', version: 1 });
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const count = (db.prepare('SELECT count(*) AS c FROM commits').get() as { c: number }).c;
   assert.equal(count, 1);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const version = (db.prepare('SELECT version FROM pages WHERE id = ?').get('pg1') as { version: number }).version;
   assert.equal(version, 1);
   await storage.close();

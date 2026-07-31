@@ -59,6 +59,7 @@ void test('逐次コミットで version が増え、行順と ord が ops 適�
   assert.ok(page);
   assert.deepEqual(page.lines.map((l) => l.text), ['T', 'a', 'b']);
   assert.deepEqual(page.lines.map((l) => l.userId), ['u1', 'u2', 'u2']);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const ords = (db.prepare('SELECT ord FROM lines WHERE page_id = ? ORDER BY ord').all('pg1') as { ord: number }[])
     .map((r2) => r2.ord);
   assert.deepEqual(ords, [0, 1, 2]);
@@ -81,6 +82,7 @@ void test('先頭行の変更はタイトル変更になり title_history に残
   const page = await storage.getPageByTitle(project.id, 'new_title');
   assert.ok(page);
   assert.equal(page.title, 'New Title');
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const hist = db
     .prepare('SELECT old_title, old_title_lc, started, ended FROM title_history WHERE page_id = ?')
     .all('pg1') as { old_title: string; old_title_lc: string; started: number; ended: number }[];
@@ -123,11 +125,13 @@ void test('全行 delete でページが削除され、commits は残る', async
   });
   assert.deepEqual(r, { kind: 'applied', version: 2 });
   assert.equal(await storage.getPageByTitle(project.id, 't'), null);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const row = db.prepare('SELECT deleted, title FROM pages WHERE id = ?').get('pg1') as {
     deleted: number; title: string;
   };
   assert.equal(row.deleted, 1);
   assert.equal(row.title, 'T');
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const commits = (db.prepare('SELECT count(*) AS c FROM commits WHERE page_id = ?').get('pg1') as { c: number }).c;
   assert.equal(commits, 2);
   await storage.close();

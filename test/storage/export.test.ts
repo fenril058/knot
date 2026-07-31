@@ -29,6 +29,7 @@ void test('round-trip: インポート → エクスポートで意味が保存�
     const got = out.pages.find((p) => p.title === page.title);
     assert.ok(got, `${page.title} が出力にない`);
     const srcLines = normalizeLines(page);
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const gotLines = got.lines as ObjectLine[];
     assert.deepEqual(gotLines.map((l) => l.text), srcLines.map((l) => l.text));
     srcLines.forEach((l, i) => {

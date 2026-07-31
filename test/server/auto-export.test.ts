@@ -91,6 +91,7 @@ void test('同一秒の後続実行が最新スナップショットで置換す
   const result = await runAutoExportOnce(storage, dataDir, { dir, keep: 7 }, NOW);
 
   assert.equal(zipNames(dir, 'alpha').length, 1);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const json = JSON.parse(readZip(await readFile(result.written[0]!))[0]!.data.toString()) as { pages: { title: string }[] };
   assert.deepEqual(json.pages.map((page) => page.title).toSorted(), ['First', 'Second']);
   await storage.close();

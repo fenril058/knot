@@ -25,6 +25,7 @@ void test('import → export → reindex が通る', async () => {
   const imported = await runImport(dir, 'sandbox', FIXTURE, 'skip');
   assert.match(imported, /3 created/);
   const json = await runExport(dir, 'sandbox', 'full', null);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const exp = JSON.parse(json) as { name: string; pages: unknown[] };
   assert.equal(exp.name, 'sandbox');
   assert.equal(exp.pages.length, 3);
@@ -41,6 +42,7 @@ void test('export --out はファイルに書き、reindex は未知プロジェ
   const outFile = join(dir, 'out.json');
   const msg = await runExport(dir, 'sandbox', 'import', outFile);
   assert.match(msg, /3 pages/);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const exp = JSON.parse(
     (await import('node:fs')).readFileSync(outFile, 'utf8'),
   ) as { pages: { lines: unknown[] }[] };
@@ -70,6 +72,7 @@ void test('CLI 実行ファイルとして通しで動く（spawn）', () => {
   const out = execFileSync(process.execPath, [MAIN, 'export', '--data', dir, '--project', 'sandbox'], {
     stdio: 'pipe',
   }).toString();
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   assert.equal((JSON.parse(out) as { pages: unknown[] }).pages.length, 3);
   // 未知コマンドは exit code 1
   assert.throws(() => execFileSync(process.execPath, [MAIN, 'bogus', '--data', dir], { stdio: 'pipe' }));
