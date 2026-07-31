@@ -24,8 +24,15 @@ const SYNC_USAGE = `usage:
 
 type LocalFile = { firstLine: string; contentHash: string; canonical: string };
 
+// parseArgs に渡す options 定義と対応する値の型。Record<string, unknown> で受けると
+// 取り出すたびにキャストが要り、型検査の裏付けを失う。
+type SyncValues = {
+  url?: string; project?: string; dir?: string; force?: boolean; remote?: boolean;
+};
+
 // 401 は runPush のどこで起きても即 exitCode 2。副次呼び出し内では投げ直してループ外の catch で拾う。
-function is401(e: unknown): boolean {
+// 型述語にして、捕捉側で SyncHttpError へキャストし直さずに message を読めるようにする。
+function is401(e: unknown): e is SyncHttpError {
   return e instanceof SyncHttpError && e.status === 401;
 }
 
@@ -57,10 +64,9 @@ function readLocalFiles(dir: string): Map<string, LocalFile> {
   return out;
 }
 
-async function runInit(positionals: string[], values: Record<string, unknown>): Promise<SyncResult> {
+async function runInit(positionals: string[], values: SyncValues): Promise<SyncResult> {
   const dir = positionals[0];
-  const url = values.url as string | undefined;
-  const project = values.project as string | undefined;
+  const { url, project } = values;
   if (dir === undefined || url === undefined || project === undefined) throw new CliError(SYNC_USAGE);
   writeSyncConfig(dir, { url: normalizeBaseUrl(url), project });
   return {
@@ -75,8 +81,8 @@ async function runInit(positionals: string[], values: Record<string, unknown>): 
   };
 }
 
-async function runStatus(values: Record<string, unknown>, deps: SyncDeps): Promise<SyncResult> {
-  const dir = (values.dir as string | undefined) ?? '.';
+async function runStatus(values: SyncValues, deps: SyncDeps): Promise<SyncResult> {
+  const dir = values.dir ?? '.';
   loadSyncConfig(dir); // sync ディレクトリでなければ CliError
   const state = loadState(dir);
   const local = readLocalFiles(dir);
@@ -278,7 +284,7 @@ async function fetchPullDetail(
     detail = await ctx.client.getPage(title);
   } catch (e) {
     // 401 は runPush と同様に即座に exitCode 2 で終える（トークン失効を per-page skip で握り潰さない）。
-    if (is401(e)) return { outcome: { kind: 'abort', message: (e as SyncHttpError).message } };
+    if (is401(e)) return { outcome: { kind: 'abort', message: e.message } };
     // 401 以外（transport 失敗: 接続拒否・DNS・タイムアウト等）はそのページだけスキップし、
     // 他ページの処理は続行する（state/ファイルは不変）。
     return { outcome: warn(`skipped (fetch failed): ${title}`) };
@@ -301,8 +307,8 @@ async function applyPullAction(ctx: PullContext, action: PullAction): Promise<Pa
     : pullWrite(ctx, action.pageId, fetched.detail);
 }
 
-async function runPull(values: Record<string, unknown>, deps: SyncDeps): Promise<SyncResult> {
-  const dir = (values.dir as string | undefined) ?? '.';
+async function runPull(values: SyncValues, deps: SyncDeps): Promise<SyncResult> {
+  const dir = values.dir ?? '.';
   const { client } = openClient(dir, deps);
   const state = loadState(dir);
   const local = readLocalFiles(dir);
@@ -476,13 +482,13 @@ async function applyPushAction(ctx: PushContext, action: PushAction): Promise<Pa
     return await pushPage(ctx, action);
   } catch (e) {
     // 401 は runPush のどこで起きても即 exitCode 2（副次呼び出しから投げ直されたものをここで拾う）
-    if (is401(e)) return { kind: 'abort', message: (e as SyncHttpError).message };
+    if (is401(e)) return { kind: 'abort', message: e.message };
     throw e;
   }
 }
 
-async function runPush(values: Record<string, unknown>, deps: SyncDeps): Promise<SyncResult> {
-  const dir = (values.dir as string | undefined) ?? '.';
+async function runPush(values: SyncValues, deps: SyncDeps): Promise<SyncResult> {
+  const dir = values.dir ?? '.';
   const { client } = openClient(dir, deps);
   const state = loadState(dir);
   const local = readLocalFiles(dir);

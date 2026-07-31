@@ -4,6 +4,7 @@ import { compareGuards, extractGuards, parseJsonc, type Sources } from '../scrip
 
 const OXLINT = `{
   // 移行用の上限
+  "options": { "typeAware": true },
   "jsPlugins": [{ "name": "sonarjs", "specifier": "./config/sonarjs.cjs" }],
   "categories": { "correctness": "error", "suspicious": "error" },
   "rules": {
@@ -116,6 +117,25 @@ test('override の削除は root へ戻るので許す', () => {
 test('ignorePatterns による除外の追加を落とす', () => {
   const head = OXLINT.replace('"rules": {', '"ignorePatterns": ["src/cli/**"],\n  "rules": {');
   assert.deepEqual(run({ oxlint: head }), ['oxlint:ignorePatterns']);
+});
+
+test('typeAware の無効化を落とす（型情報つきルールが一斉に黙る）', () => {
+  assert.deepEqual(run({ oxlint: OXLINT.replace('"typeAware": true', '"typeAware": false') }), ['oxlint:typeAware']);
+});
+
+test('型情報つきルールの移行用の例外リストにファイルを足すのを落とす', () => {
+  // 足したファイル（src/b.ts）の実効値が base の root（error）から off へ緩むので違反になる。
+  const base = OXLINT.replace('"overrides": [', '"overrides": [\n    { "files": ["src/a.ts"], "rules": { "typescript/no-explicit-any": "off" } },');
+  const head = base.replace('"files": ["src/a.ts"]', '"files": ["src/a.ts", "src/b.ts"]');
+  const keys = compareGuards(extractGuards({ ...BASE, oxlint: base }, head), extractGuards({ ...BASE, oxlint: head }, base), []).map((v) => v.key);
+  assert.ok(keys.includes('oxlint:src/b.ts|typescript/no-explicit-any'), keys.join(','));
+});
+
+test('型情報つきルールの例外リストからファイルを外すのは許す', () => {
+  const base = OXLINT.replace('"overrides": [', '"overrides": [\n    { "files": ["src/a.ts", "src/b.ts"], "rules": { "typescript/no-explicit-any": "off" } },');
+  const head = base.replace('"files": ["src/a.ts", "src/b.ts"]', '"files": ["src/a.ts"]');
+  const keys = compareGuards(extractGuards({ ...BASE, oxlint: base }, head), extractGuards({ ...BASE, oxlint: head }, base), []).map((v) => v.key);
+  assert.deepEqual(keys, []);
 });
 
 test('sonarjs プラグインの取り外しを落とす', () => {

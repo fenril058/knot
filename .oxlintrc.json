@@ -1,5 +1,8 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
+  // 型情報つきルールを有効にする（oxlint-tsgolint が必要）。
+  // これを false にすると型情報つきルールが全部黙るため、ラチェットの監視対象。
+  "options": { "typeAware": true },
   "jsPlugins": [{ "name": "sonarjs", "specifier": "./config/sonarjs.cjs" }],
   "env": {
     "browser": true,
@@ -21,9 +24,64 @@
     "sonarjs/cognitive-complexity": ["error", 20],
     "sonarjs/no-duplicated-branches": "error",
     "sonarjs/no-identical-functions": "error",
-    "typescript/no-explicit-any": "error"
+    "typescript/no-explicit-any": "error",
+    "typescript/no-unsafe-type-assertion": "error",
+    "typescript/switch-exhaustiveness-check": "error",
+    // typeAware を立てると categories 内の型情報つきルールが全部有効になる。
+    // 以下は既存違反が多く見送っているもの。件数と解消方針は issue #8 に置く
+    // （コメントに数値を書くと実態から乖離するため）。
+    "typescript/no-floating-promises": "off",
+    "typescript/no-unnecessary-type-assertion": "off",
+    "typescript/no-base-to-string": "off",
+    "typescript/consistent-return": "off",
+    "typescript/no-unnecessary-type-parameters": "off",
+    "typescript/no-unnecessary-boolean-literal-compare": "off",
+    "typescript/no-misused-spread": "off"
   },
   "overrides": [
+    {
+      // no-unsafe-type-assertion の既存違反を持つファイル。移行用の例外リストであり、
+      // 該当ファイルを改修するときに違反を直してこの一覧から外す。解消方針は issue #9。
+      "files": [
+        "scripts/quality-ratchet.ts",
+        "src/cli/backup.ts",
+        "src/cli/sync/client.ts",
+        "src/cli/sync/config.ts",
+        "src/cli/sync/state.ts",
+        "src/client/editor/api.ts",
+        "src/client/editor/cm/complete.ts",
+        "src/client/pageMenu/main.ts",
+        "src/client/search/main.ts",
+        "src/core/cosense.ts",
+        "src/server/autoExport.ts",
+        "src/server/config.ts",
+        "src/server/http.ts",
+        "src/server/routes/read.ts",
+        "src/server/routes/write.ts",
+        "src/storage/db.ts",
+        "src/storage/exportZip.ts",
+        "src/storage/sqlite.ts",
+        "test/acceptance/cosense-cli.test.ts",
+        "test/acceptance/mcp-server.test.ts",
+        "test/cli/backup.test.ts",
+        "test/cli/cli.test.ts",
+        "test/cli/sync-client.test.ts",
+        "test/cli/sync-integration.test.ts",
+        "test/quality-ratchet.test.ts",
+        "test/server/auto-export.test.ts",
+        "test/storage/commit.test.ts",
+        "test/storage/db.test.ts",
+        "test/storage/derived.test.ts",
+        "test/storage/export-zip.test.ts",
+        "test/storage/export.test.ts",
+        "test/storage/idempotency.test.ts",
+        "test/storage/import.test.ts",
+        "test/storage/reindex.test.ts",
+        "test/storage/storage.test.ts",
+        "test/storage/zip.test.ts"
+      ],
+      "rules": { "typescript/no-unsafe-type-assertion": "off" }
+    },
     // 既存コードの超過値を移行用の上限としてファイル単位で固定する。
     // この例外は関数単位の厳密な増加防止ではないため、改修時に縮小・削除する。
     {

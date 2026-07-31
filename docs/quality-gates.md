@@ -13,6 +13,29 @@
 `.oxlintrc.json` の `overrides` は、既存コードの超過値をファイル単位で固定した移行用の上限。
 関数単位の厳密な増加防止ではないため、その領域を改修するときに実測値まで縮小する。
 
+## 型情報つきルール
+
+`options.typeAware` を立てると、型情報を要するルールが使える（`oxlint-tsgolint` が必要。
+`package.json` の devDependency にあるので `npm ci` で入る）。
+
+現在有効なのは 2 つ。
+
+| ルール | 目的 |
+| --- | --- |
+| `typescript/no-unsafe-type-assertion` | union を部分型へ絞る `as` を落とす。型の絞り込みを黙らせる変更を検出する |
+| `typescript/switch-exhaustiveness-check` | union に対する `switch` の網羅漏れを落とす |
+
+union の分岐は `as` ではなく網羅 `switch` で書く。網羅していない分岐は戻り値が
+`undefined` になり、`strict` 下では TS2366 になるので、コンパイラが漏れを教える。
+
+`typeAware` は categories 内の型情報つきルールを**すべて**有効にするため、既存違反の
+多いルールは `.oxlintrc.json` で個別に `off` にしてある（見送った理由と件数はそこにコメントで残す）。
+
+`no-unsafe-type-assertion` の既存違反は、`overrides` の移行用の例外リストでファイル単位に
+抑制してある。**例外リストに載っているファイルはこのルールで検査されない。**
+該当ファイルを改修するときは違反を直して例外リストから外す。
+例外リストにファイルを足す変更はラチェットが落とす。
+
 ## ラチェット
 
 上限を超えれば CI が落ちるが、それだけでは「上限そのものを引き上げる」変更が素通りする。
@@ -24,9 +47,20 @@
 - severity の格下げ・無効化（`warn`、`off`、`categories` の格下げ、ルール定義の削除）
 - 緩い `overrides` の新設（既存 override の削除は root の値へ戻るので許可する）
 - 検査対象の縮小（`ignorePatterns` の追加、`jscpd` の `pattern` 縮小・`ignore` 追加、`knip` の `entry` / `project` 縮小、`npm run lint` の対象ディレクトリ削減）
-- 検査そのものの取り外し（`sonarjs` プラグイン、`knip` の `includeEntryExports`、`quality` スクリプトの構成、CI の `run` ステップ）
+- 検査そのものの取り外し（`sonarjs` プラグイン、`options.typeAware`、`knip` の `includeEntryExports`、`quality` スクリプトの構成、CI の `run` ステップ）
 
-base ref が解決できない、設定が壊れている、設定ファイルが消えている場合は、
+base ref は、PR では対象ブランチ、push では直前の tip（`event.before`）を使う。
+force-push とブランチの初回 push では `event.before` を解決できないため、既定ブランチとの
+分岐点へ落とす。
+
+既定ブランチ自体の履歴が書き換えられた場合は、書き換え前の commit が到達不能で分岐点も
+HEAD に一致するため、**base を決められない。この場合はジョブを失敗させる。**
+`HEAD~1` で代用すると、書き換えられた古い commit に含まれる緩和を見逃すため。
+
+検査をスキップするのはリポジトリ最初の commit（HEAD に親が無い）のときだけで、
+これは比較対象の設定がそもそも存在しない場合にあたる。
+
+設定が壊れている、設定ファイルが消えている、渡された base ref を解決できない場合は、
 検査を飛ばさず失敗させる（fail closed）。
 
 ## 緩和したいとき
