@@ -30,12 +30,7 @@
     // typeAware を立てると categories 内の型情報つきルールが全部有効になる。
     // 以下は既存違反が多く見送っているもの。件数と解消方針は issue #8 に置く
     // （コメントに数値を書くと実態から乖離するため）。
-    "typescript/no-unnecessary-type-assertion": "off",
-    "typescript/no-base-to-string": "off",
-    "typescript/consistent-return": "off",
-    "typescript/no-unnecessary-type-parameters": "off",
-    "typescript/no-unnecessary-boolean-literal-compare": "off",
-    "typescript/no-misused-spread": "off"
+    "typescript/no-unnecessary-type-assertion": "off"
   },
   "overrides": [
     {

@@ -841,7 +841,10 @@ export class SqliteStorage implements Storage {
 
   async search(projectId: string, query: string): Promise<SearchHit[]> {
     if (query === '') return [];
+    // 検索クエリの長さは code point 数で判定する（絵文字を分割するのは承知のうえ。
+    // 書記素単位が要るほどの精度は下限判定に不要）
     const pages =
+      // oxlint-disable-next-line typescript/no-misused-spread
       [...query].length >= 3 ? this.#searchFts(projectId, query) : this.#searchLike(projectId, query);
     const likePattern = `%${escapeLike(query)}%`;
     const matchedLines = this.#db.prepare(

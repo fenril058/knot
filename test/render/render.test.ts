@@ -2,6 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { renderLines } from '../../src/render/render.ts';
 
+// renderLines の html は HtmlEscapedString | Promise<HtmlEscapedString>。
+// 同期経路しか使っていないが、Promise をそのまま String() すると
+// '[object Promise]' と比較して常に通ってしまうため、明示的に弾く。
+function htmlOf(line: { html: unknown }): string {
+  assert.ok(!(line.html instanceof Promise), 'html が Promise です');
+  return String(line.html);
+}
+
 const cfg = {
   allowedImageHosts: ['example.com', 'i.gyazo.com', 'gyazo.com'],
   allowedMediaHosts: ['example.com'],
@@ -11,7 +19,7 @@ function renderOne(text: string, known: [string, string][] = [], config = cfg): 
   const lines = [{ id: 'title', text: 'Title' }, { id: 'l1', text }];
   const map = new Map(known.map(([lc, title]) => [lc, { title, image: null }]));
   const out = renderLines(lines, map, 'proj', config);
-  return String(out[1]!.html);
+  return htmlOf(out[1]!);
 }
 
 void test('プレーンテキストはエスケープされる', () => {
@@ -75,7 +83,7 @@ void test('コードブロックは複数物理行を 1 ブロックとして消
   ];
   const out = renderLines(lines, new Map(), 'proj', cfg);
   assert.equal(out.length, 5);
-  assert.match(String(out[3]!.html), /&lt;script&gt;/);
+  assert.match(htmlOf(out[3]!), /&lt;script&gt;/);
   assert.deepEqual(out.map((o) => o.lineId), ['title', 'l1', 'l2', 'l3', 'l4']);
 });
 
@@ -87,8 +95,8 @@ void test('コードブロックのヘッダ直後が非インデント行なら
   ];
   const out = renderLines(lines, new Map(), 'proj', cfg);
   assert.deepEqual(out.map((line) => line.lineId), ['title', 'l1', 'l2']);
-  assert.match(String(out[1]!.html), /class="code-header"/);
-  assert.equal(String(out[2]!.html), '<div>after</div>');
+  assert.match(htmlOf(out[1]!), /class="code-header"/);
+  assert.equal(htmlOf(out[2]!), '<div>after</div>');
 });
 
 void test('コードブロックの空白のみの本体1行も物理行と対応させる', () => {
@@ -100,9 +108,9 @@ void test('コードブロックの空白のみの本体1行も物理行と対�
   ];
   const out = renderLines(lines, new Map(), 'proj', cfg);
   assert.deepEqual(out.map((line) => line.lineId), ['title', 'l1', 'l2', 'l3']);
-  assert.equal(String(out[1]!.html), '<div class="code-header">a.js</div>');
-  assert.equal(String(out[2]!.html), '<div class="code-line"></div>');
-  assert.equal(String(out[3]!.html), '<div>after</div>');
+  assert.equal(htmlOf(out[1]!), '<div class="code-header">a.js</div>');
+  assert.equal(htmlOf(out[2]!), '<div class="code-line"></div>');
+  assert.equal(htmlOf(out[3]!), '<div>after</div>');
 });
 
 void test('コードブロックの複数の空白行をそれぞれ物理行と対応させる', () => {
@@ -116,10 +124,10 @@ void test('コードブロックの複数の空白行をそれぞれ物理行と
   ];
   const out = renderLines(lines, new Map(), 'proj', cfg);
   assert.deepEqual(out.map((line) => line.lineId), ['title', 'l1', 'l2', 'l3', 'l4', 'l5']);
-  assert.equal(String(out[2]!.html), '<div class="code-line"></div>');
-  assert.equal(String(out[3]!.html), '<div class="code-line"> </div>');
-  assert.equal(String(out[4]!.html), '<div class="code-line">value</div>');
-  assert.equal(String(out[5]!.html), '<div>after</div>');
+  assert.equal(htmlOf(out[2]!), '<div class="code-line"></div>');
+  assert.equal(htmlOf(out[3]!), '<div class="code-line"> </div>');
+  assert.equal(htmlOf(out[4]!), '<div class="code-line">value</div>');
+  assert.equal(htmlOf(out[5]!), '<div>after</div>');
 });
 
 void test('インデント付きコードブロックはヘッダより深い行だけを消費する', () => {
@@ -131,8 +139,8 @@ void test('インデント付きコードブロックはヘッダより深い行
   ];
   const out = renderLines(lines, new Map(), 'proj', cfg);
   assert.deepEqual(out.map((line) => line.lineId), ['title', 'l1', 'l2', 'l3']);
-  assert.equal(String(out[2]!.html), '<div class="code-line">value</div>');
-  assert.equal(String(out[3]!.html), '<div>after</div>');
+  assert.equal(htmlOf(out[2]!), '<div class="code-line">value</div>');
+  assert.equal(htmlOf(out[3]!), '<div>after</div>');
 });
 
 void test('テーブルも複数物理行を 1 ブロックとして消費する', () => {
@@ -144,7 +152,7 @@ void test('テーブルも複数物理行を 1 ブロックとして消費する
   ];
   const out = renderLines(lines, new Map(), 'proj', cfg);
   assert.equal(out.length, 4);
-  assert.match(String(out[2]!.html), /<table>/);
+  assert.match(htmlOf(out[2]!), /<table>/);
 });
 
 void test('テーブルの空白のみの本体行も物理行と対応させる', () => {
@@ -156,8 +164,8 @@ void test('テーブルの空白のみの本体行も物理行と対応させる
   ];
   const out = renderLines(lines, new Map(), 'proj', cfg);
   assert.deepEqual(out.map((line) => line.lineId), ['title', 'l1', 'l2', 'l3']);
-  assert.match(String(out[2]!.html), /class="table-row"/);
-  assert.equal(String(out[3]!.html), '<div>after</div>');
+  assert.match(htmlOf(out[2]!), /class="table-row"/);
+  assert.equal(htmlOf(out[3]!), '<div>after</div>');
 });
 
 void test('アップロード画像(/files/ の相対URL)は allowlist なしで img にする', () => {
@@ -251,7 +259,7 @@ void test('[Name.icon] は known page に image があれば img で表示する
   ];
   const map = new Map([['foo', { title: 'Foo', image: 'https://i.gyazo.com/icon.png' }]]);
   const out = renderLines(lines, map, 'proj', cfg);
-  const result = String(out[1]!.html);
+  const result = htmlOf(out[1]!);
   assert.match(
     result,
     /<a href="\/proj\/Foo" class="icon-link"><img src="https:\/\/i\.gyazo\.com\/icon\.png" alt="Foo" class="icon-img"><\/a>/,
@@ -265,7 +273,7 @@ void test('[Name.icon] は image が許可ホスト外ならブラケット表�
   ];
   const map = new Map([['foo', { title: 'Foo', image: 'https://blocked.example/icon.png' }]]);
   const out = renderLines(lines, map, 'proj', { allowedImageHosts: ['example.com'], allowedMediaHosts: [] });
-  const result = String(out[1]!.html);
+  const result = htmlOf(out[1]!);
   assert.doesNotMatch(result, /<img/);
   assert.match(result, /<a href="\/proj\/Foo" class="icon-link">\[Foo\]<\/a>/);
 });

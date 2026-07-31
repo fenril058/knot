@@ -5,8 +5,9 @@ import { makeSyncClient, SyncHttpError } from '../../src/cli/sync/client.ts';
 type Handler = (url: string, init?: RequestInit) => Response;
 
 function fakeFetch(handler: Handler): typeof fetch {
+  // Request をそのまま String() すると '[object Request]' になるので URL を取り出す
   return ((url: string | URL | Request, init?: RequestInit) =>
-    Promise.resolve(handler(String(url), init))) as typeof fetch;
+    Promise.resolve(handler(url instanceof Request ? url.url : String(url), init))) as typeof fetch;
 }
 
 function json(status: number, body: unknown): Response {
@@ -76,7 +77,9 @@ void test('putText: X-Knot-Client を送り、200 は ok、409 は conflict', as
     fetchFn: fakeFetch((url, init) => {
       assert.equal(init?.method, 'PUT');
       assert.equal(new Headers(init?.headers).get('x-knot-client'), 'knot-sync');
-      const body = JSON.parse(String(init?.body)) as { baseVersion: number };
+      // init.body は BodyInit（ReadableStream 等を含む）。テストでは文字列しか渡さないので明示的に絞る
+      assert.equal(typeof init?.body, 'string');
+      const body = JSON.parse(init?.body as string) as { baseVersion: number };
       return body.baseVersion === 3 ? json(200, { version: 4, commitId: 'c' }) : json(409, { error: 'conflict' });
     }),
   });

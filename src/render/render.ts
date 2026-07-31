@@ -39,6 +39,7 @@ const renderExternalLink = (url: string, label: string | undefined): RenderedHtm
     : html`<a href="${url}" rel="noopener noreferrer">${label}</a>`;
 
 function makeRenderer(knownPages: Map<string, KnownPage>, projectName: string, config: RenderConfig) {
+  // oxlint-disable-next-line typescript/consistent-return -- union を網羅する switch。末尾の return を書かないことで、分岐漏れを型エラーにしている
   const renderMedia = (url: string, label: string | undefined): RenderedHtml => {
     // サイト内の添付ファイルは同一オリジン配信（img-src/media-src 'self'）なので allowlist を通さない
     if (isAttachmentUrl(url)) {
@@ -71,6 +72,7 @@ function makeRenderer(knownPages: Map<string, KnownPage>, projectName: string, c
     }
   };
 
+  // oxlint-disable-next-line typescript/consistent-return -- union を網羅する switch。末尾の return を書かないことで、分岐漏れを型エラーにしている
   const renderNode = (node: Node): RenderedHtml => {
     switch (node.type) {
       case 'plain':

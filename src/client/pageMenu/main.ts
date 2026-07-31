@@ -4,17 +4,19 @@ import { duplicateOps } from './ops.ts';
 
 type DialogElements = { dialog: HTMLDialogElement; form: HTMLFormElement; error: HTMLElement };
 
-function requireElement<T extends Element>(selector: string): T {
-  const element = document.querySelector<T>(selector);
+// 呼び出し側が指定した型へ無検査で化けないよう、コンストラクタを受け取って実際に検証する。
+function requireElement<T extends Element>(selector: string, ctor: new () => T): T {
+  const element = document.querySelector(selector);
   if (element === null) throw new Error(`${selector} is missing`);
+  if (!(element instanceof ctor)) throw new Error(`${selector} is not a ${ctor.name}`);
   return element;
 }
 
 function dialogElements(name: string): DialogElements {
   return {
-    dialog: requireElement<HTMLDialogElement>(`#${name}-dialog`),
-    form: requireElement<HTMLFormElement>(`#${name}-form`),
-    error: requireElement<HTMLElement>(`#${name}-error`),
+    dialog: requireElement(`#${name}-dialog`, HTMLDialogElement),
+    form: requireElement(`#${name}-form`, HTMLFormElement),
+    error: requireElement(`#${name}-error`, HTMLElement),
   };
 }
 
@@ -33,7 +35,7 @@ function showError(elements: DialogElements, message: string): void {
   elements.error.hidden = false;
 }
 
-const root = requireElement<HTMLElement>('#page-menu-root');
+const root = requireElement('#page-menu-root', HTMLElement);
 const { project, title, version: versionText } = root.dataset;
 if (project === undefined || title === undefined || versionText === undefined) {
   throw new Error('page menu data attributes are missing');
@@ -44,13 +46,13 @@ if (!Number.isInteger(version)) throw new Error('page version is invalid');
 const duplicate = dialogElements('duplicate');
 const rename = dialogElements('rename');
 const remove = dialogElements('delete');
-const duplicateTitle = requireElement<HTMLInputElement>('#duplicate-title');
-const renameTitle = requireElement<HTMLInputElement>('#rename-title');
-const rewriteLinks = requireElement<HTMLInputElement>('#rename-rewrite-links');
+const duplicateTitle = requireElement('#duplicate-title', HTMLInputElement);
+const renameTitle = requireElement('#rename-title', HTMLInputElement);
+const rewriteLinks = requireElement('#rename-rewrite-links', HTMLInputElement);
 
-requireElement<HTMLButtonElement>('#duplicate-button').addEventListener('click', () => duplicate.dialog.showModal());
-requireElement<HTMLButtonElement>('#rename-button').addEventListener('click', () => rename.dialog.showModal());
-requireElement<HTMLButtonElement>('#delete-button').addEventListener('click', () => remove.dialog.showModal());
+requireElement('#duplicate-button', HTMLButtonElement).addEventListener('click', () => duplicate.dialog.showModal());
+requireElement('#rename-button', HTMLButtonElement).addEventListener('click', () => rename.dialog.showModal());
+requireElement('#delete-button', HTMLButtonElement).addEventListener('click', () => remove.dialog.showModal());
 for (const button of document.querySelectorAll<HTMLButtonElement>('[data-dialog-close]')) {
   button.addEventListener('click', () => button.closest('dialog')?.close());
 }

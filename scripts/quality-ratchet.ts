@@ -347,6 +347,6 @@ export function main(argv: string[]): number {
   return 1;
 }
 
-if (process.argv[1]?.endsWith('quality-ratchet.ts') === true) {
+if (process.argv[1]?.endsWith('quality-ratchet.ts') ?? false) {
   process.exit(main(process.argv.slice(2)));
 }

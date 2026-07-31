@@ -29,6 +29,7 @@ function sourceLines(docText: string): SourceLine[] {
   });
 }
 
+// oxlint-disable-next-line typescript/consistent-return -- union を網羅する switch。末尾の return を書かないことで、分岐漏れを型エラーにしている
 function nodeKind(node: Node): SpanKind | undefined {
   switch (node.type) {
     case 'link':
