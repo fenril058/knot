@@ -15,7 +15,8 @@ export function normalizeForMatch(s: string): string {
 
 function isWordBoundary(candidate: string, index: number): boolean {
   if (index === 0) return true;
-  return !/[\p{L}\p{N}]/u.test(candidate[index - 1]);
+  // index は candidate 内の一致位置なので index - 1 は範囲内。
+  return !/[\p{L}\p{N}]/u.test(candidate[index - 1]!);
 }
 
 function scoreToken(token: string, candidate: string): number | null {

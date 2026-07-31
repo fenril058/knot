@@ -17,9 +17,10 @@ export function applyOps(lines: Line[], ops: LineOp[], ctx: ApplyContext): Line[
         userId: ctx.userId,
       });
     } else if (op.type === 'update') {
+      // validateOps が update 対象の id の存在を保証するので findIndex は -1 にならない。
       const i = result.findIndex((l) => l.id === op.id);
       result[i] = {
-        ...result[i],
+        ...result[i]!,
         text: op.text,
         updated: ctx.now,
         updatedVersion: ctx.version,

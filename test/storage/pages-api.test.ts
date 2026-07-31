@@ -31,7 +31,7 @@ void test('listPageSummaries: sort と skip/limit', async () => {
   const title = await storage.listPageSummaries(project.id, { skip: 0, limit: 100, sort: 'title' });
   assert.deepEqual(title.pages.map((p) => p.title), ['A', 'B', 'C']);
   const linked = await storage.listPageSummaries(project.id, { skip: 0, limit: 100, sort: 'linked' });
-  assert.equal(linked.pages[0].title, 'A'); // 被リンク 2
+  assert.equal(linked.pages[0]!.title, 'A'); // 被リンク 2
   const paged = await storage.listPageSummaries(project.id, { skip: 1, limit: 1, sort: 'title' });
   assert.equal(paged.count, 3); // count は全件数
   assert.deepEqual(paged.pages.map((p) => p.title), ['B']);

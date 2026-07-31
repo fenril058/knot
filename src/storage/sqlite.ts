@@ -654,7 +654,7 @@ export class SqliteStorage implements Storage {
       const lines = this.#getLines(pageId);
       const titleCommit = this.#applyCommit({
         projectId, pageId, commitId: ulid(now * 1000), baseVersion,
-        ops: [{ type: 'update', id: lines[0].id, text: newTitle }], userId, now,
+        ops: [{ type: 'update', id: lines[0]!.id, text: newTitle }], userId, now,
       });
       if (titleCommit.kind === 'conflict') {
         return { kind: 'conflict' as const, reason: 'title' as const, page: titleCommit.page };
@@ -676,7 +676,7 @@ export class SqliteStorage implements Storage {
           const changes = rewritePageLinks(srcLines.map((l) => l.text), oldTitleLc, newTitle);
           const ops: LineOp[] = [];
           changes.forEach((text, i) => {
-            if (text !== null) ops.push({ type: 'update', id: srcLines[i].id, text });
+            if (text !== null) ops.push({ type: 'update', id: srcLines[i]!.id, text });
           });
           if (ops.length === 0) continue;
           const result = this.#applyCommit({
@@ -730,7 +730,7 @@ export class SqliteStorage implements Storage {
     const deleted = newLines.length === 0;
     // 新規作成はタイトル行が残る最初のコミットでなければならない（スペック「行操作とコミット」）
     if (!row && deleted) throw new BadCommitError('page creation must leave at least one line');
-    const newTitle = deleted ? (row ? row.title : '') : newLines[0].text;
+    const newTitle = deleted ? (row ? row.title : '') : newLines[0]!.text;
     const newTitleLc = titleLc(newTitle);
 
     if (!deleted && (!row || newTitleLc !== row.title_lc)) {
@@ -836,7 +836,7 @@ export class SqliteStorage implements Storage {
       const insertOps: LineOp[] = lines.map((l, i) => ({
         type: 'insert' as const,
         id: l.id,
-        after: i === 0 ? '_head' : lines[i - 1].id,
+        after: i === 0 ? '_head' : lines[i - 1]!.id,
         text: l.text,
       }));
 

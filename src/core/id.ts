@@ -5,11 +5,12 @@ export function ulid(now: number = Date.now()): string {
   let ts = '';
   let t = now;
   for (let i = 0; i < 10; i++) {
-    ts = ALPHABET[t % 32] + ts;
+    ts = ALPHABET[t % 32]! + ts;
     t = Math.floor(t / 32);
   }
   const rand = globalThis.crypto.getRandomValues(new Uint8Array(16));
   let rs = '';
-  for (let i = 0; i < 16; i++) rs += ALPHABET[rand[i] % 32];
+  // ALPHABET は 32 文字、rand は長さ 16 なのでどちらの添字も範囲内。
+  for (let i = 0; i < 16; i++) rs += ALPHABET[rand[i]! % 32]!;
   return ts + rs;
 }

@@ -5,6 +5,9 @@
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "strict": true,
+    // 添字アクセスを T | undefined にする。これが無いと lines[i]! の ! が型上は
+    // 無意味になり、no-unnecessary-type-assertion と衝突する。
+    "noUncheckedIndexedAccess": true,
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true,

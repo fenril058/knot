@@ -77,7 +77,7 @@ void test('409 の3-way rebase は他者の変更を残して自分の変更だ�
   const sync = engine(base);
   sync.bufferChanged(['Title', 'mine changed', 'theirs before']);
   const firstCommitId = effect(sync.flush(), 'send')?.commit.commitId;
-  const latest = [base[0], base[1], line('theirs', 'theirs changed', 2)];
+  const latest = [base[0]!, base[1]!, line('theirs', 'theirs changed', 2)];
 
   const effects = sync.ackConflict({ version: 2, title: 'Title', lines: latest });
   const send = effect(effects, 'send');
@@ -95,7 +95,7 @@ void test('409 で挿入アンカーが消えてもローカルの挿入内容�
   sync.bufferChanged(['Title', 'anchor', 'inserted', 'tail']);
   const first = effect(sync.flush(), 'send');
   const firstInsertId = first?.commit.ops.find((op) => op.type === 'insert')?.id;
-  const latest = [base[0], base[2]];
+  const latest = [base[0]!, base[2]!];
 
   const send = effect(sync.ackConflict({ version: 2, title: 'Title', lines: latest }), 'send');
   const insert = send?.commit.ops.find((op) => op.type === 'insert');

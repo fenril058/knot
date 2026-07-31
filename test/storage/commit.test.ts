@@ -35,7 +35,7 @@ void test('最初のコミットでページが作られ version 1 になる', a
   assert.equal(page.version, 1);
   assert.equal(page.title, 'タイトル');
   assert.deepEqual(page.lines.map((l) => l.text), ['タイトル']);
-  assert.equal(page.lines[0].updatedVersion, 1);
+  assert.equal(page.lines[0]!.updatedVersion, 1);
   await storage.close();
 });
 
@@ -87,9 +87,9 @@ void test('先頭行の変更はタイトル変更になり title_history に残
     .prepare('SELECT old_title, old_title_lc, started, ended FROM title_history WHERE page_id = ?')
     .all('pg1') as { old_title: string; old_title_lc: string; started: number; ended: number }[];
   assert.equal(hist.length, 1);
-  assert.equal(hist[0].old_title, 'Old Title');
-  assert.equal(hist[0].old_title_lc, 'old_title');
-  assert.equal(hist[0].ended, 3000);
+  assert.equal(hist[0]!.old_title, 'Old Title');
+  assert.equal(hist[0]!.old_title_lc, 'old_title');
+  assert.equal(hist[0]!.ended, 3000);
   await storage.close();
 });
 

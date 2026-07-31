@@ -106,7 +106,7 @@ export function rewritePageLinks(lines: string[], oldTitleLc: string, newTitle: 
   };
 
   const rewriteAt = (index: number, nodes: Node[]): void => {
-    const rewrittenLine = spliceChildren(result[index] ?? lines[index], nodes);
+    const rewrittenLine = spliceChildren(result[index] ?? lines[index]!, nodes);
     if (rewrittenLine !== null) result[index] = rewrittenLine;
   };
 

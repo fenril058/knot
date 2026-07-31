@@ -17,7 +17,7 @@ void test('rename はタイトル行の update コミットに帰着する', asy
   const page = await storage.getPageById(pageId);
   assert.equal(page!.title, 'New');
   assert.equal(page!.version, 2);
-  assert.equal(page!.lines[0].text, 'New');
+  assert.equal(page!.lines[0]!.text, 'New');
   assert.equal(await storage.getPageByTitle(project.id, 'old'), null);
 });
 
@@ -33,7 +33,7 @@ void test('rewriteLinks: true でリンク元の本文が書き換わり、リ�
   assert.equal(result.kind, 'applied');
   assert.deepEqual(result.kind === 'applied' ? result.rewritten.map((r) => r.pageId) : [], [srcId]);
   const src = await storage.getPageById(srcId);
-  assert.equal(src!.lines[1].text, 'see [New Name] and [New Name]');
+  assert.equal(src!.lines[1]!.text, 'see [New Name] and [New Name]');
   assert.equal(src!.version, 2);
   const untouched = await storage.getPageById(untouchedId);
   assert.equal(untouched!.version, 1);
@@ -54,7 +54,7 @@ void test('新タイトルの占有は conflict で全体が失敗する（リ�
   assert.equal(result.kind === 'conflict' ? result.reason : '', 'title');
   assert.equal(result.kind === 'conflict' ? result.page.title : '', 'Taken');
   const src = await storage.getPageById(srcId);
-  assert.equal(src!.lines[1].text, '[Old]');
+  assert.equal(src!.lines[1]!.text, '[Old]');
 });
 
 void test('大文字小文字だけの変更（同じ lc）は衝突しない', async () => {
