@@ -179,7 +179,6 @@ export async function runSync(argv: string[], deps: SyncDeps = {}): Promise<Sync
   }
 }
 
-
 // 1 ページ分の処理結果。ok は成功、warn は「続行するが exitCode 1」、
 // abort はコマンド全体を exitCode 2 で終える（トークン失効など per-page で握り潰せない失敗）。
 type PageOutcome =
@@ -332,6 +331,7 @@ type PushTarget = {
 };
 
 type PushWriteAction = Extract<PushAction, { kind: 'update' | 'create' }>;
+type PushSkipAction = Exclude<PushAction, PushWriteAction>;
 
 function conflictOutcome(filename: string): PageOutcome {
   return warn(`conflict (pull and merge, or push --force): ${filename}`);
@@ -457,24 +457,23 @@ async function pushPage(ctx: PushContext, action: PushWriteAction): Promise<Page
   return await recordPushed(ctx, target, result.version);
 }
 
-function pushSkipOutcome(action: PushAction): PageOutcome | null {
-  if (action.kind === 'skip-rename') {
-    return warn(`skipped (rename not supported; restore first line to "${action.stateTitle}"): ${action.filename}`);
+// PushAction に kind を足したときは、この switch か applyPushAction のどちらかが
+// コンパイルエラーになる（網羅していない分岐は戻り値が undefined になり型に合わない）。
+function pushSkipOutcome(action: PushSkipAction): PageOutcome {
+  switch (action.kind) {
+    case 'skip-rename':
+      return warn(`skipped (rename not supported; restore first line to "${action.stateTitle}"): ${action.filename}`);
+    case 'skip-title-mismatch':
+      return warn(`skipped (first line "${action.fileTitle}" does not match filename): ${action.filename}`);
+    case 'skip-duplicate':
+      return warn(`skipped (title already exists; run knot sync pull first): ${action.filename}`);
   }
-  if (action.kind === 'skip-title-mismatch') {
-    return warn(`skipped (first line "${action.fileTitle}" does not match filename): ${action.filename}`);
-  }
-  if (action.kind === 'skip-duplicate') {
-    return warn(`skipped (title already exists; run knot sync pull first): ${action.filename}`);
-  }
-  return null;
 }
 
 async function applyPushAction(ctx: PushContext, action: PushAction): Promise<PageOutcome> {
-  const skipped = pushSkipOutcome(action);
-  if (skipped !== null) return skipped;
+  if (action.kind !== 'update' && action.kind !== 'create') return pushSkipOutcome(action);
   try {
-    return await pushPage(ctx, action as PushWriteAction);
+    return await pushPage(ctx, action);
   } catch (e) {
     // 401 は runPush のどこで起きても即 exitCode 2（副次呼び出しから投げ直されたものをここで拾う）
     if (is401(e)) return { kind: 'abort', message: (e as SyncHttpError).message };
