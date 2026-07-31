@@ -31,6 +31,7 @@ export function writeSyncConfig(dir: string, config: SyncConfig): void {
 export function loadSyncConfig(dir: string): SyncConfig {
   const path = join(dir, '.knot', 'config.json');
   if (!existsSync(path)) throw new CliError(`not a sync directory (missing ${join('.knot', 'config.json')}); run knot sync init first`);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const parsed = JSON.parse(readFileSync(path, 'utf8')) as Partial<SyncConfig>;
   if (typeof parsed.url !== 'string' || typeof parsed.project !== 'string') {
     throw new CliError('invalid .knot/config.json: url and project required');

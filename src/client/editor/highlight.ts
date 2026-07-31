@@ -29,6 +29,8 @@ function sourceLines(docText: string): SourceLine[] {
   });
 }
 
+// span にならない node 型があるため戻り値に undefined を含む。そのぶん分岐漏れは
+// 型エラーにならないので、未知の型は末尾で明示的に undefined にする。
 function nodeKind(node: Node): SpanKind | undefined {
   switch (node.type) {
     case 'link':
@@ -60,6 +62,8 @@ function nodeKind(node: Node): SpanKind | undefined {
     case 'numberList':
     case 'plain':
     case 'strongImage':
+      return undefined;
+    default:
       return undefined;
   }
 }

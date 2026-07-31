@@ -5,26 +5,26 @@ import { validateOps, OpsError, type Line } from '../../src/core/ops.ts';
 const line = (id: string, text = 'x'): Line =>
   ({ id, text, created: 1, updated: 1, updatedVersion: 1, userId: 'u1' });
 
-test('空の ops は OpsError', () => {
+void test('空の ops は OpsError', () => {
   assert.throws(() => validateOps([line('a')], []), OpsError);
 });
 
-test('既存 ID と重複する insert は OpsError', () => {
+void test('既存 ID と重複する insert は OpsError', () => {
   assert.throws(
     () => validateOps([line('a')], [{ type: 'insert', id: 'a', after: '_head', text: 't' }]),
     OpsError,
   );
 });
 
-test('存在しない行への update は OpsError', () => {
+void test('存在しない行への update は OpsError', () => {
   assert.throws(() => validateOps([line('a')], [{ type: 'update', id: 'zz', text: 't' }]), OpsError);
 });
 
-test('存在しない行への delete は OpsError', () => {
+void test('存在しない行への delete は OpsError', () => {
   assert.throws(() => validateOps([line('a')], [{ type: 'delete', id: 'zz' }]), OpsError);
 });
 
-test('同一コミット内で削除済みの行をアンカーにする insert は OpsError', () => {
+void test('同一コミット内で削除済みの行をアンカーにする insert は OpsError', () => {
   assert.throws(
     () =>
       validateOps([line('a'), line('b')], [
@@ -35,7 +35,7 @@ test('同一コミット内で削除済みの行をアンカーにする insert 
   );
 });
 
-test('新規 insert 同士の ID 重複も OpsError', () => {
+void test('新規 insert 同士の ID 重複も OpsError', () => {
   assert.throws(
     () =>
       validateOps([line('a')], [
@@ -46,7 +46,7 @@ test('新規 insert 同士の ID 重複も OpsError', () => {
   );
 });
 
-test('正しい ops 列は例外を投げない', () => {
+void test('正しい ops 列は例外を投げない', () => {
   validateOps([line('a')], [
     { type: 'insert', id: 'b', after: 'a', text: 't' },
     { type: 'insert', id: 'c', after: 'b', text: 't2' },

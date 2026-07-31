@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defaultConfig, loadConfig } from '../../src/server/config.ts';
 
-test('config.json が無ければ既定値', () => {
+void test('config.json が無ければ既定値', () => {
   const dir = mkdtempSync(join(tmpdir(), 'knot-config-'));
   assert.deepEqual(loadConfig(dir), defaultConfig(dir));
   assert.equal(loadConfig(dir).autoExportDir, null);
@@ -13,7 +13,7 @@ test('config.json が無ければ既定値', () => {
   assert.equal(loadConfig(dir).autoExportKeep, 7);
 });
 
-test('config.json が既定値にマージされる', () => {
+void test('config.json が既定値にマージされる', () => {
   const dir = mkdtempSync(join(tmpdir(), 'knot-config-'));
   writeFileSync(join(dir, 'config.json'), JSON.stringify({
     secureCookie: false,
@@ -27,13 +27,13 @@ test('config.json が既定値にマージされる', () => {
   assert.deepEqual(config.allowedImageHosts, ['i.gyazo.com', 'gyazo.com', 'scrapbox.io']); // 未指定は既定のまま
 });
 
-test('未知キーはエラー', () => {
+void test('未知キーはエラー', () => {
   const dir = mkdtempSync(join(tmpdir(), 'knot-config-'));
   writeFileSync(join(dir, 'config.json'), JSON.stringify({ tyop: true }));
   assert.throws(() => loadConfig(dir), /unknown config key: tyop/);
 });
 
-test('autoExportIntervalHours は 596 を許可し 597 を拒否する', () => {
+void test('autoExportIntervalHours は 596 を許可し 597 を拒否する', () => {
   const acceptedDir = mkdtempSync(join(tmpdir(), 'knot-config-'));
   writeFileSync(join(acceptedDir, 'config.json'), JSON.stringify({ autoExportIntervalHours: 596 }));
   assert.equal(loadConfig(acceptedDir).autoExportIntervalHours, 596);
@@ -43,7 +43,7 @@ test('autoExportIntervalHours は 596 を許可し 597 を拒否する', () => {
   assert.throws(() => loadConfig(rejectedDir), /invalid config value for autoExportIntervalHours/);
 });
 
-test('型・範囲の不正な値はエラー', () => {
+void test('型・範囲の不正な値はエラー', () => {
   for (const bad of [
     { maxUploadBytes: -1 },
     { sessionTtlSeconds: 'thirty days' },

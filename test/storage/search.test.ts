@@ -23,7 +23,7 @@ async function setup() {
   return { db, storage, project };
 }
 
-test('3 文字以上は FTS で全文検索し、一致行を返す', async () => {
+void test('3 文字以上は FTS で全文検索し、一致行を返す', async () => {
   const { storage, project } = await setup();
   const hits = await storage.search(project.id, '設計書');
   assert.equal(hits.length, 1);
@@ -33,7 +33,7 @@ test('3 文字以上は FTS で全文検索し、一致行を返す', async () =
   await storage.close();
 });
 
-test('3 文字未満は LIKE フォールバックで見つかる', async () => {
+void test('3 文字未満は LIKE フォールバックで見つかる', async () => {
   const { storage, project } = await setup();
   // FTS(trigram) では 2 文字クエリは 0 件になる（Task 1 で実測済み）
   const hits = await storage.search(project.id, '設計');
@@ -43,7 +43,7 @@ test('3 文字未満は LIKE フォールバックで見つかる', async () => 
   await storage.close();
 });
 
-test('LIKE のメタ文字はリテラルとして扱う', async () => {
+void test('LIKE のメタ文字はリテラルとして扱う', async () => {
   const { storage, project } = await setup();
   const underscore = await storage.search(project.id, '_');
   assert.deepEqual(underscore.map((h) => h.pageId), ['pg2']);
@@ -52,14 +52,14 @@ test('LIKE のメタ文字はリテラルとして扱う', async () => {
   await storage.close();
 });
 
-test('二重引用符を含むクエリでもクラッシュしない', async () => {
+void test('二重引用符を含むクエリでもクラッシュしない', async () => {
   const { storage, project } = await setup();
   const hits = await storage.search(project.id, 'ab"cd');
   assert.deepEqual(hits, []);
   await storage.close();
 });
 
-test('空クエリは 0 件、削除済みページはヒットしない', async () => {
+void test('空クエリは 0 件、削除済みページはヒットしない', async () => {
   const { storage, project } = await setup();
   assert.deepEqual(await storage.search(project.id, ''), []);
   await storage.commit({
@@ -74,7 +74,7 @@ test('空クエリは 0 件、削除済みページはヒットしない', async
   await storage.close();
 });
 
-test('SearchHit に image が含まれる', async () => {
+void test('SearchHit に image が含まれる', async () => {
   const { storage } = makeStorage();
   const now = 1700000000;
   const project = await storage.ensureProject('proj', now);

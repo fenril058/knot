@@ -17,11 +17,11 @@ const ctx = (docText: string, from: number, to = from, spans: Span[] = []): Past
 
 const alwaysSuppress: PasteRule = () => true;
 
-test('URL 単独ペーストは [URL] に変換する', () => {
+void test('URL 単独ペーストは [URL] に変換する', () => {
   assert.equal(transformPaste(ctx('', 0), 'https://example.com'), '[https://example.com]');
 });
 
-test('選択ありで URL をペーストすると [URL 選択テキスト] に変換する', () => {
+void test('選択ありで URL をペーストすると [URL 選択テキスト] に変換する', () => {
   const docText = '選択テキスト';
   assert.equal(
     transformPaste(ctx(docText, 0, docText.length), 'https://example.com'),
@@ -29,44 +29,44 @@ test('選択ありで URL をペーストすると [URL 選択テキスト] に�
   );
 });
 
-test('非 URL テキストは変換しない', () => {
+void test('非 URL テキストは変換しない', () => {
   assert.equal(transformPaste(ctx('', 0), 'hello'), null);
 });
 
-test('複数語のテキストは変換しない', () => {
+void test('複数語のテキストは変換しない', () => {
   assert.equal(transformPaste(ctx('', 0), 'hello world'), null);
 });
 
-test('javascript: スキームは変換しない', () => {
+void test('javascript: スキームは変換しない', () => {
   assert.equal(transformPaste(ctx('', 0), 'javascript:alert(1)'), null);
 });
 
-test('前後の空白はトリムしてから判定する', () => {
+void test('前後の空白はトリムしてから判定する', () => {
   assert.equal(transformPaste(ctx('', 0), '  https://example.com  '), '[https://example.com]');
 });
 
-test('コードブロック内では変換しない', () => {
+void test('コードブロック内では変換しない', () => {
   const spans: Span[] = [{ from: 0, to: 10, kind: 'code-block' }];
   assert.equal(transformPaste(ctx('0123456789', 5, 5, spans), 'https://example.com'), null);
 });
 
-test('インラインコード内では変換しない', () => {
+void test('インラインコード内では変換しない', () => {
   const spans: Span[] = [{ from: 0, to: 10, kind: 'code-inline' }];
   assert.equal(transformPaste(ctx('0123456789', 5, 5, spans), 'https://example.com'), null);
 });
 
-test('既存ブラケットの内側（[foo|bar] の内側）では変換しない', () => {
+void test('既存ブラケットの内側（[foo|bar] の内側）では変換しない', () => {
   const docText = '[foo|bar]';
   const from = docText.indexOf('|') + 1;
   assert.equal(transformPaste(ctx(docText, from), 'https://example.com'), null);
 });
 
-test('未閉のブラケットの内側でも変換しない', () => {
+void test('未閉のブラケットの内側でも変換しない', () => {
   const docText = '[foo bar';
   assert.equal(transformPaste(ctx(docText, docText.length), 'https://example.com'), null);
 });
 
-test('ブラケットの外側では既定ルールが変換を妨げない', () => {
+void test('ブラケットの外側では既定ルールが変換を妨げない', () => {
   const docText = '[foo] bar';
   assert.equal(
     transformPaste(ctx(docText, docText.length), 'https://example.com'),
@@ -74,12 +74,12 @@ test('ブラケットの外側では既定ルールが変換を妨げない', ()
   );
 });
 
-test('呼び出し側がカスタムルールを追加すると任意条件で抑止できる', () => {
+void test('呼び出し側がカスタムルールを追加すると任意条件で抑止できる', () => {
   const rules = [...defaultRules, alwaysSuppress];
   assert.equal(transformPaste(ctx('', 0), 'https://example.com', rules), null);
 });
 
-test('呼び出し側がルールを差し替えると既定ルールを迂回できる', () => {
+void test('呼び出し側がルールを差し替えると既定ルールを迂回できる', () => {
   const spans: Span[] = [{ from: 0, to: 10, kind: 'code-block' }];
   assert.equal(
     transformPaste(ctx('0123456789', 5, 5, spans), 'https://example.com', []),

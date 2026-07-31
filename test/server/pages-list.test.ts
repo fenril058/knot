@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { loginAs, makeServer } from '../helpers/server.ts';
 import { seedPage } from '../helpers/pages.ts';
 
-test('GET /:project: ピン留めが先頭、以降は更新順、カードにタイトル・冒頭行が出る', async () => {
+void test('GET /:project: ピン留めが先頭、以降は更新順、カードにタイトル・冒頭行が出る', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
@@ -21,7 +21,7 @@ test('GET /:project: ピン留めが先頭、以降は更新順、カードに�
   assert.match(body, /first line/);
 });
 
-test('プロジェクトトップにプロジェクト一覧へ戻る導線がある', async () => {
+void test('プロジェクトトップにプロジェクト一覧へ戻る導線がある', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   await s.storage.ensureProject('proj', s.clock.t);
@@ -31,7 +31,7 @@ test('プロジェクトトップにプロジェクト一覧へ戻る導線が�
   assert.match(body, /<nav class="page-nav"><a href="\/">プロジェクト一覧<\/a><\/nav>/);
 });
 
-test('アップロード画像(/files/)はカードのサムネイルになる', async () => {
+void test('アップロード画像(/files/)はカードのサムネイルになる', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
@@ -42,7 +42,7 @@ test('アップロード画像(/files/)はカードのサムネイルになる',
   assert.match(body, /<img class="card-image" src="\/files\/01ABC\/x\.png"/);
 });
 
-test('カードの冒頭行は記法を剥がした平文で出す', async () => {
+void test('カードの冒頭行は記法を剥がした平文で出す', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
@@ -54,7 +54,7 @@ test('カードの冒頭行は記法を剥がした平文で出す', async () =>
   assert.doesNotMatch(body, /\[Foo Bar\]/);
 });
 
-test('もっと見るリンク: count が limit を超えたら次ページへのリンクが出る', async () => {
+void test('もっと見るリンク: count が limit を超えたら次ページへのリンクが出る', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
@@ -69,7 +69,7 @@ test('もっと見るリンク: count が limit を超えたら次ページへ�
   assert.match(body, /もっと見る/);
 });
 
-test('未ログインは /login へリダイレクト', async () => {
+void test('未ログインは /login へリダイレクト', async () => {
   const s = await makeServer();
   await s.storage.ensureProject('proj', s.clock.t);
 
@@ -79,7 +79,7 @@ test('未ログインは /login へリダイレクト', async () => {
   assert.match(res.headers.get('location') ?? '', /^\/login\?next=/);
 });
 
-test('GET /:project: 存在しないプロジェクトは layout を使った HTML 404', async () => {
+void test('GET /:project: 存在しないプロジェクトは layout を使った HTML 404', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const res = await s.request('/missing', {}, cookie);
@@ -92,7 +92,7 @@ test('GET /:project: 存在しないプロジェクトは layout を使った HT
   assert.match(body, /missing/);
 });
 
-test('検索ボックスと script タグが一覧ページに含まれる', async () => {
+void test('検索ボックスと script タグが一覧ページに含まれる', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
@@ -105,7 +105,7 @@ test('検索ボックスと script タグが一覧ページに含まれる', asy
   assert.doesNotMatch(body, /<script>/);
 });
 
-test('一覧ページに新規作成ボタンとタイトル入力 dialog が含まれる', async () => {
+void test('一覧ページに新規作成ボタンとタイトル入力 dialog が含まれる', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   await s.storage.ensureProject('proj', s.clock.t);
@@ -119,7 +119,7 @@ test('一覧ページに新規作成ボタンとタイトル入力 dialog が含
   assert.doesNotMatch(body, /\son[a-z]+\s*=/i);
 });
 
-test('カード画像は allowedImageHosts で許可したホストだけ表示する', async () => {
+void test('カード画像は allowedImageHosts で許可したホストだけ表示する', async () => {
   const s = await makeServer({ allowedImageHosts: ['allowed.example'] });
   const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);

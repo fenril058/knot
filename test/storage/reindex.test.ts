@@ -20,23 +20,25 @@ async function setup() {
   return { db, storage, project };
 }
 
-test('reindex が links / fts / image を lines から再構築する', async () => {
+void test('reindex が links / fts / image を lines から再構築する', async () => {
   const { db, storage } = await setup();
   const result = await storage.reindex();
   assert.equal(result.pages, 1);
   const targets = (
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     db.prepare('SELECT target_title_lc FROM links WHERE source_page_id = ?').all('pg1') as {
       target_title_lc: string;
     }[]
   ).map((r) => r.target_title_lc);
   assert.deepEqual(targets, ['リンク先']);
   assert.equal(db.prepare('SELECT page_id FROM pages_fts WHERE pages_fts MATCH ?').all('"リンク先"').length, 1);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const image = (db.prepare('SELECT image FROM pages WHERE id = ?').get('pg1') as { image: string | null }).image;
   assert.equal(image, 'https://gyazo.com/img1');
   await storage.close();
 });
 
-test('reindex は削除済みページの残骸も掃除する', async () => {
+void test('reindex は削除済みページの残骸も掃除する', async () => {
   const { db, storage, project } = await setup();
   await storage.reindex();
   await storage.commit({
@@ -52,12 +54,14 @@ test('reindex は削除済みページの残骸も掃除する', async () => {
   db.prepare("INSERT INTO pages_fts (page_id, project_id, content) VALUES ('pg1', ?, 'ゴミ')").run(project.id);
   const result = await storage.reindex();
   assert.equal(result.pages, 1);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   assert.equal((db.prepare('SELECT count(*) AS c FROM links WHERE source_page_id = ?').get('pg1') as { c: number }).c, 0);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   assert.equal((db.prepare('SELECT count(*) AS c FROM pages_fts WHERE page_id = ?').get('pg1') as { c: number }).c, 0);
   await storage.close();
 });
 
-test('projectId を指定すると、そのプロジェクトのページだけ数える', async () => {
+void test('projectId を指定すると、そのプロジェクトのページだけ数える', async () => {
   const { db, storage } = await setup();
   const other = await storage.ensureProject('other', 1000);
   await storage.commit({
@@ -68,6 +72,7 @@ test('projectId を指定すると、そのプロジェクトのページだけ�
   const result = await storage.reindex(other.id);
   assert.equal(result.pages, 1);
   // wiki 側の壊した導出データは直っていない（対象外だった）
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   assert.equal((db.prepare('SELECT count(*) AS c FROM links WHERE source_page_id = ?').get('pg1') as { c: number }).c, 0);
   await storage.close();
 });

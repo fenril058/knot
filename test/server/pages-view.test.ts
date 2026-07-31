@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { loginAs, makeServer } from '../helpers/server.ts';
 import { seedPage } from '../helpers/pages.ts';
 
-test('GET /:project/:title: レンダリング結果・赤リンク・テロメア・関連ページを含む', async () => {
+void test('GET /:project/:title: レンダリング結果・赤リンク・テロメア・関連ページを含む', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
@@ -21,7 +21,7 @@ test('GET /:project/:title: レンダリング結果・赤リンク・テロメ�
   void alphaId;
 });
 
-test('閲覧画面に操作メニューと複製・リネーム・削除 dialog がありインラインハンドラを使わない', async () => {
+void test('閲覧画面に操作メニューと複製・リネーム・削除 dialog がありインラインハンドラを使わない', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
@@ -39,7 +39,7 @@ test('閲覧画面に操作メニューと複製・リネーム・削除 dialog 
   assert.doesNotMatch(body, /\son[a-z]+\s*=/i);
 });
 
-test('初回訪問は全行 unread、再訪問（編集なし）は unread が消える', async () => {
+void test('初回訪問は全行 unread、再訪問（編集なし）は unread が消える', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
@@ -50,7 +50,7 @@ test('初回訪問は全行 unread、再訪問（編集なし）は unread が�
   assert.doesNotMatch(await second.text(), /telomere unread/);
 });
 
-test('ページ表示の knownPages は listKnownPages を使い listPageTitles を呼ばない', async () => {
+void test('ページ表示の knownPages は listKnownPages を使い listPageTitles を呼ばない', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
@@ -66,7 +66,7 @@ test('ページ表示の knownPages は listKnownPages を使い listPageTitles 
   assert.match(await res.text(), /href="\/proj\/Beta"/);
 });
 
-test('存在しないページは 404 と新規作成の案内', async () => {
+void test('存在しないページは 404 と新規作成の案内', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   await s.storage.ensureProject('proj', s.clock.t);
@@ -77,7 +77,7 @@ test('存在しないページは 404 と新規作成の案内', async () => {
   assert.match(body, /\/proj\/Nope\/edit/);
 });
 
-test('GET /:project/:title: 存在しないプロジェクトは layout を使った HTML 404', async () => {
+void test('GET /:project/:title: 存在しないプロジェクトは layout を使った HTML 404', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const res = await s.request('/missing/Nope', {}, cookie);
@@ -94,7 +94,7 @@ for (const [name, headers] of [
   ['cross-site', { 'Sec-Fetch-Site': 'cross-site' }],
   ['prefetch', { 'Sec-Purpose': 'prefetch' }],
 ] as const) {
-  test(`${name} の GET は再訪問しても unread を既読にしない`, async () => {
+  void test(`${name} の GET は再訪問しても unread を既読にしない`, async () => {
     const s = await makeServer();
     const cookie = await loginAs(s);
     const project = await s.storage.ensureProject('proj', s.clock.t);

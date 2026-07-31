@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { makeServer } from '../helpers/server.ts';
 import { seedPage } from '../helpers/pages.ts';
 
-test('login → 一覧 → 閲覧 → 再訪問 → 404 の一気通貫でインライン要素を含まない', async () => {
+void test('login → 一覧 → 閲覧 → 再訪問 → 404 の一気通貫でインライン要素を含まない', async () => {
   const s = await makeServer();
   await s.addUser('alice', 'pw12345678');
   const project = await s.storage.ensureProject('proj', s.clock.t);

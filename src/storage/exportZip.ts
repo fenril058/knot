@@ -22,6 +22,7 @@ export async function buildExportZip(
     try {
       data = await readFile(join(dataDir, 'files', attachment.id));
     } catch (error) {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         throw new StorageError(`attachment file not found: ${attachment.id}`);
       }

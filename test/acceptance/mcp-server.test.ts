@@ -26,6 +26,7 @@ const keyPath = fileURLToPath(new URL('../fixtures/tls/localhost-key.pem', impor
 function resolveMcpBin(): string {
   const require = createRequire(import.meta.url);
   const pkgPath = require.resolve('scrapbox-cosense-mcp/package.json');
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { bin: Record<string, string> };
   const rel = pkg.bin['scrapbox-cosense-mcp'];
   assert.ok(rel, 'scrapbox-cosense-mcp package.json に bin がない');
@@ -34,17 +35,19 @@ function resolveMcpBin(): string {
 
 /** MCP の CallTool 応答から text content を連結して返す */
 function textOf(result: unknown): string {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const content = (result as { content?: unknown }).content;
   assert.ok(Array.isArray(content), 'MCP 応答に content 配列がない');
   const texts = content
     .filter((c): c is { type: string; text: string } =>
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       typeof c === 'object' && c !== null && (c as { type?: unknown }).type === 'text')
     .map((c) => c.text);
   assert.ok(texts.length > 0, 'MCP 応答に text content がない');
   return texts.join('\n');
 }
 
-test('scrapbox-cosense-mcp が knot に対して list_pages / get_page / search_pages を実行できる', { timeout: 90_000 }, async () => {
+void test('scrapbox-cosense-mcp が knot に対して list_pages / get_page / search_pages を実行できる', { timeout: 90_000 }, async () => {
   const t = 1_700_000_000;
   const storage: Storage = new SqliteStorage(openDatabase(':memory:'));
   let server: ReturnType<typeof serve> | undefined;
@@ -79,6 +82,7 @@ test('scrapbox-cosense-mcp が knot に対して list_pages / get_page / search_
     await new Promise<void>((resolve) => {
       listener.on('listening', () => resolve());
     });
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const port = (listener.address() as AddressInfo).port;
 
     client = new Client({ name: 'knot-acceptance', version: '0.0.0' });

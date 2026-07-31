@@ -60,6 +60,7 @@ export function parseExportFile(data: unknown): CosenseExport {
   if (typeof data !== 'object' || data === null || !Array.isArray((data as { pages?: unknown }).pages)) {
     throw new InvalidExportError('invalid export: pages array is required');
   }
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const raw = data as CosenseExport;
   checkOptional(raw.displayName, 'string', 'displayName');
   (raw.users ?? []).forEach((user, i) => {

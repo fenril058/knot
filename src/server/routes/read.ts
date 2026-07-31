@@ -100,6 +100,7 @@ export function registerReadRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     if (!SORTS.has(sortRaw) && !FALLBACK_SORTS.has(sortRaw)) {
       return jsonError(c, 400, 'bad_request', { message: `invalid sort: ${sortRaw}` });
     }
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const sort = (SORTS.has(sortRaw) ? sortRaw : 'updated') as PageSort;
     const limit = Math.min(limitRaw, 1000);
     const { count, pages } = await storage.listPageSummaries(project.id, { skip, limit, sort });

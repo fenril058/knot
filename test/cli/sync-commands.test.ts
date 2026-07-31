@@ -10,7 +10,7 @@ function tmp(): string {
   return mkdtempSync(join(tmpdir(), 'knot-sync-'));
 }
 
-test('sync init: config を書き、gitignore 案内を出す', async () => {
+void test('sync init: config を書き、gitignore 案内を出す', async () => {
   const dir = tmp();
   try {
     const result = await runSync(['init', dir, '--url', 'http://127.0.0.1:3000/', '--project', 'notes']);
@@ -21,7 +21,7 @@ test('sync init: config を書き、gitignore 案内を出す', async () => {
   } finally { rmSync(dir, { recursive: true }); }
 });
 
-test('sync init: 不正 URL は exitCode 2', async () => {
+void test('sync init: 不正 URL は exitCode 2', async () => {
   const dir = tmp();
   try {
     const result = await runSync(['init', dir, '--url', 'ftp://x/', '--project', 'notes']);
@@ -29,7 +29,7 @@ test('sync init: 不正 URL は exitCode 2', async () => {
   } finally { rmSync(dir, { recursive: true }); }
 });
 
-test('sync status（ローカルのみ）: modified / new / missing を一覧する', async () => {
+void test('sync status（ローカルのみ）: modified / new / missing を一覧する', async () => {
   const dir = tmp();
   try {
     await runSync(['init', dir, '--url', 'http://h', '--project', 'notes']);
@@ -49,7 +49,7 @@ test('sync status（ローカルのみ）: modified / new / missing を一覧す
   } finally { rmSync(dir, { recursive: true }); }
 });
 
-test('sync: 未知サブコマンドと config 不在は exitCode 2', async () => {
+void test('sync: 未知サブコマンドと config 不在は exitCode 2', async () => {
   const dir = tmp();
   try {
     assert.equal((await runSync(['bogus'])).exitCode, 2);

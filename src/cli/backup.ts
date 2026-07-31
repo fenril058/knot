@@ -25,6 +25,7 @@ function pathExists(path: string): boolean {
     lstatSync(path);
     return true;
   } catch (error) {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
     throw error;
   }
@@ -79,6 +80,7 @@ export async function runBackup(dataDir: string, outDir: string): Promise<string
     const snapshotDb = openDatabase(join(tempDir, 'knot.db'));
     let attachmentIds: string[];
     try {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       attachmentIds = (snapshotDb.prepare('SELECT id FROM attachments ORDER BY id').all() as { id: string }[])
         .map((row) => row.id);
     } finally {

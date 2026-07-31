@@ -1,5 +1,6 @@
 import { parse, type Node } from '@progfay/scrapbox-parser';
 
+// oxlint-disable-next-line typescript/consistent-return -- union を網羅する switch。末尾の return を書かないことで、分岐漏れを型エラーにしている
 function nodeText(node: Node): string {
   switch (node.type) {
     case 'link':

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loginAs, makeServer } from '../helpers/server.ts';
 
-test('GET /: 認証済みユーザーにプロジェクト一覧とリンクを表示する', async () => {
+void test('GET /: 認証済みユーザーにプロジェクト一覧とリンクを表示する', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   await s.storage.ensureProject('zeta', s.clock.t);
@@ -19,7 +19,7 @@ test('GET /: 認証済みユーザーにプロジェクト一覧とリンクを�
   assert.doesNotMatch(body, /<script|<style|\son[a-z]+=/i);
 });
 
-test('GET /: プロジェクトが0件なら案内文を表示する', async () => {
+void test('GET /: プロジェクトが0件なら案内文を表示する', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const res = await s.request('/', {}, cookie);
@@ -28,7 +28,7 @@ test('GET /: プロジェクトが0件なら案内文を表示する', async () 
   assert.match(await res.text(), /プロジェクトがありません/);
 });
 
-test('GET /: 未認証なら /login?next=%2F へリダイレクトする', async () => {
+void test('GET /: 未認証なら /login?next=%2F へリダイレクトする', async () => {
   const s = await makeServer();
   const res = await s.request('/');
 

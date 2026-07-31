@@ -24,6 +24,7 @@ const execFileAsync = promisify(execFile);
 function resolveCosenseCliBin(): string {
   const require = createRequire(import.meta.url);
   const pkgPath = require.resolve('@helpfeel/cosense-cli/package.json');
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { bin: Record<string, string> };
   const rel = pkg.bin.cosense;
   assert.ok(rel, '@helpfeel/cosense-cli package.json に bin.cosense がない');
@@ -41,7 +42,7 @@ async function runCosense(
   });
 }
 
-test(
+void test(
   '公式 cosense-cli(PAT認証) が knot に対して listPages / readPage / searchFullText を実行できる',
   { timeout: 60_000 },
   async (t) => {
@@ -76,6 +77,7 @@ test(
       await new Promise<void>((resolve) => {
         listener.on('listening', () => resolve());
       });
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       const port = (listener.address() as AddressInfo).port;
       const projectUrl = `http://127.0.0.1:${port}/sandbox`;
 
@@ -91,6 +93,7 @@ test(
           ...baseEnv,
           COSENSE_PAT: token,
         });
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion
         const data = JSON.parse(stdout) as { count: number; pages: { title: string }[] };
         assert.equal(data.count, 3);
         const titles = data.pages.map((p) => p.title);
@@ -104,6 +107,7 @@ test(
           ...baseEnv,
           COSENSE_PAT: token,
         });
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion
         const data = JSON.parse(stdout) as { lines: { text: string }[] };
         const texts = data.lines.map((l) => l.text);
         assert.ok(texts.includes('hello from alpha'));
@@ -115,6 +119,7 @@ test(
           ...baseEnv,
           COSENSE_PAT: token,
         });
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion
         const data = JSON.parse(stdout) as { count: number; pages: { title: string }[] };
         assert.ok(data.count >= 1);
         assert.ok(data.pages.some((p) => p.title === 'SearchTarget'));
@@ -124,6 +129,7 @@ test(
         await assert.rejects(
           runCosense(['listPages', projectUrl], { ...baseEnv, COSENSE_PAT: 'knot_invalid' }),
           (err: unknown) => {
+            // oxlint-disable-next-line typescript/no-unsafe-type-assertion
             const e = err as { code?: number; stderr?: string };
             assert.notEqual(e.code, 0);
             assert.match(e.stderr ?? '', /401/);

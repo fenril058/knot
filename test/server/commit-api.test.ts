@@ -17,7 +17,7 @@ async function setup() {
   return { s, cookie, userId, post };
 }
 
-test('新規作成 → 編集 → 冪等な再送', async () => {
+void test('新規作成 → 編集 → 冪等な再送', async () => {
   const { s, post, userId } = await setup();
   const l1 = ulid();
   const create = await post('New Page', {
@@ -42,7 +42,7 @@ test('新規作成 → 編集 → 冪等な再送', async () => {
   assert.equal(page!.lines[0].userId, userId);
 });
 
-test('baseVersion 不一致は 409 reason version で最新状態を返す', async () => {
+void test('baseVersion 不一致は 409 reason version で最新状態を返す', async () => {
   const { post } = await setup();
   const l1 = ulid();
   await post('P', { commitId: ulid(), baseVersion: 0, ops: [{ type: 'insert', id: l1, after: '_head', text: 'P' }] });
@@ -56,7 +56,7 @@ test('baseVersion 不一致は 409 reason version で最新状態を返す', asy
   assert.equal(body.page.lines[0].text, 'P2'); // rebase の latestSnapshot に使える全行
 });
 
-test('タイトル衝突は 409 reason title で占有ページを返す', async () => {
+void test('タイトル衝突は 409 reason title で占有ページを返す', async () => {
   const { post } = await setup();
   await post('Taken', { commitId: ulid(), baseVersion: 0, ops: [{ type: 'insert', id: ulid(), after: '_head', text: 'Taken' }] });
   const l1 = ulid();
@@ -68,7 +68,7 @@ test('タイトル衝突は 409 reason title で占有ページを返す', async
   assert.equal(body.page.title, 'Taken'); // 占有している別ページ
 });
 
-test('クライアント不正は 400', async () => {
+void test('クライアント不正は 400', async () => {
   const { post } = await setup();
   // 存在しない行への update
   await post('P', { commitId: ulid(), baseVersion: 0, ops: [{ type: 'insert', id: ulid(), after: '_head', text: 'P' }] });
@@ -82,7 +82,7 @@ test('クライアント不正は 400', async () => {
   assert.equal(noJson.status, 400);
 });
 
-test('新規作成の制約: baseVersion != 0 は 404、URL とタイトル不一致は 400', async () => {
+void test('新規作成の制約: baseVersion != 0 は 404、URL とタイトル不一致は 400', async () => {
   const { post } = await setup();
   const notFound = await post('Ghost', { commitId: ulid(), baseVersion: 3, ops: [{ type: 'update', id: ulid(), text: 'x' }] });
   assert.equal(notFound.status, 404);

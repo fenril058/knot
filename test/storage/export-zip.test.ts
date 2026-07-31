@@ -45,7 +45,7 @@ async function setup() {
   return { dataDir, storage, attachments };
 }
 
-test('full export とプロジェクトの添付ファイルを zip に同梱する', async () => {
+void test('full export とプロジェクトの添付ファイルを zip に同梱する', async () => {
   const { dataDir, storage, attachments } = await setup();
   writeFileSync(join(dataDir, 'files', attachments[0]!.id), 'BBB');
   writeFileSync(join(dataDir, 'files', attachments[1]!.id), 'AAA');
@@ -54,6 +54,7 @@ test('full export とプロジェクトの添付ファイルを zip に同梱す
   assert.deepEqual(entries.map((entry) => entry.name), ['project.json', 'files/file-a', 'files/file-b']);
   const json = entries.find((entry) => entry.name === 'project.json');
   assert.ok(json);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const exp = JSON.parse(json.data.toString('utf8')) as { pages: unknown[] };
   assert.equal(exp.pages.length, 2);
   assert.equal(entries.find((entry) => entry.name === 'files/file-a')?.data.toString(), 'AAA');
@@ -61,13 +62,13 @@ test('full export とプロジェクトの添付ファイルを zip に同梱す
   await storage.close();
 });
 
-test('添付レコードの実ファイルが欠落していれば拒否する', async () => {
+void test('添付レコードの実ファイルが欠落していれば拒否する', async () => {
   const { dataDir, storage } = await setup();
   await assert.rejects(buildExportZip(storage, dataDir, 'project', NOW), StorageError);
   await storage.close();
 });
 
-test('未知プロジェクトを拒否する', async () => {
+void test('未知プロジェクトを拒否する', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'knot-export-zip-'));
   const { storage } = makeStorage();
   await assert.rejects(buildExportZip(storage, dataDir, 'missing', NOW), StorageError);

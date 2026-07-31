@@ -15,7 +15,7 @@ type ObjectLine = Exclude<CosenseLine, string>;
 const byTitle = <T extends { title: string }>(pages: readonly T[]): T[] =>
   pages.toSorted((a, b) => a.title.localeCompare(b.title));
 
-test('round-trip: インポート → エクスポートで意味が保存される', async () => {
+void test('round-trip: インポート → エクスポートで意味が保存される', async () => {
   const { storage } = makeStorage();
   const data = loadFixture();
   await importCosense(storage, data, { projectName: 'sandbox', now: 1760000000 });
@@ -29,6 +29,7 @@ test('round-trip: インポート → エクスポートで意味が保存され
     const got = out.pages.find((p) => p.title === page.title);
     assert.ok(got, `${page.title} が出力にない`);
     const srcLines = normalizeLines(page);
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const gotLines = got.lines as ObjectLine[];
     assert.deepEqual(gotLines.map((l) => l.text), srcLines.map((l) => l.text));
     srcLines.forEach((l, i) => {
@@ -47,7 +48,7 @@ test('round-trip: インポート → エクスポートで意味が保存され
   await storage.close();
 });
 
-test('export → import → export が安定する', async () => {
+void test('export → import → export が安定する', async () => {
   const first = makeStorage();
   await importCosense(first.storage, loadFixture(), { projectName: 'sandbox', now: 1760000000 });
   const out1 = await exportCosense(first.storage, 'sandbox', 'full', 1760000001);
@@ -61,7 +62,7 @@ test('export → import → export が安定する', async () => {
   assert.deepEqual(byTitle(out2.pages), byTitle(out1.pages));
 });
 
-test('format=import は行を文字列配列で出す', async () => {
+void test('format=import は行を文字列配列で出す', async () => {
   const { storage } = makeStorage();
   await importCosense(storage, loadFixture(), { projectName: 'sandbox', now: 1760000000 });
   const out = await exportCosense(storage, 'sandbox', 'import', 1760000001);
@@ -71,7 +72,7 @@ test('format=import は行を文字列配列で出す', async () => {
   await storage.close();
 });
 
-test('削除済みページはエクスポートに含まれない', async () => {
+void test('削除済みページはエクスポートに含まれない', async () => {
   const { storage } = makeStorage();
   const data = loadFixture();
   await importCosense(storage, data, { projectName: 'sandbox', now: 1760000000 });
@@ -94,13 +95,13 @@ test('削除済みページはエクスポートに含まれない', async () =>
   await storage.close();
 });
 
-test('存在しないプロジェクトのエクスポートは拒否する', async () => {
+void test('存在しないプロジェクトのエクスポートは拒否する', async () => {
   const { storage } = makeStorage();
   await assert.rejects(exportCosense(storage, 'nope', 'full', 1), /unknown project/);
   await storage.close();
 });
 
-test('行を持たないが commits に残るユーザーも export の users に含まれる', async () => {
+void test('行を持たないが commits に残るユーザーも export の users に含まれる', async () => {
   const { storage } = makeStorage();
   const now = 1700000000;
   const project = await storage.ensureProject('proj', now);

@@ -5,7 +5,7 @@ import { seedPage } from '../helpers/pages.ts';
 
 const now = 1700000000;
 
-test('getRelatedPages: 1-hop は前方リンク先と逆リンク元', async () => {
+void test('getRelatedPages: 1-hop は前方リンク先と逆リンク元', async () => {
   const { storage } = makeStorage();
   const project = await storage.ensureProject('proj', now);
   const homeId = await seedPage(storage, project.id, 'Home', ['[Fwd] and [Red Link]'], now);
@@ -17,7 +17,7 @@ test('getRelatedPages: 1-hop は前方リンク先と逆リンク元', async () 
   assert.equal(rel.hasBackLinks, true);
 });
 
-test('getRelatedPages: 2-hop は前方リンク先を共有するページ', async () => {
+void test('getRelatedPages: 2-hop は前方リンク先を共有するページ', async () => {
   const { storage } = makeStorage();
   const project = await storage.ensureProject('proj', now);
   const homeId = await seedPage(storage, project.id, 'Home', ['[Shared Topic]'], now);
@@ -29,7 +29,7 @@ test('getRelatedPages: 2-hop は前方リンク先を共有するページ', asy
   assert.equal(rel.hasBackLinks, false);
 });
 
-test('getRelatedPages: 1-hop に入ったページは 2-hop から除外', async () => {
+void test('getRelatedPages: 1-hop に入ったページは 2-hop から除外', async () => {
   const { storage } = makeStorage();
   const project = await storage.ensureProject('proj', now);
   const homeId = await seedPage(storage, project.id, 'Home', ['[Fwd] [Topic]'], now);
@@ -39,7 +39,7 @@ test('getRelatedPages: 1-hop に入ったページは 2-hop から除外', async
   assert.deepEqual(rel.links2hop, []);
 });
 
-test('アイコン参照だけの逆リンクでも hasBackLinks が立つ（hasBackLinksOrIcons の実体）', async () => {
+void test('アイコン参照だけの逆リンクでも hasBackLinks が立つ（hasBackLinksOrIcons の実体）', async () => {
   const { storage } = makeStorage();
   const project = await storage.ensureProject('proj', now);
   const homeId = await seedPage(storage, project.id, 'Home', ['content'], now);
@@ -48,7 +48,7 @@ test('アイコン参照だけの逆リンクでも hasBackLinks が立つ（has
   assert.equal(rel.hasBackLinks, true);
 });
 
-test('listPageTitles: 原文タイトルのリンクを返す', async () => {
+void test('listPageTitles: 原文タイトルのリンクを返す', async () => {
   const { storage } = makeStorage();
   const project = await storage.ensureProject('proj', now);
   await seedPage(storage, project.id, 'Page One', ['[Foo Bar] #tag', 'https://i.gyazo.com/x.png'], now);
@@ -59,7 +59,7 @@ test('listPageTitles: 原文タイトルのリンクを返す', async () => {
   assert.deepEqual(titles[0].links.toSorted(), ['Foo Bar', 'tag']);
 });
 
-test('listPageTitles: image は pages.image をそのまま返す', async () => {
+void test('listPageTitles: image は pages.image をそのまま返す', async () => {
   const { storage } = makeStorage();
   const project = await storage.ensureProject('proj', now);
   await seedPage(storage, project.id, 'With Image', ['https://i.gyazo.com/x.png'], now);

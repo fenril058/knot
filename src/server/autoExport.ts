@@ -45,6 +45,7 @@ export async function runAutoExportOnce(
         try {
           await unlink(temporaryPath);
         } catch (cleanupError) {
+          // oxlint-disable-next-line typescript/no-unsafe-type-assertion
           if ((cleanupError as NodeJS.ErrnoException).code !== 'ENOENT') {
             console.error(`auto export cleanup failed for project ${project.name}:`, cleanupError);
           }

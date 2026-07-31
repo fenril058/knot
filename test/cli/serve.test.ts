@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const mainPath = fileURLToPath(new URL('../../src/cli/main.ts', import.meta.url));
 
-test('knot serve が起動し、未認証 401 → ログイン → ページ作成まで通る', async () => {
+void test('knot serve が起動し、未認証 401 → ログイン → ページ作成まで通る', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'knot-serve-'));
   execFileSync(process.execPath, [mainPath, 'init', '--data', dir]);
   execFileSync(process.execPath, [mainPath, 'user', 'add', '--data', dir, '--name', 'alice'], {

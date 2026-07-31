@@ -4,7 +4,7 @@ import { compareGuards, extractGuards, parseJsonc, type Sources } from '../scrip
 
 const OXLINT = `{
   // 移行用の上限
-  "options": { "typeAware": true },
+  "options": { "typeAware": true, "reportUnusedDisableDirectives": "deny" },
   "jsPlugins": [{ "name": "sonarjs", "specifier": "./config/sonarjs.cjs" }],
   "categories": { "correctness": "error", "suspicious": "error" },
   "rules": {
@@ -63,67 +63,68 @@ function run(head: Partial<Sources>, doc: string[] = []): string[] {
   return [...new Set(keys)].toSorted();
 }
 
-test('parseJsonc は行コメント・ブロックコメントを落とし、文字列内の // は残す', () => {
+void test('parseJsonc は行コメント・ブロックコメントを落とし、文字列内の // は残す', () => {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const parsed = parseJsonc('{ /* a */ "u": "http://x/y", // b\n "n": 1 }') as Record<string, unknown>;
   assert.deepEqual(parsed, { u: 'http://x/y', n: 1 });
 });
 
-test('変更なしなら違反なし', () => {
+void test('変更なしなら違反なし', () => {
   assert.deepEqual(run({}), []);
 });
 
-test('上限を下げるのは許す', () => {
+void test('上限を下げるのは許す', () => {
   assert.deepEqual(run({ oxlint: OXLINT.replace('"max": 20', '"max": 15').replace('["error", 84]', '["error", 70]') }), []);
 });
 
-test('root の上限引き上げを落とす', () => {
+void test('root の上限引き上げを落とす', () => {
   assert.deepEqual(run({ oxlint: OXLINT.replace('"complexity": ["error", { "max": 20 }]', '"complexity": ["error", { "max": 25 }]') }), ['oxlint:src/cli/sync/commands.ts|complexity', 'oxlint:|complexity']);
 });
 
-test('override の上限引き上げを落とす', () => {
+void test('override の上限引き上げを落とす', () => {
   assert.deepEqual(run({ oxlint: OXLINT.replace('["error", 84]', '["error", 100]') }), ['oxlint:src/cli/sync/commands.ts|sonarjs/cognitive-complexity']);
 });
 
-test('severity の warn への格下げを落とす', () => {
+void test('severity の warn への格下げを落とす', () => {
   const head = OXLINT.replace('"typescript/no-explicit-any": "error"', '"typescript/no-explicit-any": "warn"');
   assert.deepEqual(run({ oxlint: head }), ['oxlint:src/cli/sync/commands.ts|typescript/no-explicit-any', 'oxlint:|typescript/no-explicit-any']);
 });
 
-test('ルールごと削除するのを落とす', () => {
+void test('ルールごと削除するのを落とす', () => {
   const head = OXLINT.replace('"max-depth": ["error", 4],\n', '');
   assert.deepEqual(run({ oxlint: head }), ['oxlint:src/cli/sync/commands.ts|max-depth', 'oxlint:|max-depth']);
 });
 
-test('categories の格下げを落とす', () => {
+void test('categories の格下げを落とす', () => {
   const head = OXLINT.replace('"correctness": "error"', '"correctness": "off"');
   assert.deepEqual(run({ oxlint: head }), ['oxlint:categories|correctness']);
 });
 
-test('override での無効化（off）を落とす', () => {
+void test('override での無効化（off）を落とす', () => {
   const head = OXLINT.replace('"rules": { "sonarjs/cognitive-complexity": ["error", 84] }', '"rules": { "sonarjs/cognitive-complexity": "off" }');
   assert.deepEqual(run({ oxlint: head }), ['oxlint:src/cli/sync/commands.ts|sonarjs/cognitive-complexity']);
 });
 
-test('緩める override の新設を落とす', () => {
+void test('緩める override の新設を落とす', () => {
   const head = OXLINT.replace('"overrides": [', '"overrides": [\n    { "files": ["src/render/render.ts"], "rules": { "complexity": ["error", { "max": 99 }] } },');
   assert.deepEqual(run({ oxlint: head }), ['oxlint:src/render/render.ts|complexity']);
 });
 
-test('override の削除は root へ戻るので許す', () => {
+void test('override の削除は root へ戻るので許す', () => {
   const head = OXLINT.replace(/"overrides": \[[\s\S]*\]/, '"overrides": []');
   assert.deepEqual(run({ oxlint: head }), []);
 });
 
-test('ignorePatterns による除外の追加を落とす', () => {
+void test('ignorePatterns による除外の追加を落とす', () => {
   const head = OXLINT.replace('"rules": {', '"ignorePatterns": ["src/cli/**"],\n  "rules": {');
   assert.deepEqual(run({ oxlint: head }), ['oxlint:ignorePatterns']);
 });
 
-test('typeAware の無効化を落とす（型情報つきルールが一斉に黙る）', () => {
+void test('typeAware の無効化を落とす（型情報つきルールが一斉に黙る）', () => {
   assert.deepEqual(run({ oxlint: OXLINT.replace('"typeAware": true', '"typeAware": false') }), ['oxlint:typeAware']);
 });
 
-test('型情報つきルールの移行用の例外リストにファイルを足すのを落とす', () => {
+void test('型情報つきルールの移行用の例外リストにファイルを足すのを落とす', () => {
   // 足したファイル（src/b.ts）の実効値が base の root（error）から off へ緩むので違反になる。
   const base = OXLINT.replace('"overrides": [', '"overrides": [\n    { "files": ["src/a.ts"], "rules": { "typescript/no-explicit-any": "off" } },');
   const head = base.replace('"files": ["src/a.ts"]', '"files": ["src/a.ts", "src/b.ts"]');
@@ -131,72 +132,77 @@ test('型情報つきルールの移行用の例外リストにファイルを�
   assert.ok(keys.includes('oxlint:src/b.ts|typescript/no-explicit-any'), keys.join(','));
 });
 
-test('型情報つきルールの例外リストからファイルを外すのは許す', () => {
+void test('型情報つきルールの例外リストからファイルを外すのは許す', () => {
   const base = OXLINT.replace('"overrides": [', '"overrides": [\n    { "files": ["src/a.ts", "src/b.ts"], "rules": { "typescript/no-explicit-any": "off" } },');
   const head = base.replace('"files": ["src/a.ts", "src/b.ts"]', '"files": ["src/a.ts"]');
   const keys = compareGuards(extractGuards({ ...BASE, oxlint: base }, head), extractGuards({ ...BASE, oxlint: head }, base), []).map((v) => v.key);
   assert.deepEqual(keys, []);
 });
 
-test('sonarjs プラグインの取り外しを落とす', () => {
+void test('reportUnusedDisableDirectives の格下げを落とす', () => {
+  const head = OXLINT.replace('"reportUnusedDisableDirectives": "deny"', '"reportUnusedDisableDirectives": "warn"');
+  assert.deepEqual(run({ oxlint: head }), ['oxlint:reportUnusedDisableDirectives']);
+});
+
+void test('sonarjs プラグインの取り外しを落とす', () => {
   const head = OXLINT.replace('[{ "name": "sonarjs", "specifier": "./config/sonarjs.cjs" }]', '[]');
   assert.deepEqual(run({ oxlint: head }), ['oxlint:jsPlugins']);
 });
 
-test('jscpd の閾値引き上げを落とす', () => {
+void test('jscpd の閾値引き上げを落とす', () => {
   assert.deepEqual(run({ jscpd: JSCPD.replace('"threshold": 0', '"threshold": 3') }), ['jscpd:threshold']);
 });
 
-test('jscpd の検出粒度を粗くするのを落とす', () => {
+void test('jscpd の検出粒度を粗くするのを落とす', () => {
   assert.deepEqual(run({ jscpd: JSCPD.replace('"minTokens": 50', '"minTokens": 120') }), ['jscpd:minTokens']);
 });
 
-test('jscpd の検査対象の縮小と除外追加を落とす', () => {
+void test('jscpd の検査対象の縮小と除外追加を落とす', () => {
   const head = JSCPD.replace('"{src,public}/**/*.{ts,js}"', '"src/**/*.ts"').replace('["public/build/**"]', '["public/build/**", "src/cli/**"]');
   assert.deepEqual(run({ jscpd: head }), ['jscpd:ignore', 'jscpd:pattern']);
 });
 
-test('knip の entry export 検査の無効化を落とす', () => {
+void test('knip の entry export 検査の無効化を落とす', () => {
   assert.deepEqual(run({ knip: KNIP.replace('"includeEntryExports": true', '"includeEntryExports": false') }), ['knip:includeEntryExports']);
 });
 
-test('knip の検査対象の縮小を落とす', () => {
+void test('knip の検査対象の縮小を落とす', () => {
   assert.deepEqual(run({ knip: KNIP.replace('"public/*.js", ', '') }), ['knip:entry']);
 });
 
-test('lint の検査対象ディレクトリの削減を落とす', () => {
+void test('lint の検査対象ディレクトリの削減を落とす', () => {
   assert.deepEqual(run({ pkg: PKG.replace('oxlint src public test e2e config', 'oxlint src public config') }), ['package:lintTargets']);
 });
 
-test('quality スクリプトからの検査削除を落とす', () => {
+void test('quality スクリプトからの検査削除を落とす', () => {
   assert.deepEqual(run({ pkg: PKG.replace(' && npm run lint:duplicates', '') }), ['package:qualitySteps']);
 });
 
-test('CI から検査ステップを外すのを落とす', () => {
+void test('CI から検査ステップを外すのを落とす', () => {
   assert.deepEqual(run({ ci: CI.replace('      - run: npm run lint\n', '') }), ['ci:runSteps']);
 });
 
-test('設定ファイルが消えた場合も落とす', () => {
+void test('設定ファイルが消えた場合も落とす', () => {
   assert.ok(run({ jscpd: null }).includes('jscpd:threshold'));
 });
 
-test('base の設定が壊れていれば例外にする（fail closed）', () => {
+void test('base の設定が壊れていれば例外にする（fail closed）', () => {
   assert.throws(() => extractGuards({ ...BASE, jscpd: '{ broken' }, OXLINT));
 });
 
-test('記録行があれば緩和を通す', () => {
+void test('記録行があれば緩和を通す', () => {
   const head = OXLINT.replace('["error", 84]', '["error", 100]');
   assert.deepEqual(run({ oxlint: head }, ['- sonarjs/cognitive-complexity を 100 へ引き上げる: import 実装の追加のため']), []);
 });
 
-test('対象名だけ・新しい値だけの記録行では通さない', () => {
+void test('対象名だけ・新しい値だけの記録行では通さない', () => {
   const head = OXLINT.replace('["error", 84]', '["error", 100]');
   const key = 'oxlint:src/cli/sync/commands.ts|sonarjs/cognitive-complexity';
   assert.deepEqual(run({ oxlint: head }, ['- sonarjs/cognitive-complexity を見直す']), [key]);
   assert.deepEqual(run({ oxlint: head }, ['- 上限を 100 にする']), [key]);
 });
 
-test('無関係な文書編集では通さない', () => {
+void test('無関係な文書編集では通さない', () => {
   const head = JSCPD.replace('"threshold": 0', '"threshold": 3');
   assert.deepEqual(run({ jscpd: head }, ['- 誤字を直した']), ['jscpd:threshold']);
 });

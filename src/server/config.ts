@@ -52,14 +52,17 @@ export function loadConfig(dataDir: string): ServerConfig {
   try {
     raw = readFileSync(join(dataDir, 'config.json'), 'utf8');
   } catch (e) {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') return config;
     throw e;
   }
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const parsed = JSON.parse(raw) as Record<string, unknown>;
   for (const [key, value] of Object.entries(parsed)) {
     const validate = VALIDATORS[key];
     if (!validate) throw new Error(`unknown config key: ${key}`);
     if (!validate(value)) throw new Error(`invalid config value for ${key}`);
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     (config as unknown as Record<string, unknown>)[key] = value;
   }
   return config;

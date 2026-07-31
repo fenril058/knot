@@ -2,6 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { renderLines } from '../../src/render/render.ts';
 
+// renderLines の html は HtmlEscapedString | Promise<HtmlEscapedString>。
+// 同期経路しか使っていないが、Promise をそのまま String() すると
+// '[object Promise]' と比較して常に通ってしまうため、明示的に弾く。
+function htmlOf(line: { html: unknown }): string {
+  assert.ok(!(line.html instanceof Promise), 'html が Promise です');
+  return String(line.html);
+}
+
 const cfg = {
   allowedImageHosts: ['example.com', 'i.gyazo.com', 'gyazo.com'],
   allowedMediaHosts: ['example.com'],
@@ -11,14 +19,14 @@ function renderOne(text: string, known: [string, string][] = [], config = cfg): 
   const lines = [{ id: 'title', text: 'Title' }, { id: 'l1', text }];
   const map = new Map(known.map(([lc, title]) => [lc, { title, image: null }]));
   const out = renderLines(lines, map, 'proj', config);
-  return String(out[1]!.html);
+  return htmlOf(out[1]!);
 }
 
-test('プレーンテキストはエスケープされる', () => {
+void test('プレーンテキストはエスケープされる', () => {
   assert.equal(renderOne('<script>alert(1)</script>'), '<div>&lt;script&gt;alert(1)&lt;/script&gt;</div>');
 });
 
-test('ブラケットリンク: 既存ページは通常リンク、存在しないページは赤リンク', () => {
+void test('ブラケットリンク: 既存ページは通常リンク、存在しないページは赤リンク', () => {
   const html = renderOne('[Foo]', [['foo', 'Foo']]);
   assert.match(html, /<a href="\/proj\/Foo"[^>]*>Foo<\/a>/);
   const red = renderOne('[Bar]');
@@ -26,46 +34,46 @@ test('ブラケットリンク: 既存ページは通常リンク、存在しな
   assert.match(red, /href="\/proj\/Bar\/edit"/);
 });
 
-test('ハッシュタグは title_lc で解決しブラケットリンクと同じ扱い', () => {
+void test('ハッシュタグは title_lc で解決しブラケットリンクと同じ扱い', () => {
   assert.match(renderOne('#Foo', [['foo', 'Foo']]), /<a href="\/proj\/Foo"/);
 });
 
-test('外部リンクは http/https のみリンク化、他スキームは平文', () => {
+void test('外部リンクは http/https のみリンク化、他スキームは平文', () => {
   assert.match(renderOne('[https://example.com Ex]'), /<a href="https:\/\/example\.com"[^>]*>Ex<\/a>/);
   const js = renderOne('[javascript:alert(1) Ex]');
   assert.doesNotMatch(js, /<a /);
   assert.match(js, /javascript:alert\(1\)/);
 });
 
-test('太字の装飾', () => {
+void test('太字の装飾', () => {
   assert.match(renderOne('[* bold]'), /<strong>bold<\/strong>/);
 });
 
-test('斜体・打ち消し線の装飾', () => {
+void test('斜体・打ち消し線の装飾', () => {
   assert.match(renderOne('[/ italic]'), /<em>italic<\/em>/);
   assert.match(renderOne('[- strike]'), /<del>strike<\/del>/);
 });
 
-test('インラインコードはエスケープされたまま code タグに', () => {
+void test('インラインコードはエスケープされたまま code タグに', () => {
   assert.match(renderOne('`<b>x</b>`'), /<code>&lt;b&gt;x&lt;\/b&gt;<\/code>/);
 });
 
-test('数式は out of scope につき code として描画', () => {
+void test('数式は out of scope につき code として描画', () => {
   assert.match(renderOne('[$ x^2]'), /<code>/);
 });
 
-test('画像リンクの alt にイベントハンドラを注入しようとしても属性値としてエスケープされる', () => {
+void test('画像リンクの alt にイベントハンドラを注入しようとしても属性値としてエスケープされる', () => {
   const html = renderOne('[" onerror="alert(1) https://example.com/a.png]');
   assert.doesNotMatch(html, /onerror=/);
 });
 
-test('引用画像デコレーションに相対リンクを混在させない', () => {
+void test('引用画像デコレーションに相対リンクを混在させない', () => {
   const output = renderOne('[" https://example.com/a.png [relative.png]]');
   assert.match(output, /<span><img src="https:\/\/example\.com\/a\.png"/);
   assert.doesNotMatch(output, /relative\.png/);
 });
 
-test('コードブロックは複数物理行を 1 ブロックとして消費し、各物理行に対応する html を生成する', () => {
+void test('コードブロックは複数物理行を 1 ブロックとして消費し、各物理行に対応する html を生成する', () => {
   const lines = [
     { id: 'title', text: 'Title' },
     { id: 'l1', text: 'code:a.js' },
@@ -75,11 +83,11 @@ test('コードブロックは複数物理行を 1 ブロックとして消費�
   ];
   const out = renderLines(lines, new Map(), 'proj', cfg);
   assert.equal(out.length, 5);
-  assert.match(String(out[3]!.html), /&lt;script&gt;/);
+  assert.match(htmlOf(out[3]!), /&lt;script&gt;/);
   assert.deepEqual(out.map((o) => o.lineId), ['title', 'l1', 'l2', 'l3', 'l4']);
 });
 
-test('コードブロックのヘッダ直後が非インデント行なら本体0行として扱う', () => {
+void test('コードブロックのヘッダ直後が非インデント行なら本体0行として扱う', () => {
   const lines = [
     { id: 'title', text: 'Title' },
     { id: 'l1', text: 'code:a.js' },
@@ -87,11 +95,11 @@ test('コードブロックのヘッダ直後が非インデント行なら本�
   ];
   const out = renderLines(lines, new Map(), 'proj', cfg);
   assert.deepEqual(out.map((line) => line.lineId), ['title', 'l1', 'l2']);
-  assert.match(String(out[1]!.html), /class="code-header"/);
-  assert.equal(String(out[2]!.html), '<div>after</div>');
+  assert.match(htmlOf(out[1]!), /class="code-header"/);
+  assert.equal(htmlOf(out[2]!), '<div>after</div>');
 });
 
-test('コードブロックの空白のみの本体1行も物理行と対応させる', () => {
+void test('コードブロックの空白のみの本体1行も物理行と対応させる', () => {
   const lines = [
     { id: 'title', text: 'Title' },
     { id: 'l1', text: 'code:a.js' },
@@ -100,12 +108,12 @@ test('コードブロックの空白のみの本体1行も物理行と対応さ�
   ];
   const out = renderLines(lines, new Map(), 'proj', cfg);
   assert.deepEqual(out.map((line) => line.lineId), ['title', 'l1', 'l2', 'l3']);
-  assert.equal(String(out[1]!.html), '<div class="code-header">a.js</div>');
-  assert.equal(String(out[2]!.html), '<div class="code-line"></div>');
-  assert.equal(String(out[3]!.html), '<div>after</div>');
+  assert.equal(htmlOf(out[1]!), '<div class="code-header">a.js</div>');
+  assert.equal(htmlOf(out[2]!), '<div class="code-line"></div>');
+  assert.equal(htmlOf(out[3]!), '<div>after</div>');
 });
 
-test('コードブロックの複数の空白行をそれぞれ物理行と対応させる', () => {
+void test('コードブロックの複数の空白行をそれぞれ物理行と対応させる', () => {
   const lines = [
     { id: 'title', text: 'Title' },
     { id: 'l1', text: 'code:a.js' },
@@ -116,13 +124,13 @@ test('コードブロックの複数の空白行をそれぞれ物理行と対�
   ];
   const out = renderLines(lines, new Map(), 'proj', cfg);
   assert.deepEqual(out.map((line) => line.lineId), ['title', 'l1', 'l2', 'l3', 'l4', 'l5']);
-  assert.equal(String(out[2]!.html), '<div class="code-line"></div>');
-  assert.equal(String(out[3]!.html), '<div class="code-line"> </div>');
-  assert.equal(String(out[4]!.html), '<div class="code-line">value</div>');
-  assert.equal(String(out[5]!.html), '<div>after</div>');
+  assert.equal(htmlOf(out[2]!), '<div class="code-line"></div>');
+  assert.equal(htmlOf(out[3]!), '<div class="code-line"> </div>');
+  assert.equal(htmlOf(out[4]!), '<div class="code-line">value</div>');
+  assert.equal(htmlOf(out[5]!), '<div>after</div>');
 });
 
-test('インデント付きコードブロックはヘッダより深い行だけを消費する', () => {
+void test('インデント付きコードブロックはヘッダより深い行だけを消費する', () => {
   const lines = [
     { id: 'title', text: 'Title' },
     { id: 'l1', text: '\u3000code:a.js' },
@@ -131,11 +139,11 @@ test('インデント付きコードブロックはヘッダより深い行だ�
   ];
   const out = renderLines(lines, new Map(), 'proj', cfg);
   assert.deepEqual(out.map((line) => line.lineId), ['title', 'l1', 'l2', 'l3']);
-  assert.equal(String(out[2]!.html), '<div class="code-line">value</div>');
-  assert.equal(String(out[3]!.html), '<div>after</div>');
+  assert.equal(htmlOf(out[2]!), '<div class="code-line">value</div>');
+  assert.equal(htmlOf(out[3]!), '<div>after</div>');
 });
 
-test('テーブルも複数物理行を 1 ブロックとして消費する', () => {
+void test('テーブルも複数物理行を 1 ブロックとして消費する', () => {
   const lines = [
     { id: 'title', text: 'Title' },
     { id: 'l1', text: 'table:t' },
@@ -144,10 +152,10 @@ test('テーブルも複数物理行を 1 ブロックとして消費する', ()
   ];
   const out = renderLines(lines, new Map(), 'proj', cfg);
   assert.equal(out.length, 4);
-  assert.match(String(out[2]!.html), /<table>/);
+  assert.match(htmlOf(out[2]!), /<table>/);
 });
 
-test('テーブルの空白のみの本体行も物理行と対応させる', () => {
+void test('テーブルの空白のみの本体行も物理行と対応させる', () => {
   const lines = [
     { id: 'title', text: 'Title' },
     { id: 'l1', text: 'table:t' },
@@ -156,28 +164,28 @@ test('テーブルの空白のみの本体行も物理行と対応させる', ()
   ];
   const out = renderLines(lines, new Map(), 'proj', cfg);
   assert.deepEqual(out.map((line) => line.lineId), ['title', 'l1', 'l2', 'l3']);
-  assert.match(String(out[2]!.html), /class="table-row"/);
-  assert.equal(String(out[3]!.html), '<div>after</div>');
+  assert.match(htmlOf(out[2]!), /class="table-row"/);
+  assert.equal(htmlOf(out[3]!), '<div>after</div>');
 });
 
-test('アップロード画像(/files/ の相対URL)は allowlist なしで img にする', () => {
+void test('アップロード画像(/files/ の相対URL)は allowlist なしで img にする', () => {
   assert.match(
     renderOne('[/files/01ABC/x.png]', [], { allowedImageHosts: [], allowedMediaHosts: [] }),
     /<img src="\/files\/01ABC\/x\.png"/,
   );
 });
 
-test('/files/ の画像以外のファイルはリンクにする', () => {
+void test('/files/ の画像以外のファイルはリンクにする', () => {
   assert.match(renderOne('[/files/01ABC/doc.pdf]'), /<a href="\/files\/01ABC\/doc\.pdf">/);
   assert.doesNotMatch(renderOne('[/files/01ABC/doc.pdf]'), /<img/);
 });
 
-test('/files/ 以外のルートパスは従来どおり平文のまま', () => {
+void test('/files/ 以外のルートパスは従来どおり平文のまま', () => {
   const out = renderOne('[/elsewhere/x.png]');
   assert.doesNotMatch(out, /<img|<a /);
 });
 
-test('許可ホストの #.png フラグメント付きURLも img にする', () => {
+void test('許可ホストの #.png フラグメント付きURLも img にする', () => {
   const config = { allowedImageHosts: ['lh3.googleusercontent.com'], allowedMediaHosts: [] };
   assert.match(
     renderOne('https://lh3.googleusercontent.com/a/xyz=s96-c#.png', [], config),
@@ -185,12 +193,12 @@ test('許可ホストの #.png フラグメント付きURLも img にする', ()
   );
 });
 
-test('画像URL(拡張子)は img、Gyazoホストも img', () => {
+void test('画像URL(拡張子)は img、Gyazoホストも img', () => {
   assert.match(renderOne('https://i.gyazo.com/abc.png'), /<img src="https:\/\/i\.gyazo\.com\/abc\.png"/);
   assert.match(renderOne('https://example.com/a.png'), /<img src="https:\/\/example\.com\/a\.png"/);
 });
 
-test('許可されていないホストの画像URLは通常リンクにする', () => {
+void test('許可されていないホストの画像URLは通常リンクにする', () => {
   const output = renderOne('https://blocked.example/a.png', [], {
     allowedImageHosts: ['example.com'],
     allowedMediaHosts: [],
@@ -202,13 +210,13 @@ test('許可されていないホストの画像URLは通常リンクにする',
   );
 });
 
-test('allowedImageHosts のワイルドカードはサブドメインにだけ一致する', () => {
+void test('allowedImageHosts のワイルドカードはサブドメインにだけ一致する', () => {
   const config = { allowedImageHosts: ['*.example.com'], allowedMediaHosts: [] };
   assert.match(renderOne('https://cdn.assets.example.com/a.png', [], config), /<img /);
   assert.doesNotMatch(renderOne('https://example.com/a.png', [], config), /<img /);
 });
 
-test('動画URLは video controls、音声は audio controls', () => {
+void test('動画URLは video controls、音声は audio controls', () => {
   assert.match(
     renderOne('https://example.com/a.mp4'),
     /<video controls><source src="https:\/\/example\.com\/a\.mp4"><\/video>/,
@@ -219,7 +227,7 @@ test('動画URLは video controls、音声は audio controls', () => {
   );
 });
 
-test('動画と音声は allowedMediaHosts で許可したホストだけ埋め込む', () => {
+void test('動画と音声は allowedMediaHosts で許可したホストだけ埋め込む', () => {
   const blockedConfig = { allowedImageHosts: [], allowedMediaHosts: [] };
   assert.doesNotMatch(renderOne('https://media.example.com/a.mp4', [], blockedConfig), /<video/);
   assert.doesNotMatch(renderOne('https://media.example.com/a.mp3', [], blockedConfig), /<audio/);
@@ -229,7 +237,7 @@ test('動画と音声は allowedMediaHosts で許可したホストだけ埋め�
   assert.match(renderOne('https://media.example.com/a.mp3', [], allowedConfig), /<audio controls>/);
 });
 
-test('YouTube等は既定で埋め込まず通常リンク（iframe は生成しない）', () => {
+void test('YouTube等は既定で埋め込まず通常リンク（iframe は生成しない）', () => {
   const out = renderOne('https://www.youtube.com/watch?v=abc');
   assert.doesNotMatch(out, /<iframe/);
   assert.match(
@@ -238,34 +246,34 @@ test('YouTube等は既定で埋め込まず通常リンク（iframe は生成し
   );
 });
 
-test('非http(s)スキームのメディアURLはリンク化・img化されず平文のまま', () => {
+void test('非http(s)スキームのメディアURLはリンク化・img化されず平文のまま', () => {
   const out = renderOne('file:///etc/passwd.png');
   assert.doesNotMatch(out, /<img|<a |<video|<audio/);
   assert.match(out, /file:\/\/\/etc\/passwd\.png/);
 });
 
-test('[Name.icon] は known page に image があれば img で表示する', () => {
+void test('[Name.icon] は known page に image があれば img で表示する', () => {
   const lines = [
     { id: 'title', text: 'Title' },
     { id: 'l1', text: '[Foo.icon]' },
   ];
   const map = new Map([['foo', { title: 'Foo', image: 'https://i.gyazo.com/icon.png' }]]);
   const out = renderLines(lines, map, 'proj', cfg);
-  const result = String(out[1]!.html);
+  const result = htmlOf(out[1]!);
   assert.match(
     result,
     /<a href="\/proj\/Foo" class="icon-link"><img src="https:\/\/i\.gyazo\.com\/icon\.png" alt="Foo" class="icon-img"><\/a>/,
   );
 });
 
-test('[Name.icon] は image が許可ホスト外ならブラケット表示に戻す', () => {
+void test('[Name.icon] は image が許可ホスト外ならブラケット表示に戻す', () => {
   const lines = [
     { id: 'title', text: 'Title' },
     { id: 'l1', text: '[Foo.icon]' },
   ];
   const map = new Map([['foo', { title: 'Foo', image: 'https://blocked.example/icon.png' }]]);
   const out = renderLines(lines, map, 'proj', { allowedImageHosts: ['example.com'], allowedMediaHosts: [] });
-  const result = String(out[1]!.html);
+  const result = htmlOf(out[1]!);
   assert.doesNotMatch(result, /<img/);
   assert.match(result, /<a href="\/proj\/Foo" class="icon-link">\[Foo\]<\/a>/);
 });

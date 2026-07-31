@@ -5,7 +5,7 @@ import { StorageError } from '../../src/storage/types.ts';
 
 const now = 1700000000;
 
-test('addUser と getUserByName / getUserById', async () => {
+void test('addUser と getUserByName / getUserById', async () => {
   const { storage } = makeStorage();
   const result = await storage.addUser(
     { id: 'U1', name: 'alice', displayName: 'Alice', passwordHash: 'h1', isAdmin: true },
@@ -21,7 +21,7 @@ test('addUser と getUserByName / getUserById', async () => {
   assert.equal(await storage.getUserByName('nobody'), null);
 });
 
-test('パスワードなしの同名ユーザーはパスワード付与で昇格する', async () => {
+void test('パスワードなしの同名ユーザーはパスワード付与で昇格する', async () => {
   const { storage } = makeStorage();
   await storage.upsertDisplayUser({ id: 'U1', name: 'alice', displayName: 'Alice' }, now);
   const result = await storage.addUser(
@@ -34,7 +34,7 @@ test('パスワードなしの同名ユーザーはパスワード付与で昇�
   assert.equal(user!.displayName, 'Alice A');
 });
 
-test('パスワードありの同名ユーザーへの addUser は StorageError', async () => {
+void test('パスワードありの同名ユーザーへの addUser は StorageError', async () => {
   const { storage } = makeStorage();
   await storage.addUser({ id: 'U1', name: 'alice', displayName: 'A', passwordHash: 'h1', isAdmin: false }, now);
   await assert.rejects(
@@ -43,7 +43,7 @@ test('パスワードありの同名ユーザーへの addUser は StorageError'
   );
 });
 
-test('セッションの作成・取得・削除', async () => {
+void test('セッションの作成・取得・削除', async () => {
   const { storage } = makeStorage();
   await storage.createSession({ id: 's1', userId: 'U1', expires: now + 100, created: now });
   const s = await storage.getSession('s1', now);
@@ -52,7 +52,7 @@ test('セッションの作成・取得・削除', async () => {
   assert.equal(await storage.getSession('s1', now), null);
 });
 
-test('期限切れセッションは取得時に削除されて null', async () => {
+void test('期限切れセッションは取得時に削除されて null', async () => {
   const { storage } = makeStorage();
   await storage.createSession({ id: 's1', userId: 'U1', expires: now + 100, created: now });
   assert.equal(await storage.getSession('s1', now + 100), null);
@@ -61,7 +61,7 @@ test('期限切れセッションは取得時に削除されて null', async () 
   assert.equal(await storage.getSession('s1', now), null);
 });
 
-test('refreshSession で期限が延びる', async () => {
+void test('refreshSession で期限が延びる', async () => {
   const { storage } = makeStorage();
   await storage.createSession({ id: 's1', userId: 'U1', expires: now + 100, created: now });
   await storage.refreshSession('s1', now + 5000);

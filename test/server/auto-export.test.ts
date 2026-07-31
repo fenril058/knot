@@ -27,7 +27,7 @@ function zipNames(dir: string, project: string): string[] {
   return readdirSync(join(dir, project)).filter((name) => name.endsWith('.zip')).toSorted();
 }
 
-test('各プロジェクトのサブディレクトリへ読める zip を一時ファイル経由で書く', async () => {
+void test('各プロジェクトのサブディレクトリへ読める zip を一時ファイル経由で書く', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'knot-auto-export-data-'));
   const dir = mkdtempSync(join(tmpdir(), 'knot-auto-export-out-'));
   const { storage } = makeStorage();
@@ -45,7 +45,7 @@ test('各プロジェクトのサブディレクトリへ読める zip を一時
   await storage.close();
 });
 
-test('各プロジェクトで新しい keep 世代だけを残す', async () => {
+void test('各プロジェクトで新しい keep 世代だけを残す', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'knot-auto-export-data-'));
   const dir = mkdtempSync(join(tmpdir(), 'knot-auto-export-out-'));
   const { storage } = makeStorage();
@@ -60,7 +60,7 @@ test('各プロジェクトで新しい keep 世代だけを残す', async () =>
   await storage.close();
 });
 
-test('prefix が共通するプロジェクトの世代を別々に管理する', async () => {
+void test('prefix が共通するプロジェクトの世代を別々に管理する', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'knot-auto-export-data-'));
   const dir = mkdtempSync(join(tmpdir(), 'knot-auto-export-out-'));
   const { storage } = makeStorage();
@@ -74,7 +74,7 @@ test('prefix が共通するプロジェクトの世代を別々に管理する'
   await storage.close();
 });
 
-test('同一秒の後続実行が最新スナップショットで置換する', async () => {
+void test('同一秒の後続実行が最新スナップショットで置換する', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'knot-auto-export-data-'));
   const dir = mkdtempSync(join(tmpdir(), 'knot-auto-export-out-'));
   const { storage } = makeStorage();
@@ -91,12 +91,13 @@ test('同一秒の後続実行が最新スナップショットで置換する',
   const result = await runAutoExportOnce(storage, dataDir, { dir, keep: 7 }, NOW);
 
   assert.equal(zipNames(dir, 'alpha').length, 1);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const json = JSON.parse(readZip(await readFile(result.written[0]!))[0]!.data.toString()) as { pages: { title: string }[] };
   assert.deepEqual(json.pages.map((page) => page.title).toSorted(), ['First', 'Second']);
   await storage.close();
 });
 
-test('添付が欠落したプロジェクトを記録して他プロジェクトを続行する', async (t) => {
+void test('添付が欠落したプロジェクトを記録して他プロジェクトを続行する', async (t) => {
   const dataDir = mkdtempSync(join(tmpdir(), 'knot-auto-export-data-'));
   mkdirSync(join(dataDir, 'files'));
   const dir = mkdtempSync(join(tmpdir(), 'knot-auto-export-out-'));
@@ -122,7 +123,7 @@ test('添付が欠落したプロジェクトを記録して他プロジェク�
   await storage.close();
 });
 
-test('起動直後と周期ごとに実行し、実行中は skip し、stop 後は実行しない', async (t) => {
+void test('起動直後と周期ごとに実行し、実行中は skip し、stop 後は実行しない', async (t) => {
   t.mock.timers.enable({ apis: ['setInterval'] });
   const dataDir = mkdtempSync(join(tmpdir(), 'knot-auto-export-data-'));
   const { storage } = makeStorage();

@@ -465,6 +465,7 @@ async function pushPage(ctx: PushContext, action: PushWriteAction): Promise<Page
 
 // PushAction に kind を足したときは、この switch か applyPushAction のどちらかが
 // コンパイルエラーになる（網羅していない分岐は戻り値が undefined になり型に合わない）。
+// oxlint-disable-next-line typescript/consistent-return -- union を網羅する switch。末尾の return を書かないことで、分岐漏れを型エラーにしている
 function pushSkipOutcome(action: PushSkipAction): PageOutcome {
   switch (action.kind) {
     case 'skip-rename':

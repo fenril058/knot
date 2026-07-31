@@ -4,7 +4,7 @@ import { ulid } from '../../src/core/id.ts';
 import { generateApiToken } from '../../src/server/apiToken.ts';
 import { makeServer } from '../helpers/server.ts';
 
-test('PAT で cookie なしの API にアクセスできる', async () => {
+void test('PAT で cookie なしの API にアクセスできる', async () => {
   const s = await makeServer();
   const userId = await s.addUser('alice', 'pw12345678');
   await s.storage.ensureProject('proj', s.clock.t);
@@ -17,7 +17,7 @@ test('PAT で cookie なしの API にアクセスできる', async () => {
   assert.equal(res.headers.get('set-cookie'), null);
 });
 
-test('不正な PAT は有効な cookie があっても 401', async () => {
+void test('不正な PAT は有効な cookie があっても 401', async () => {
   const s = await makeServer();
   await s.addUser('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
@@ -31,7 +31,7 @@ test('不正な PAT は有効な cookie があっても 401', async () => {
   assert.equal(res.status, 401);
 });
 
-test('HTML ルートでは PAT ヘッダを無視する', async () => {
+void test('HTML ルートでは PAT ヘッダを無視する', async () => {
   const s = await makeServer();
   const userId = await s.addUser('alice', 'pw12345678');
   const { token, tokenHash } = generateApiToken();

@@ -5,6 +5,7 @@ import type { PageSnapshot, Project, Storage } from '../storage/types.ts';
 export type ApiEnv = { Variables: { userId: string; styleNonce?: string } };
 
 export function jsonError(c: Context, status: number, error: string, extra?: Record<string, unknown>): Response {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   return c.json({ error, ...extra }, status as 400);
 }
 
@@ -26,6 +27,7 @@ export function pageToJson(page: PageSnapshot) {
 }
 
 export function clientIp(c: Context): string {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const env = c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined;
   return env?.incoming?.socket?.remoteAddress ?? 'local';
 }

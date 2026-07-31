@@ -21,6 +21,7 @@ function fetchTitles(project: string): Promise<TitleEntry[]> {
   const request = fetch(`/api/pages/${encodeURIComponent(project)}/search/titles`)
     .then(async (response) => {
       if (!response.ok) throw new Error(`failed to fetch titles: ${response.status}`);
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       return await response.json() as TitleEntry[];
     })
     .catch((error: unknown) => {

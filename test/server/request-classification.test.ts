@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { classifyRequest } from '../../src/server/app.ts';
 
-test('classifyRequest は既存の認証区分を宣言的に分類する', () => {
+void test('classifyRequest は既存の認証区分を宣言的に分類する', () => {
   const cases = [
     ['POST', '/api/knot/session', 'public'],
     ['GET', '/api/knot/session', 'api'],

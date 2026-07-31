@@ -7,7 +7,7 @@ const st = (over: Partial<SyncState['pages'][string]> = {}) => ({
   title: 'Alpha', filename: 'Alpha.txt', version: 3, contentHash: 'sha256:aa', ...over,
 });
 
-test('pull: state に無いリモートページは write', () => {
+void test('pull: state に無いリモートページは write', () => {
   const actions = planPull({
     state: { pages: {} },
     remote: [{ id: 'p1', title: 'Alpha', version: 1 }],
@@ -16,7 +16,7 @@ test('pull: state に無いリモートページは write', () => {
   assert.deepEqual(actions, [{ kind: 'write', pageId: 'p1', title: 'Alpha' }]);
 });
 
-test('pull: ローカル未変更 & リモート更新 → write', () => {
+void test('pull: ローカル未変更 & リモート更新 → write', () => {
   const actions = planPull({
     state: { pages: { p1: st() } },
     remote: [{ id: 'p1', title: 'Alpha', version: 4 }],
@@ -25,7 +25,7 @@ test('pull: ローカル未変更 & リモート更新 → write', () => {
   assert.deepEqual(actions, [{ kind: 'write', pageId: 'p1', title: 'Alpha' }]);
 });
 
-test('pull: ローカル変更あり & リモート更新なし → 何もしない', () => {
+void test('pull: ローカル変更あり & リモート更新なし → 何もしない', () => {
   const actions = planPull({
     state: { pages: { p1: st() } },
     remote: [{ id: 'p1', title: 'Alpha', version: 3 }],
@@ -34,7 +34,7 @@ test('pull: ローカル変更あり & リモート更新なし → 何もしな
   assert.deepEqual(actions, []);
 });
 
-test('pull: 両方変更 → conflict', () => {
+void test('pull: 両方変更 → conflict', () => {
   const actions = planPull({
     state: { pages: { p1: st() } },
     remote: [{ id: 'p1', title: 'Alpha', version: 4 }],
@@ -43,7 +43,7 @@ test('pull: 両方変更 → conflict', () => {
   assert.deepEqual(actions, [{ kind: 'conflict', pageId: 'p1', title: 'Alpha' }]);
 });
 
-test('pull: ローカルファイル消失（削除は伝播しない）→ write で復元', () => {
+void test('pull: ローカルファイル消失（削除は伝播しない）→ write で復元', () => {
   const actions = planPull({
     state: { pages: { p1: st() } },
     remote: [{ id: 'p1', title: 'Alpha', version: 3 }],
@@ -52,7 +52,7 @@ test('pull: ローカルファイル消失（削除は伝播しない）→ writ
   assert.deepEqual(actions, [{ kind: 'write', pageId: 'p1', title: 'Alpha' }]);
 });
 
-test('pull: リモートのリネームは version が同じでも write（ID 追跡）', () => {
+void test('pull: リモートのリネームは version が同じでも write（ID 追跡）', () => {
   const actions = planPull({
     state: { pages: { p1: st() } },
     remote: [{ id: 'p1', title: 'Alpha2', version: 4 }],
@@ -61,7 +61,7 @@ test('pull: リモートのリネームは version が同じでも write（ID �
   assert.deepEqual(actions, [{ kind: 'write', pageId: 'p1', title: 'Alpha2' }]);
 });
 
-test('pull: リネーム & ローカル変更あり → conflict', () => {
+void test('pull: リネーム & ローカル変更あり → conflict', () => {
   const actions = planPull({
     state: { pages: { p1: st() } },
     remote: [{ id: 'p1', title: 'Alpha2', version: 4 }],
@@ -70,7 +70,7 @@ test('pull: リネーム & ローカル変更あり → conflict', () => {
   assert.deepEqual(actions, [{ kind: 'conflict', pageId: 'p1', title: 'Alpha2' }]);
 });
 
-test('pull: リモート削除 → ローカル未変更なら delete-local、変更ありなら keep-deleted', () => {
+void test('pull: リモート削除 → ローカル未変更なら delete-local、変更ありなら keep-deleted', () => {
   const clean = planPull({
     state: { pages: { p1: st() } },
     remote: [],
@@ -85,7 +85,7 @@ test('pull: リモート削除 → ローカル未変更なら delete-local、�
   assert.deepEqual(dirty, [{ kind: 'keep-deleted', pageId: 'p1' }]);
 });
 
-test('push: ハッシュが state と同じファイルは対象外', () => {
+void test('push: ハッシュが state と同じファイルは対象外', () => {
   const actions = planPush({
     state: { pages: { p1: st() } },
     localFiles: new Map([['Alpha.txt', { firstLine: 'Alpha', contentHash: 'sha256:aa' }]]),
@@ -94,7 +94,7 @@ test('push: ハッシュが state と同じファイルは対象外', () => {
   assert.deepEqual(actions, []);
 });
 
-test('push: 変更ありファイルは update（URL は state のタイトル）', () => {
+void test('push: 変更ありファイルは update（URL は state のタイトル）', () => {
   const actions = planPush({
     state: { pages: { p1: st() } },
     localFiles: new Map([['Alpha.txt', { firstLine: 'Alpha', contentHash: 'sha256:new' }]]),
@@ -105,7 +105,7 @@ test('push: 変更ありファイルは update（URL は state のタイトル�
   ]);
 });
 
-test('push: 1 行目の titleLc が state と食い違えば skip-rename', () => {
+void test('push: 1 行目の titleLc が state と食い違えば skip-rename', () => {
   const actions = planPush({
     state: { pages: { p1: st() } },
     localFiles: new Map([['Alpha.txt', { firstLine: 'Renamed', contentHash: 'sha256:new' }]]),
@@ -116,7 +116,7 @@ test('push: 1 行目の titleLc が state と食い違えば skip-rename', () =>
   ]);
 });
 
-test('push: 1 行目の大文字小文字・空白/アンダースコア差は同一タイトル扱いで update', () => {
+void test('push: 1 行目の大文字小文字・空白/アンダースコア差は同一タイトル扱いで update', () => {
   const actions = planPush({
     state: { pages: { p1: st({ title: 'Foo Bar', filename: 'Foo Bar.txt' }) } },
     localFiles: new Map([['Foo Bar.txt', { firstLine: 'foo_bar', contentHash: 'sha256:new' }]]),
@@ -125,7 +125,7 @@ test('push: 1 行目の大文字小文字・空白/アンダースコア差は�
   assert.equal(actions[0]?.kind, 'update');
 });
 
-test('push: state に無い新規ファイルは create（タイトルは 1 行目）', () => {
+void test('push: state に無い新規ファイルは create（タイトルは 1 行目）', () => {
   const actions = planPush({
     state: { pages: {} },
     localFiles: new Map([['New Page.txt', { firstLine: 'New Page', contentHash: 'sha256:n' }]]),
@@ -134,7 +134,7 @@ test('push: state に無い新規ファイルは create（タイトルは 1 行�
   assert.deepEqual(actions, [{ kind: 'create', filename: 'New Page.txt', title: 'New Page' }]);
 });
 
-test('push: 新規ファイルの 1 行目とファイル名が食い違えば skip-title-mismatch', () => {
+void test('push: 新規ファイルの 1 行目とファイル名が食い違えば skip-title-mismatch', () => {
   const actions = planPush({
     state: { pages: {} },
     localFiles: new Map([['New Page.txt', { firstLine: 'Other Title', contentHash: 'sha256:n' }]]),
@@ -145,7 +145,7 @@ test('push: 新規ファイルの 1 行目とファイル名が食い違えば s
   ]);
 });
 
-test('push: 新規ファイルがリモート既存 titleLc と重複したら skip-duplicate', () => {
+void test('push: 新規ファイルがリモート既存 titleLc と重複したら skip-duplicate', () => {
   const actions = planPush({
     state: { pages: {} },
     localFiles: new Map([['Alpha.txt', { firstLine: 'Alpha', contentHash: 'sha256:n' }]]),
@@ -154,7 +154,7 @@ test('push: 新規ファイルがリモート既存 titleLc と重複したら s
   assert.deepEqual(actions, [{ kind: 'skip-duplicate', filename: 'Alpha.txt', title: 'Alpha' }]);
 });
 
-test('push: 新規ファイル同士の titleLc 重複は後者を skip-duplicate', () => {
+void test('push: 新規ファイル同士の titleLc 重複は後者を skip-duplicate', () => {
   const actions = planPush({
     state: { pages: {} },
     localFiles: new Map([

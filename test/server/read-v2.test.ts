@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { makeServer } from '../helpers/server.ts';
 import { seedPage } from '../helpers/pages.ts';
 
-test('GET /api/pages/v2/:project/:title は v1 と同一 JSON を返す', async () => {
+void test('GET /api/pages/v2/:project/:title は v1 と同一 JSON を返す', async () => {
   const s = await makeServer();
   await s.addUser('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
@@ -19,7 +19,7 @@ test('GET /api/pages/v2/:project/:title は v1 と同一 JSON を返す', async 
   assert.deepEqual(await v2.json(), await v1.json());
 });
 
-test('GET /api/pages/v2/:project/:title は未知ページに 404 を返す', async () => {
+void test('GET /api/pages/v2/:project/:title は未知ページに 404 を返す', async () => {
   const s = await makeServer();
   await s.addUser('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
@@ -30,7 +30,7 @@ test('GET /api/pages/v2/:project/:title は未知ページに 404 を返す', as
   assert.equal(res.status, 404);
 });
 
-test('GET /api/pages/v2/:project/:title は未認証に 401 を返す', async () => {
+void test('GET /api/pages/v2/:project/:title は未認証に 401 を返す', async () => {
   const s = await makeServer();
 
   const res = await s.request('/api/pages/v2/proj/Home');

@@ -6,7 +6,7 @@ import { ulid } from '../../src/core/id.ts';
 
 const now = 1700000000;
 
-test('listPageSummaries: descriptions は非空の先頭 5 行、linked は被リンク数', async () => {
+void test('listPageSummaries: descriptions は非空の先頭 5 行、linked は被リンク数', async () => {
   const { storage } = makeStorage();
   const project = await storage.ensureProject('proj', now);
   await seedPage(storage, project.id, 'Target', ['', 'one', 'two', '', 'three', 'four', 'five', 'six'], now);
@@ -20,7 +20,7 @@ test('listPageSummaries: descriptions は非空の先頭 5 行、linked は被�
   assert.equal(pages.find((p) => p.title === 'Src1')!.linked, 0);
 });
 
-test('listPageSummaries: sort と skip/limit', async () => {
+void test('listPageSummaries: sort と skip/limit', async () => {
   const { storage } = makeStorage();
   const project = await storage.ensureProject('proj', now);
   await seedPage(storage, project.id, 'B', ['[A]'], now + 1);
@@ -37,7 +37,7 @@ test('listPageSummaries: sort と skip/limit', async () => {
   assert.deepEqual(paged.pages.map((p) => p.title), ['B']);
 });
 
-test('listPageSummaries: 削除済みページは数えず返さない', async () => {
+void test('listPageSummaries: 削除済みページは数えず返さない', async () => {
   const { storage } = makeStorage();
   const project = await storage.ensureProject('proj', now);
   const pageId = await seedPage(storage, project.id, 'Gone', [], now);
@@ -51,7 +51,7 @@ test('listPageSummaries: 削除済みページは数えず返さない', async (
   assert.deepEqual(pages, []);
 });
 
-test('pinnedFirst 未指定/false なら sort の順序をそのまま維持する（JSON API 互換）', async () => {
+void test('pinnedFirst 未指定/false なら sort の順序をそのまま維持する（JSON API 互換）', async () => {
   const { storage } = makeStorage();
   const project = await storage.ensureProject('proj', now);
   await seedPage(storage, project.id, 'Old Pinned', ['x'], now);
@@ -64,7 +64,7 @@ test('pinnedFirst 未指定/false なら sort の順序をそのまま維持す�
   assert.deepEqual(withFalse.pages.map((p) => p.title), ['New Unpinned', 'Old Pinned']);
 });
 
-test('pinnedFirst: ピン留めページが sort に関わらず先頭に来る', async () => {
+void test('pinnedFirst: ピン留めページが sort に関わらず先頭に来る', async () => {
   const { storage } = makeStorage();
   const project = await storage.ensureProject('proj', now);
   await seedPage(storage, project.id, 'Old Pinned', ['x'], now);

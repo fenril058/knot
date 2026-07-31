@@ -11,7 +11,7 @@ const FIXTURE = fileURLToPath(new URL('../fixtures/cosense-export.json', import.
 const MAIN = fileURLToPath(new URL('../../src/cli/main.ts', import.meta.url));
 const tmp = () => mkdtempSync(join(tmpdir(), 'knot-cli-'));
 
-test('init は knot.db と files/ を作る', async () => {
+void test('init は knot.db と files/ を作る', async () => {
   const dir = tmp();
   const msg = await runInit(dir);
   assert.match(msg, /initialized/);
@@ -19,12 +19,13 @@ test('init は knot.db と files/ を作る', async () => {
   assert.ok(existsSync(join(dir, 'files')));
 });
 
-test('import → export → reindex が通る', async () => {
+void test('import → export → reindex が通る', async () => {
   const dir = tmp();
   await runInit(dir);
   const imported = await runImport(dir, 'sandbox', FIXTURE, 'skip');
   assert.match(imported, /3 created/);
   const json = await runExport(dir, 'sandbox', 'full', null);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const exp = JSON.parse(json) as { name: string; pages: unknown[] };
   assert.equal(exp.name, 'sandbox');
   assert.equal(exp.pages.length, 3);
@@ -34,13 +35,14 @@ test('import → export → reindex が通る', async () => {
   assert.match(reindexed, /reindexed 3 pages/);
 });
 
-test('export --out はファイルに書き、reindex は未知プロジェクトを拒否する', async () => {
+void test('export --out はファイルに書き、reindex は未知プロジェクトを拒否する', async () => {
   const dir = tmp();
   await runInit(dir);
   await runImport(dir, 'sandbox', FIXTURE, 'skip');
   const outFile = join(dir, 'out.json');
   const msg = await runExport(dir, 'sandbox', 'import', outFile);
   assert.match(msg, /3 pages/);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const exp = JSON.parse(
     (await import('node:fs')).readFileSync(outFile, 'utf8'),
   ) as { pages: { lines: unknown[] }[] };
@@ -48,7 +50,7 @@ test('export --out はファイルに書き、reindex は未知プロジェク�
   await assert.rejects(runReindex(dir, 'nope'), /unknown project/);
 });
 
-test('user add がユーザーを作り、同名の再実行は失敗する', async () => {
+void test('user add がユーザーを作り、同名の再実行は失敗する', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'knot-cli-'));
   await runInit(dir);
   const out = await runUserAdd(dir, 'alice', 'Alice', true, 'pw12345678');
@@ -56,20 +58,21 @@ test('user add がユーザーを作り、同名の再実行は失敗する', as
   await assert.rejects(runUserAdd(dir, 'alice', null, false, 'other-pass'), /already exists/);
 });
 
-test('user add は短いパスワードと不正な名前を拒否する', async () => {
+void test('user add は短いパスワードと不正な名前を拒否する', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'knot-cli-'));
   await runInit(dir);
   await assert.rejects(runUserAdd(dir, 'alice', null, false, 'short'), CliError);
   await assert.rejects(runUserAdd(dir, 'Bad Name!', null, false, 'pw12345678'), CliError);
 });
 
-test('CLI 実行ファイルとして通しで動く（spawn）', () => {
+void test('CLI 実行ファイルとして通しで動く（spawn）', () => {
   const dir = tmp();
   execFileSync(process.execPath, [MAIN, 'init', '--data', dir], { stdio: 'pipe' });
   execFileSync(process.execPath, [MAIN, 'import', '--data', dir, '--project', 'sandbox', FIXTURE], { stdio: 'pipe' });
   const out = execFileSync(process.execPath, [MAIN, 'export', '--data', dir, '--project', 'sandbox'], {
     stdio: 'pipe',
   }).toString();
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   assert.equal((JSON.parse(out) as { pages: unknown[] }).pages.length, 3);
   // 未知コマンドは exit code 1
   assert.throws(() => execFileSync(process.execPath, [MAIN, 'bogus', '--data', dir], { stdio: 'pipe' }));

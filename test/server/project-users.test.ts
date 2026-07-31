@@ -24,7 +24,7 @@ async function seedPageAs(
   });
 }
 
-test('GET /api/projects/:project/users はプロジェクトの表示ユーザーとログインユーザーを返す', async () => {
+void test('GET /api/projects/:project/users はプロジェクトの表示ユーザーとログインユーザーを返す', async () => {
   const s = await makeServer();
   const loginUserId = await s.addUser('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
@@ -48,7 +48,7 @@ test('GET /api/projects/:project/users はプロジェクトの表示ユーザ�
   });
 });
 
-test('GET /api/projects/:project/users は未知プロジェクトに 404 を返す', async () => {
+void test('GET /api/projects/:project/users は未知プロジェクトに 404 を返す', async () => {
   const s = await makeServer();
   await s.addUser('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
@@ -58,7 +58,7 @@ test('GET /api/projects/:project/users は未知プロジェクトに 404 を返
   assert.equal(res.status, 404);
 });
 
-test('GET /api/projects/:project/users は PAT 認証でも 200 を返す', async () => {
+void test('GET /api/projects/:project/users は PAT 認証でも 200 を返す', async () => {
   const s = await makeServer();
   const userId = await s.addUser('alice', 'pw12345678');
   await s.storage.ensureProject('proj', s.clock.t);

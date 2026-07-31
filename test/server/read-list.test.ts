@@ -24,7 +24,7 @@ async function seedProject(s: Awaited<ReturnType<typeof makeServer>>): Promise<s
   return project.id;
 }
 
-test('GET /api/pages/:project が Cosense 形状で返す', async () => {
+void test('GET /api/pages/:project が Cosense 形状で返す', async () => {
   const s = await makeServer();
   await s.addUser('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
@@ -48,7 +48,7 @@ test('GET /api/pages/:project が Cosense 形状で返す', async () => {
   assert.ok(alpha.version >= 1);
 });
 
-test('skip / limit / sort パラメータ', async () => {
+void test('skip / limit / sort パラメータ', async () => {
   const s = await makeServer();
   await s.addUser('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
@@ -65,7 +65,7 @@ test('skip / limit / sort パラメータ', async () => {
   assert.equal((await s.request('/api/pages/proj?sort=bogus', {}, cookie)).status, 400);
 });
 
-test('text と icon', async () => {
+void test('text と icon', async () => {
   const s = await makeServer();
   await s.addUser('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
@@ -81,7 +81,7 @@ test('text と icon', async () => {
   assert.equal((await s.request('/api/pages/proj/None/text', {}, cookie)).status, 404);
 });
 
-test('タイトルの percent-encoding が解決される', async () => {
+void test('タイトルの percent-encoding が解決される', async () => {
   const s = await makeServer();
   await s.addUser('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
@@ -98,7 +98,7 @@ test('タイトルの percent-encoding が解決される', async () => {
   assert.equal((await s.request('/api/pages/proj/%E0%A4%A/text', {}, cookie)).status, 404);
 });
 
-test('GET /api/pages/:project/ （末尾スラッシュ）も同じ一覧を返す', async () => {
+void test('GET /api/pages/:project/ （末尾スラッシュ）も同じ一覧を返す', async () => {
   const s = await makeServer();
   await s.addUser('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');

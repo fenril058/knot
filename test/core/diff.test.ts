@@ -13,7 +13,7 @@ const idgen = () => {
 const texts = (lines: Line[]) => lines.map((l) => l.text);
 const ctx = { userId: 'u2', now: 9, version: 2 };
 
-test('alignLines: 純追加は既存行を保って新規行を加える', () => {
+void test('alignLines: 純追加は既存行を保って新規行を加える', () => {
   const old = mk('a', 'b');
   assert.deepEqual(alignLines(old, ['a', 'b', 'c']), [
     { kind: 'keep', line: old[0] },
@@ -22,7 +22,7 @@ test('alignLines: 純追加は既存行を保って新規行を加える', () =>
   ]);
 });
 
-test('alignLines: 純削除は残存行と削除行を対応付ける', () => {
+void test('alignLines: 純削除は残存行と削除行を対応付ける', () => {
   const old = mk('a', 'b', 'c');
   assert.deepEqual(alignLines(old, ['a', 'c']), [
     { kind: 'keep', line: old[0] },
@@ -31,7 +31,7 @@ test('alignLines: 純削除は残存行と削除行を対応付ける', () => {
   ]);
 });
 
-test('alignLines: 編集と追加が混在しても LCS に沿って対応付ける', () => {
+void test('alignLines: 編集と追加が混在しても LCS に沿って対応付ける', () => {
   const old = mk('remove', 'keep', 'tail');
   assert.deepEqual(alignLines(old, ['keep', 'changed', 'added', 'tail']), [
     { kind: 'del', line: old[0] },
@@ -42,16 +42,16 @@ test('alignLines: 編集と追加が混在しても LCS に沿って対応付け
   ]);
 });
 
-test('変更なしなら空の ops', () => {
+void test('変更なしなら空の ops', () => {
   assert.deepEqual(diffLines(mk('a', 'b'), ['a', 'b'], idgen()), []);
 });
 
-test('1 行の編集は update になり行 ID を保つ', () => {
+void test('1 行の編集は update になり行 ID を保つ', () => {
   const ops = diffLines(mk('title', 'body'), ['title', 'body!'], idgen());
   assert.deepEqual(ops, [{ type: 'update', id: 'L1', text: 'body!' }]);
 });
 
-test('挿入と削除', () => {
+void test('挿入と削除', () => {
   const old = mk('a', 'b', 'c');
   assert.deepEqual(diffLines(old, ['a', 'x', 'b', 'c'], idgen()),
     [{ type: 'insert', id: 'N0', after: 'L0', text: 'x' }]);
@@ -59,7 +59,7 @@ test('挿入と削除', () => {
     [{ type: 'delete', id: 'L1' }]);
 });
 
-test('2 行を 3 行に置換すると update 2 + insert 1', () => {
+void test('2 行を 3 行に置換すると update 2 + insert 1', () => {
   const ops = diffLines(mk('a', 'x', 'y', 'd'), ['a', 'p', 'q', 'r', 'd'], idgen());
   assert.deepEqual(ops, [
     { type: 'update', id: 'L1', text: 'p' },
@@ -68,12 +68,12 @@ test('2 行を 3 行に置換すると update 2 + insert 1', () => {
   ]);
 });
 
-test('空からの作成は入力順の insert 連鎖', () => {
+void test('空からの作成は入力順の insert 連鎖', () => {
   const ops = diffLines([], ['t', '1', '2'], idgen());
   assert.deepEqual(ops.map((o) => o.type), ['insert', 'insert', 'insert']);
 });
 
-test('検算: apply(old, diff(old, new)) のテキストが new に一致する', () => {
+void test('検算: apply(old, diff(old, new)) のテキストが new に一致する', () => {
   const cases: [string[], string[]][] = [
     [['a', 'b', 'c'], ['c', 'a', 'b']],
     [['a', 'b'], ['x', 'y', 'z']],

@@ -19,18 +19,20 @@ async function setup() {
   return { db, storage, project, first };
 }
 
-test('同一 commitId 同一内容の再送は最初の version を返し、二度適用しない', async () => {
+void test('同一 commitId 同一内容の再送は最初の version を返し、二度適用しない', async () => {
   const { db, storage, first } = await setup();
   const replay = await storage.commit(first);
   assert.deepEqual(replay, { kind: 'applied', version: 1 });
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const count = (db.prepare('SELECT count(*) AS c FROM commits').get() as { c: number }).c;
   assert.equal(count, 1);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const version = (db.prepare('SELECT version FROM pages WHERE id = ?').get('pg1') as { version: number }).version;
   assert.equal(version, 1);
   await storage.close();
 });
 
-test('他のコミットが挟まった後の再送でも conflict にならず最初の version を返す', async () => {
+void test('他のコミットが挟まった後の再送でも conflict にならず最初の version を返す', async () => {
   const { storage, project, first } = await setup();
   await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c2', baseVersion: 1,
@@ -42,7 +44,7 @@ test('他のコミットが挟まった後の再送でも conflict にならず�
   await storage.close();
 });
 
-test('同一 commitId で内容が異なる要求は BadCommitError', async () => {
+void test('同一 commitId で内容が異なる要求は BadCommitError', async () => {
   const { storage, first } = await setup();
   await assert.rejects(
     storage.commit({ ...first, ops: [{ type: 'insert', id: 'l1', after: '_head', text: '別内容' }] }),

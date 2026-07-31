@@ -12,13 +12,13 @@ const texts = (lines: Line[]) => lines.map((l) => l.text);
 const apply = (lines: Line[], ops: ReturnType<typeof rebase>) =>
   ops.length === 0 ? lines : applyOps(lines, ops, ctx);
 
-test('ローカル変更なしなら空', () => {
+void test('ローカル変更なしなら空', () => {
   const base = mk(['a', 't'], ['b', 'x']);
   const latest = mk(['a', 't'], ['b', 'y']);
   assert.deepEqual(rebase(base, base, latest), []);
 });
 
-test('他者だけが変えた行を上書きしない', () => {
+void test('他者だけが変えた行を上書きしない', () => {
   const base = mk(['a', 't'], ['b', 'x'], ['c', 'z']);
   const local = mk(['a', 't'], ['b', 'x'], ['c', 'z-edited']);
   const latest = mk(['a', 't'], ['b', 'x-other'], ['c', 'z']);
@@ -26,7 +26,7 @@ test('他者だけが変えた行を上書きしない', () => {
   assert.deepEqual(texts(out), ['t', 'x-other', 'z-edited']);
 });
 
-test('同一行の競合は再送側（ローカル）が勝つ', () => {
+void test('同一行の競合は再送側（ローカル）が勝つ', () => {
   const base = mk(['a', 't'], ['b', 'x']);
   const local = mk(['a', 't'], ['b', 'mine']);
   const latest = mk(['a', 't'], ['b', 'theirs']);
@@ -34,7 +34,7 @@ test('同一行の競合は再送側（ローカル）が勝つ', () => {
   assert.deepEqual(texts(out), ['t', 'mine']);
 });
 
-test('編集した行が削除されていたら同じ ID で復活する', () => {
+void test('編集した行が削除されていたら同じ ID で復活する', () => {
   const base = mk(['a', 't'], ['b', 'x'], ['c', 'z']);
   const local = mk(['a', 't'], ['b', 'x-mine'], ['c', 'z']);
   const latest = mk(['a', 't'], ['c', 'z']);
@@ -43,14 +43,14 @@ test('編集した行が削除されていたら同じ ID で復活する', () =
   assert.equal(out[1].id, 'b');
 });
 
-test('触っていない行の削除は受け入れる', () => {
+void test('触っていない行の削除は受け入れる', () => {
   const base = mk(['a', 't'], ['b', 'x']);
   const local = mk(['a', 't'], ['b', 'x']);
   const latest = mk(['a', 't']);
   assert.deepEqual(rebase(base, local, latest), []);
 });
 
-test('自分の削除は他者の編集より勝つ', () => {
+void test('自分の削除は他者の編集より勝つ', () => {
   const base = mk(['a', 't'], ['b', 'x']);
   const local = mk(['a', 't']);
   const latest = mk(['a', 't'], ['b', 'x-other']);
@@ -58,7 +58,7 @@ test('自分の削除は他者の編集より勝つ', () => {
   assert.deepEqual(texts(out), ['t']);
 });
 
-test('挿入アンカーの行が消えていても挿入内容を失わない', () => {
+void test('挿入アンカーの行が消えていても挿入内容を失わない', () => {
   const base = mk(['a', 't'], ['b', 'x']);
   const local = mk(['a', 't'], ['b', 'x'], ['n1', 'new line']);
   const latest = mk(['a', 't']);
@@ -66,7 +66,7 @@ test('挿入アンカーの行が消えていても挿入内容を失わない',
   assert.deepEqual(texts(out), ['t', 'new line']);
 });
 
-test('プロパティ: ローカルの全編集が生き残り、他者だけの編集を消さない', () => {
+void test('プロパティ: ローカルの全編集が生き残り、他者だけの編集を消さない', () => {
   const rnd = lcg(20260711);
   for (let round = 0; round < 30; round++) {
     const size = 3 + Math.floor(rnd() * 5);
@@ -117,7 +117,7 @@ test('プロパティ: ローカルの全編集が生き残り、他者だけの
   }
 });
 
-test('プロパティ: 同一行を両者が触る競合が規則どおりに解決される', () => {
+void test('プロパティ: 同一行を両者が触る競合が規則どおりに解決される', () => {
   const rnd = lcg(7113);
   for (let round = 0; round < 30; round++) {
     const base: Line[] = [];
