@@ -29,7 +29,8 @@ function sourceLines(docText: string): SourceLine[] {
   });
 }
 
-// oxlint-disable-next-line typescript/consistent-return -- union を網羅する switch。末尾の return を書かないことで、分岐漏れを型エラーにしている
+// span にならない node 型があるため戻り値に undefined を含む。そのぶん分岐漏れは
+// 型エラーにならないので、未知の型は末尾で明示的に undefined にする。
 function nodeKind(node: Node): SpanKind | undefined {
   switch (node.type) {
     case 'link':
@@ -61,6 +62,8 @@ function nodeKind(node: Node): SpanKind | undefined {
     case 'numberList':
     case 'plain':
     case 'strongImage':
+      return undefined;
+    default:
       return undefined;
   }
 }
