@@ -23,6 +23,7 @@ function dialogElements(name: string): DialogElements {
 async function errorMessage(response: Response): Promise<string> {
   const fallback = `操作に失敗しました（${response.status}）`;
   try {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const body = await response.json() as { message?: unknown };
     return typeof body.message === 'string' ? body.message : fallback;
   } catch {
@@ -67,6 +68,7 @@ duplicate.form.addEventListener('submit', (event) => {
         headers: { 'X-Knot-Client': 'page-menu' },
       });
       if (!sourceResponse.ok) return showError(duplicate, await errorMessage(sourceResponse));
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       const source = await sourceResponse.json() as { lines: { text: string }[] };
       const response = await fetch(`/api/knot/pages/${encodeURIComponent(project)}/${encodeTitleForUrl(newTitle)}/commits`, {
         method: 'POST',

@@ -4,7 +4,7 @@ import { compareGuards, extractGuards, parseJsonc, type Sources } from '../scrip
 
 const OXLINT = `{
   // 移行用の上限
-  "options": { "typeAware": true },
+  "options": { "typeAware": true, "reportUnusedDisableDirectives": "deny" },
   "jsPlugins": [{ "name": "sonarjs", "specifier": "./config/sonarjs.cjs" }],
   "categories": { "correctness": "error", "suspicious": "error" },
   "rules": {
@@ -64,6 +64,7 @@ function run(head: Partial<Sources>, doc: string[] = []): string[] {
 }
 
 void test('parseJsonc は行コメント・ブロックコメントを落とし、文字列内の // は残す', () => {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const parsed = parseJsonc('{ /* a */ "u": "http://x/y", // b\n "n": 1 }') as Record<string, unknown>;
   assert.deepEqual(parsed, { u: 'http://x/y', n: 1 });
 });
@@ -136,6 +137,11 @@ void test('型情報つきルールの例外リストからファイルを外す
   const head = base.replace('"files": ["src/a.ts", "src/b.ts"]', '"files": ["src/a.ts"]');
   const keys = compareGuards(extractGuards({ ...BASE, oxlint: base }, head), extractGuards({ ...BASE, oxlint: head }, base), []).map((v) => v.key);
   assert.deepEqual(keys, []);
+});
+
+void test('reportUnusedDisableDirectives の格下げを落とす', () => {
+  const head = OXLINT.replace('"reportUnusedDisableDirectives": "deny"', '"reportUnusedDisableDirectives": "warn"');
+  assert.deepEqual(run({ oxlint: head }), ['oxlint:reportUnusedDisableDirectives']);
 });
 
 void test('sonarjs プラグインの取り外しを落とす', () => {

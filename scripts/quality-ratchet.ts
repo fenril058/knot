@@ -79,6 +79,7 @@ export function parseJsonc(text: string): unknown {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     ? value as Record<string, unknown>
     : {};
 }
@@ -155,6 +156,11 @@ function addOxlintGuards(guards: Guards, config: Record<string, unknown>, scopes
   guards.supersets.set('oxlint:jsPlugins', plugins);
   // typeAware を落とすと型情報つきルールが一斉に黙る。ルール定義を残したまま無効化できてしまうため個別に見る。
   guards.flags.set('oxlint:typeAware', asRecord(config.options).typeAware === true);
+  // これを緩めると、要らなくなった抑制 directive が残り続ける（残った行は以後検査されない）。
+  const unused = asRecord(config.options).reportUnusedDisableDirectives;
+  guards.numeric.set('oxlint:reportUnusedDisableDirectives', {
+    severity: typeof unused === 'string' ? unused : 'off', max: null,
+  });
   guards.subsets.set('oxlint:ignorePatterns', asStringArray(config.ignorePatterns));
 }
 

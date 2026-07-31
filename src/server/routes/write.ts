@@ -14,6 +14,7 @@ import { jsonError, pageToJson, resolvePage, resolveProject, safeDecode, type Ap
 
 function isLineOp(op: unknown): op is LineOp {
   if (typeof op !== 'object' || op === null) return false;
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const o = op as Record<string, unknown>;
   if (o.type === 'insert') return typeof o.id === 'string' && typeof o.after === 'string' && typeof o.text === 'string';
   if (o.type === 'update') return typeof o.id === 'string' && typeof o.text === 'string';
@@ -24,6 +25,7 @@ function isLineOp(op: unknown): op is LineOp {
 async function readJson(c: Context): Promise<Record<string, unknown> | null> {
   try {
     const body = await c.req.json();
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     return typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : null;
   } catch {
     return null;

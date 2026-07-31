@@ -42,6 +42,7 @@ export function makeSyncClient(opts: {
     for (;;) {
       const res = await get(`/api/pages/${projectSeg}?sort=title&limit=1000&skip=${out.length}`);
       if (!res.ok) throw new SyncHttpError(`page list failed: ${res.status}`, res.status);
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       const body = (await res.json()) as { count: number; pages: Array<Partial<PageEntry>> };
       count = body.count;
       for (const p of body.pages) {
@@ -68,6 +69,7 @@ export function makeSyncClient(opts: {
     const res = await get(`/api/pages/${projectSeg}/${encodeTitleForUrl(title)}`);
     if (res.status === 404) return null;
     if (!res.ok) throw new SyncHttpError(`get page failed: ${res.status}`, res.status);
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const body = (await res.json()) as {
       id: string; title: string; version: number; lines: Array<{ text: string }>;
     };
@@ -87,6 +89,7 @@ export function makeSyncClient(opts: {
     if (res.status === 401) throw new SyncHttpError('unauthorized: check API token', 401);
     if (res.status === 409) return { kind: 'conflict' };
     if (!res.ok) throw new SyncHttpError(`put failed: ${res.status}`, res.status);
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const body = (await res.json()) as { version: number };
     return { kind: 'ok', version: body.version };
   };

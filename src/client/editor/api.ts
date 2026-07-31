@@ -37,6 +37,7 @@ export async function fetchPage(
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`page fetch failed: ${response.status}`);
 
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const page = await response.json() as PageJson;
   return { title: page.title, snapshot: toSnapshot(page) };
 }
@@ -61,6 +62,7 @@ export async function postCommit(
     });
     // 5xx はネットワーク断と同じく復帰可能扱い（同じ commitId で再送する）
     if (response.status >= 500) return { kind: 'network' };
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const body = await response.json() as {
       version?: number;
       message?: string;
@@ -102,6 +104,7 @@ export async function uploadFile(
       headers: { 'X-Knot-Client': 'editor' },
       body: form,
     });
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const body = await response.json() as { url?: string; message?: string };
     if (response.ok && typeof body.url === 'string') return { kind: 'ok', url: body.url };
     return { kind: 'error', message: body.message ?? `HTTP ${response.status}` };

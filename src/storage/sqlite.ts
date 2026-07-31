@@ -106,6 +106,7 @@ export class SqliteStorage implements Storage {
   }
 
   #getProjectRow(name: string): Project | null {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const r = this.#db
       .prepare('SELECT id, name, display_name, created, updated FROM projects WHERE name = ?')
       .get(name) as { id: string; name: string; display_name: string; created: number; updated: number } | undefined;
@@ -132,6 +133,7 @@ export class SqliteStorage implements Storage {
   }
 
   async listProjects(): Promise<Project[]> {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const rows = this.#db
       .prepare('SELECT id, name, display_name, created, updated FROM projects ORDER BY name')
       .all() as { id: string; name: string; display_name: string; created: number; updated: number }[];
@@ -154,6 +156,7 @@ export class SqliteStorage implements Storage {
     this.#db
       .prepare('INSERT OR IGNORE INTO users (id, name, display_name, created) VALUES (?, ?, ?, ?)')
       .run(user.id, user.name, user.displayName, now);
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const row = this.#db.prepare('SELECT id FROM users WHERE name = ?').get(user.name) as
       | { id: string }
       | undefined;
@@ -161,6 +164,7 @@ export class SqliteStorage implements Storage {
   }
 
   async listUsersForProject(projectId: string): Promise<DisplayUser[]> {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const rows = this.#db
       .prepare(
         `SELECT u.id, u.name, u.display_name FROM users u
@@ -178,6 +182,7 @@ export class SqliteStorage implements Storage {
   async getPageAuthors(
     pageId: string,
   ): Promise<{ user: DisplayUser | null; lastUpdateUser: DisplayUser | null }> {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const row = this.#db
       .prepare(
         `WITH first_commit AS (
@@ -232,6 +237,7 @@ export class SqliteStorage implements Storage {
 
   async addUser(user: NewUser, now: number): Promise<AddUserResult> {
     return this.#tx(() => {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       const existing = this.#db
         .prepare('SELECT id, password_hash FROM users WHERE name = ?')
         .get(user.name) as { id: string; password_hash: string | null } | undefined;
@@ -254,11 +260,13 @@ export class SqliteStorage implements Storage {
   }
 
   async getUserByName(name: string): Promise<AuthUser | null> {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const r = this.#db.prepare('SELECT * FROM users WHERE name = ?').get(name) as UserRow | undefined;
     return r ? this.#userRowToAuthUser(r) : null;
   }
 
   async getUserById(id: string): Promise<AuthUser | null> {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const r = this.#db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined;
     return r ? this.#userRowToAuthUser(r) : null;
   }
@@ -276,6 +284,7 @@ export class SqliteStorage implements Storage {
   }
 
   async getUserByApiTokenHash(tokenHash: string): Promise<AuthUser | null> {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const row = this.#db
       .prepare('SELECT u.* FROM users u JOIN api_tokens t ON t.user_id = u.id WHERE t.token_hash = ?')
       .get(tokenHash) as UserRow | undefined;
@@ -283,6 +292,7 @@ export class SqliteStorage implements Storage {
   }
 
   async listApiTokens(userId: string): Promise<ApiToken[]> {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const rows = this.#db
       .prepare('SELECT id, user_id, label, created FROM api_tokens WHERE user_id = ? ORDER BY created ASC, id ASC')
       .all(userId) as { id: string; user_id: string; label: string; created: number }[];
@@ -300,6 +310,7 @@ export class SqliteStorage implements Storage {
   }
 
   async getSession(id: string, now: number): Promise<Session | null> {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const r = this.#db.prepare('SELECT id, user_id, expires, created FROM sessions WHERE id = ?').get(id) as
       | { id: string; user_id: string; expires: number; created: number }
       | undefined;
@@ -351,6 +362,7 @@ export class SqliteStorage implements Storage {
   }
 
   async listAttachments(projectId: string): Promise<Attachment[]> {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const rows = this.#db
       .prepare('SELECT * FROM attachments WHERE project_id = ? ORDER BY created ASC')
       .all(projectId) as AttachmentRow[];
@@ -358,11 +370,13 @@ export class SqliteStorage implements Storage {
   }
 
   async getAttachment(id: string): Promise<Attachment | null> {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const row = this.#db.prepare('SELECT * FROM attachments WHERE id = ?').get(id) as AttachmentRow | undefined;
     return row ? this.#attachmentRowToAttachment(row) : null;
   }
 
   async findAttachmentBySha256(projectId: string, sha256: string): Promise<Attachment | null> {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const row = this.#db
       .prepare('SELECT * FROM attachments WHERE project_id = ? AND sha256 = ?')
       .get(projectId, sha256) as AttachmentRow | undefined;
@@ -385,6 +399,7 @@ export class SqliteStorage implements Storage {
   }
 
   #getLines(pageId: string): Line[] {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const rows = this.#db
       .prepare('SELECT id, text, created, updated, updated_version, user_id FROM lines WHERE page_id = ? ORDER BY ord')
       .all(pageId) as LineRow[];
@@ -403,6 +418,7 @@ export class SqliteStorage implements Storage {
   }
 
   async getPageByTitle(projectId: string, titleLcValue: string): Promise<PageSnapshot | null> {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const row = this.#db
       .prepare('SELECT * FROM pages WHERE project_id = ? AND title_lc = ? AND deleted = 0')
       .get(projectId, titleLcValue) as PageRow | undefined;
@@ -410,11 +426,13 @@ export class SqliteStorage implements Storage {
   }
 
   async getPageById(pageId: string): Promise<PageSnapshot | null> {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const row = this.#db.prepare('SELECT * FROM pages WHERE id = ?').get(pageId) as PageRow | undefined;
     return row ? this.#snapshot(row) : null;
   }
 
   async listPages(projectId: string): Promise<PageMeta[]> {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const rows = this.#db
       .prepare('SELECT * FROM pages WHERE project_id = ? AND deleted = 0 ORDER BY updated DESC, id')
       .all(projectId) as PageRow[];
@@ -433,8 +451,10 @@ export class SqliteStorage implements Storage {
     };
     const orderByClause = opts.pinnedFirst ? `p.pinned DESC, ${orderBy[opts.sort]}` : orderBy[opts.sort];
     const count = (
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       this.#db.prepare('SELECT COUNT(*) AS n FROM pages WHERE project_id = ? AND deleted = 0').get(projectId) as { n: number }
     ).n;
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const rows = this.#db
       .prepare(
         `SELECT p.*, (
@@ -451,6 +471,7 @@ export class SqliteStorage implements Storage {
     const pages = rows.map((r) => ({
       ...this.#pageRowToMeta(r),
       linked: r.linked,
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       descriptions: (descriptions.all(r.id) as { text: string }[]).map((d) => d.text),
     }));
     return { count, pages };
@@ -458,6 +479,7 @@ export class SqliteStorage implements Storage {
 
   #relatedDescriptions(pageId: string): string[] {
     return (
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       this.#db
         .prepare("SELECT text FROM lines WHERE page_id = ? AND ord > 0 AND text <> '' ORDER BY ord LIMIT 5")
         .all(pageId) as { text: string }[]
@@ -466,6 +488,7 @@ export class SqliteStorage implements Storage {
 
   #linkedCount(projectId: string, titleLcValue: string): number {
     return (
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       this.#db
         .prepare('SELECT COUNT(*) AS n FROM links WHERE project_id = ? AND target_title_lc = ?')
         .get(projectId, titleLcValue) as { n: number }
@@ -474,6 +497,7 @@ export class SqliteStorage implements Storage {
 
   #outboundLc(pageId: string): string[] {
     return (
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       this.#db.prepare('SELECT target_title_lc FROM links WHERE source_page_id = ?').all(pageId) as {
         target_title_lc: string;
       }[]
@@ -500,12 +524,14 @@ export class SqliteStorage implements Storage {
     const forward =
       targets.length === 0
         ? []
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion
         : (this.#db
             .prepare(
               `SELECT * FROM pages WHERE project_id = ? AND deleted = 0 AND id != ? AND title_lc IN (${placeholders})`,
             )
             .all(projectId, pageId, ...targets) as PageRow[]);
 
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const back = this.#db
       .prepare(
         `SELECT p.* FROM pages p JOIN links l ON l.source_page_id = p.id
@@ -519,6 +545,7 @@ export class SqliteStorage implements Storage {
 
     let links2hop: RelatedPage[] = [];
     if (targets.length > 0) {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       const rows = this.#db
         .prepare(
           `SELECT p.*, l.target_title_lc AS shared FROM pages p JOIN links l ON l.source_page_id = p.id
@@ -544,6 +571,7 @@ export class SqliteStorage implements Storage {
   }
 
   async listPageTitles(projectId: string): Promise<TitleEntry[]> {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const rows = this.#db
       .prepare('SELECT * FROM pages WHERE project_id = ? AND deleted = 0 ORDER BY updated DESC, id')
       .all(projectId) as PageRow[];
@@ -553,12 +581,14 @@ export class SqliteStorage implements Storage {
       title: r.title,
       hasIcon: r.image !== null,
       updated: r.updated,
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       links: (linksStmt.all(r.id) as { target_title: string }[]).map((l) => l.target_title),
       image: r.image,
     }));
   }
 
   async listKnownPages(projectId: string): Promise<{ titleLc: string; title: string; image: string | null }[]> {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const rows = this.#db
       .prepare('SELECT title_lc, title, image FROM pages WHERE project_id = ? AND deleted = 0')
       .all(projectId) as { title_lc: string; title: string; image: string | null }[];
@@ -570,6 +600,7 @@ export class SqliteStorage implements Storage {
   }
 
   async getVisit(userId: string, pageId: string): Promise<Visit | null> {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const row = this.#db
       .prepare('SELECT visited, last_seen_version FROM page_visits WHERE user_id = ? AND page_id = ?')
       .get(userId, pageId) as { visited: number; last_seen_version: number } | undefined;
@@ -593,6 +624,7 @@ export class SqliteStorage implements Storage {
 
   async deletePage(projectId: string, pageId: string, userId: string, now: number): Promise<{ version: number }> {
     return this.#tx(() => {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       const row = this.#db.prepare('SELECT * FROM pages WHERE id = ?').get(pageId) as PageRow | undefined;
       if (!row || row.deleted === 1) throw new BadCommitError(`unknown page: ${pageId}`);
       if (row.project_id !== projectId) throw new BadCommitError(`page ${pageId} is not in project ${projectId}`);
@@ -608,6 +640,7 @@ export class SqliteStorage implements Storage {
   async renamePage(input: RenameInput): Promise<RenameResult> {
     const { projectId, pageId, baseVersion, newTitle, rewriteLinks, userId, now } = input;
     return this.#tx(() => {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       const row = this.#db.prepare('SELECT * FROM pages WHERE id = ?').get(pageId) as PageRow | undefined;
       if (!row || row.deleted === 1) throw new BadCommitError(`unknown page: ${pageId}`);
       if (row.project_id !== projectId) throw new BadCommitError(`page ${pageId} is not in project ${projectId}`);
@@ -629,6 +662,7 @@ export class SqliteStorage implements Storage {
 
       const rewritten: { pageId: string; title: string; version: number }[] = [];
       if (rewriteLinks && titleLc(newTitle) !== oldTitleLc) {
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion
         const sources = this.#db
           .prepare(
             `SELECT DISTINCT p.id FROM pages p JOIN links l ON l.source_page_id = p.id
@@ -636,6 +670,7 @@ export class SqliteStorage implements Storage {
           )
           .all(projectId, oldTitleLc, pageId) as { id: string }[];
         for (const source of sources) {
+          // oxlint-disable-next-line typescript/no-unsafe-type-assertion
           const srcRow = this.#db.prepare('SELECT * FROM pages WHERE id = ?').get(source.id) as PageRow;
           const srcLines = this.#getLines(source.id);
           const changes = rewritePageLinks(srcLines.map((l) => l.text), oldTitleLc, newTitle);
@@ -660,6 +695,7 @@ export class SqliteStorage implements Storage {
   #applyCommit(input: CommitInput): CommitResult {
     const { projectId, pageId, commitId, baseVersion, ops, userId, now } = input;
 
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const prior = this.#db
       .prepare('SELECT version, ops_hash FROM commits WHERE id = ?')
       .get(commitId) as { version: number; ops_hash: string } | undefined;
@@ -670,6 +706,7 @@ export class SqliteStorage implements Storage {
       return { kind: 'applied', version: prior.version };
     }
 
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const row = this.#db.prepare('SELECT * FROM pages WHERE id = ?').get(pageId) as PageRow | undefined;
     if (!row && baseVersion !== 0) throw new BadCommitError(`unknown page: ${pageId}`);
     if (row && row.project_id !== projectId) {
@@ -697,6 +734,7 @@ export class SqliteStorage implements Storage {
     const newTitleLc = titleLc(newTitle);
 
     if (!deleted && (!row || newTitleLc !== row.title_lc)) {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       const clash = this.#db
         .prepare('SELECT * FROM pages WHERE project_id = ? AND title_lc = ? AND deleted = 0 AND id != ?')
         .get(projectId, newTitleLc, pageId) as PageRow | undefined;
@@ -712,6 +750,7 @@ export class SqliteStorage implements Storage {
         .run(pageId, projectId, newTitle, newTitleLc, version, deleted ? 1 : 0, now, now);
     } else {
       if (!deleted && newTitle !== row.title) {
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion
         const started = this.#db
           .prepare('SELECT COALESCE(MAX(ended), ?) AS s FROM title_history WHERE page_id = ?')
           .get(row.created, pageId) as { s: number };
@@ -787,6 +826,7 @@ export class SqliteStorage implements Storage {
         seen.add(line.id);
       }
       const lcValue = titleLc(page.title);
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       const existing = this.#db
         .prepare('SELECT * FROM pages WHERE project_id = ? AND title_lc = ? AND deleted = 0')
         .get(projectId, lcValue) as PageRow | undefined;
@@ -854,12 +894,14 @@ export class SqliteStorage implements Storage {
       pageId: p.id,
       title: p.title,
       image: p.image,
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       lines: (matchedLines.all(p.id, likePattern) as { text: string }[]).map((r) => r.text),
     }));
   }
 
   #searchFts(projectId: string, query: string): { id: string; title: string; image: string | null }[] {
     const phrase = `"${query.replaceAll('"', '""')}"`;
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     return this.#db
       .prepare(
         `SELECT p.id, p.title, p.image FROM pages_fts JOIN pages p ON p.id = pages_fts.page_id
@@ -871,6 +913,7 @@ export class SqliteStorage implements Storage {
 
   #searchLike(projectId: string, query: string): { id: string; title: string; image: string | null }[] {
     const pattern = `%${escapeLike(query)}%`;
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     return this.#db
       .prepare(
         `SELECT DISTINCT p.id, p.title, p.image, p.updated FROM pages p JOIN lines l ON l.page_id = p.id
@@ -882,6 +925,7 @@ export class SqliteStorage implements Storage {
 
   async reindex(projectId?: string): Promise<{ pages: number }> {
     return this.#tx(() => {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       const rows = (
         projectId === undefined
           ? this.#db.prepare('SELECT * FROM pages').all()

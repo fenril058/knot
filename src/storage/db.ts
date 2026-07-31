@@ -9,6 +9,7 @@ function migrate(db: DatabaseSync): void {
   const files = readdirSync(MIGRATIONS_DIR)
     .filter((f) => /^\d{4}_.*\.sql$/.test(f))
     .toSorted();
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const current = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
   for (const file of files) {
     const n = Number(file.slice(0, 4));

@@ -39,6 +39,7 @@ let latestSeq = 0;
 async function loadTitles(): Promise<TitleEntry[]> {
   if (titles !== null) return titles;
   const res = await fetch(`/api/pages/${encodeURIComponent(project)}/search/titles`);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   titles = await res.json() as TitleEntry[];
   return titles;
 }
@@ -61,12 +62,14 @@ function renderHits<T extends { title: string }>(items: readonly T[], formatLabe
 
 async function runFullTextSearch(query: string, seq: number): Promise<void> {
   const res = await fetch(`/api/pages/${encodeURIComponent(project)}/search/query?q=${encodeURIComponent(query)}`);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const body = await res.json() as { pages: PageHit[] };
   if (seq !== latestSeq) return;
   renderHits(body.pages, (p) => `${p.title}: ${p.lines[0] ?? ''}`);
 }
 
 searchBox.addEventListener('input', (event) => {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const query = (event.target as HTMLInputElement).value.trim();
   const seq = ++latestSeq;
   if (debounceTimer !== undefined) window.clearTimeout(debounceTimer);

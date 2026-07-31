@@ -13,6 +13,7 @@ export type SyncState = { pages: Record<string, PageState> };
 export function loadState(dir: string): SyncState {
   const path = join(dir, '.knot', 'state.json');
   if (!existsSync(path)) return { pages: {} };
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   return JSON.parse(readFileSync(path, 'utf8')) as SyncState;
 }
 
