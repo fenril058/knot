@@ -18,23 +18,36 @@
 `options.typeAware` を立てると、型情報を要するルールが使える（`oxlint-tsgolint` が必要。
 `package.json` の devDependency にあるので `npm ci` で入る）。
 
-現在有効なのは 2 つ。
+現在有効なのは 3 つ。
 
 | ルール | 目的 |
 | --- | --- |
 | `typescript/no-unsafe-type-assertion` | union を部分型へ絞る `as` を落とす。型の絞り込みを黙らせる変更を検出する |
 | `typescript/switch-exhaustiveness-check` | union に対する `switch` の網羅漏れを落とす |
+| `typescript/no-unnecessary-type-assertion` | 型を変えない `as` と `!` を落とす。効いていない表明が残るのを防ぐ |
 
 union の分岐は `as` ではなく網羅 `switch` で書く。網羅していない分岐は戻り値が
 `undefined` になり、`strict` 下では TS2366 になるので、コンパイラが漏れを教える。
 
-`typeAware` は categories 内の型情報つきルールを**すべて**有効にするため、既存違反の
-多いルールは `.oxlintrc.json` で個別に `off` にしてある（見送った理由と件数はそこにコメントで残す）。
+`typeAware` は categories 内の型情報つきルールを**すべて**有効にする。
+既存違反が多くて見送るルールは `.oxlintrc.json` で個別に `off` にし、見送った理由をそこに書く
+（件数はコメントに書かず issue に置く。実態から乖離するため）。
+現在 `off` にしているものは無い。
 
-`no-unsafe-type-assertion` の既存違反は、`overrides` の移行用の例外リストでファイル単位に
-抑制してある。**例外リストに載っているファイルはこのルールで検査されない。**
-該当ファイルを改修するときは違反を直して例外リストから外す。
-例外リストにファイルを足す変更はラチェットが落とす。
+`no-unsafe-type-assertion` の既存違反は、ファイル単位の `overrides` ではなく違反行の
+インライン抑制（`oxlint-disable-next-line`）で示す。抑制の範囲が 1 行に閉じ、
+理由をその場に書けるため。`options.reportUnusedDisableDirectives` が `deny` なので、
+違反を直したあとに抑制コメントを消し忘れると CI が落ちる。
+
+## 添字アクセス
+
+`tsconfig.json` の `noUncheckedIndexedAccess` により `a[i]` の型は `T | undefined` になる。
+これが無いと `a[i]!` の `!` が型上は無意味になり、`no-unnecessary-type-assertion` と衝突する
+（ルールが `!` を一斉に外せと言い出し、範囲内であることの根拠が消える）。
+2 つはセットで有効にしてあり、どちらもラチェットの監視対象。
+
+範囲内であることがループ不変条件などから明らかな箇所は `!` を付け、なぜ範囲内なのかを
+コメントに書く。根拠が書けない箇所は `!` ではなく `?? 既定値` か明示的な検査で扱う。
 
 ## ラチェット
 
@@ -46,8 +59,8 @@ union の分岐は `as` ではなく網羅 `switch` で書く。網羅してい�
 - 数値上限の引き上げ（`.oxlintrc.json` の root と override、`.jscpd.json` の `threshold` / `minLines` / `minTokens`）
 - severity の格下げ・無効化（`warn`、`off`、`categories` の格下げ、ルール定義の削除）
 - 緩い `overrides` の新設（既存 override の削除は root の値へ戻るので許可する）
-- 検査対象の縮小（`ignorePatterns` の追加、`jscpd` の `pattern` 縮小・`ignore` 追加、`knip` の `entry` / `project` 縮小、`npm run lint` の対象ディレクトリ削減）
-- 検査そのものの取り外し（`sonarjs` プラグイン、`options.typeAware`、`knip` の `includeEntryExports`、`quality` スクリプトの構成、CI の `run` ステップ）
+- 検査対象の縮小（`ignorePatterns` の追加、`jscpd` の `pattern` 縮小・`ignore` 追加、`knip` の `entry` / `project` 縮小、`tsconfig.json` の `include` 縮小、`npm run lint` の対象ディレクトリ削減）
+- 検査そのものの取り外し（`sonarjs` プラグイン、`options.typeAware`、`tsconfig.json` の `strict` と `noUncheckedIndexedAccess`、`knip` の `includeEntryExports`、`quality` スクリプトの構成、CI の `run` ステップ）
 
 base ref は、PR では対象ブランチ、push では直前の tip（`event.before`）を使う。
 force-push とブランチの初回 push では `event.before` を解決できないため、既定ブランチとの

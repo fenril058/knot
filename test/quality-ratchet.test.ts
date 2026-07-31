@@ -51,7 +51,16 @@ const CI = `jobs:
       - run: npm test
 `;
 
-const BASE: Sources = { oxlint: OXLINT, jscpd: JSCPD, knip: KNIP, pkg: PKG, ci: CI };
+const TSCONFIG = `{
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}
+`;
+
+const BASE: Sources = { oxlint: OXLINT, tsconfig: TSCONFIG, jscpd: JSCPD, knip: KNIP, pkg: PKG, ci: CI };
 
 function run(head: Partial<Sources>, doc: string[] = []): string[] {
   const headSources: Sources = { ...BASE, ...head };
@@ -122,6 +131,18 @@ void test('ignorePatterns による除外の追加を落とす', () => {
 
 void test('typeAware の無効化を落とす（型情報つきルールが一斉に黙る）', () => {
   assert.deepEqual(run({ oxlint: OXLINT.replace('"typeAware": true', '"typeAware": false') }), ['oxlint:typeAware']);
+});
+
+void test('noUncheckedIndexedAccess の無効化を落とす（添字アクセスの検査が消える）', () => {
+  const head = TSCONFIG.replace('"noUncheckedIndexedAccess": true', '"noUncheckedIndexedAccess": false');
+  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:noUncheckedIndexedAccess']);
+});
+
+void test('strict の無効化と include の縮小を落とす', () => {
+  const head = TSCONFIG
+    .replace('"strict": true', '"strict": false')
+    .replace('"src/**/*.ts", "test/**/*.ts"', '"src/**/*.ts"');
+  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:include', 'tsconfig:strict']);
 });
 
 void test('型情報つきルールの移行用の例外リストにファイルを足すのを落とす', () => {

@@ -26,6 +26,7 @@ export type Guards = {
 
 export type Sources = {
   oxlint: string | null;
+  tsconfig: string | null;
   jscpd: string | null;
   knip: string | null;
   pkg: string | null;
@@ -164,6 +165,16 @@ function addOxlintGuards(guards: Guards, config: Record<string, unknown>, scopes
   guards.subsets.set('oxlint:ignorePatterns', asStringArray(config.ignorePatterns));
 }
 
+function addTsconfigGuards(guards: Guards, config: Record<string, unknown>): void {
+  const options = asRecord(config.compilerOptions);
+  // strict を落とすと型検査が一斉に緩む。
+  guards.flags.set('tsconfig:strict', options.strict === true);
+  // これを落とすと添字アクセスが T になり、lines[i]! の ! が無意味になる
+  // （no-unnecessary-type-assertion が一斉に外せと言い出す）。
+  guards.flags.set('tsconfig:noUncheckedIndexedAccess', options.noUncheckedIndexedAccess === true);
+  guards.supersets.set('tsconfig:include', asStringArray(config.include));
+}
+
 function addJscpdGuards(guards: Guards, config: Record<string, unknown>): void {
   for (const key of ['threshold', 'minLines', 'minTokens']) {
     const value = config[key];
@@ -205,6 +216,7 @@ export function extractGuards(sources: Sources, otherOxlint: string | null): Gua
     const { scopes, rules } = oxlintScopesAndRules([self, other]);
     addOxlintGuards(guards, self, scopes, rules);
   }
+  if (sources.tsconfig !== null) addTsconfigGuards(guards, asRecord(parseJsonc(sources.tsconfig)));
   if (sources.jscpd !== null) addJscpdGuards(guards, asRecord(parseJsonc(sources.jscpd)));
   if (sources.knip !== null) addKnipGuards(guards, asRecord(parseJsonc(sources.knip)));
   if (sources.pkg !== null) addPackageGuards(guards, asRecord(parseJsonc(sources.pkg)));
@@ -274,6 +286,7 @@ export function compareGuards(base: Guards, head: Guards, addedDocLines: string[
 
 const GUARD_FILES = {
   oxlint: '.oxlintrc.json',
+  tsconfig: 'tsconfig.json',
   jscpd: '.jscpd.json',
   knip: 'knip.json',
   pkg: 'package.json',
@@ -294,6 +307,7 @@ function showAt(ref: string, path: string): string | null {
 function readSources(ref: string): Sources {
   return {
     oxlint: showAt(ref, GUARD_FILES.oxlint),
+    tsconfig: showAt(ref, GUARD_FILES.tsconfig),
     jscpd: showAt(ref, GUARD_FILES.jscpd),
     knip: showAt(ref, GUARD_FILES.knip),
     pkg: showAt(ref, GUARD_FILES.pkg),

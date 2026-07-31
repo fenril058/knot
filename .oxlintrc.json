@@ -2,7 +2,6 @@
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   // 型情報つきルールを有効にする（oxlint-tsgolint が必要）。
   // これを false にすると型情報つきルールが全部黙るため、ラチェットの監視対象。
-  // 型情報つきルールを有効にする（oxlint-tsgolint が必要）。
   // reportUnusedDisableDirectives は、抑制が要らなくなった directive を検出する。
   // 違反を直したのに directive が残ると、その行は以後検査されない状態になるため。
   "options": { "typeAware": true, "reportUnusedDisableDirectives": "deny" },
