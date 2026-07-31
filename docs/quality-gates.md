@@ -49,7 +49,12 @@ union の分岐は `as` ではなく網羅 `switch` で書く。網羅してい�
 - 検査対象の縮小（`ignorePatterns` の追加、`jscpd` の `pattern` 縮小・`ignore` 追加、`knip` の `entry` / `project` 縮小、`npm run lint` の対象ディレクトリ削減）
 - 検査そのものの取り外し（`sonarjs` プラグイン、`options.typeAware`、`knip` の `includeEntryExports`、`quality` スクリプトの構成、CI の `run` ステップ）
 
-base ref が解決できない、設定が壊れている、設定ファイルが消えている場合は、
+base ref は、PR では対象ブランチ、push では直前の tip（`event.before`）を使う。
+force-push とブランチの初回 push では `event.before` を解決できないため、既定ブランチとの
+分岐点へ落とす。分岐点が HEAD と同じ場合（既定ブランチへの push など）は 1 つ前の commit と比べる。
+どの経路でも必ず base を決めるので、検査が黙って飛ぶことはない。
+
+設定が壊れている、設定ファイルが消えている、渡された base ref を解決できない場合は、
 検査を飛ばさず失敗させる（fail closed）。
 
 ## 緩和したいとき
