@@ -140,3 +140,4 @@ HEAD に一致するため、**base を決められない。この場合はジ�
 ### 承認済みの緩和
 
 - `compilerOptions` に `noUncheckedIndexedAccess` を足す（添字アクセスを `T | undefined` にするため）
+- `ci:runSteps` の `npx playwright install --with-deps chromium` を `npx playwright install --with-deps --only-shell chromium` に置き換える（E2E で使わない通常版 Chromium の導入を省くため）
