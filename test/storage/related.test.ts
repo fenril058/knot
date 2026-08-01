@@ -25,7 +25,7 @@ void test('getRelatedPages: 2-hop は前方リンク先を共有するページ'
   const rel = await storage.getRelatedPages(project.id, homeId, 'home');
   assert.deepEqual(rel.links1hop, []); // Shared Topic は赤リンク
   assert.deepEqual(rel.links2hop.map((p) => p.title), ['Sibling']);
-  assert.deepEqual(rel.links2hop[0].linksLc, ['shared_topic']);
+  assert.deepEqual(rel.links2hop[0]!.linksLc, ['shared_topic']);
   assert.equal(rel.hasBackLinks, false);
 });
 
@@ -54,9 +54,9 @@ void test('listPageTitles: 原文タイトルのリンクを返す', async () =>
   await seedPage(storage, project.id, 'Page One', ['[Foo Bar] #tag', 'https://i.gyazo.com/x.png'], now);
   const titles = await storage.listPageTitles(project.id);
   assert.equal(titles.length, 1);
-  assert.equal(titles[0].title, 'Page One');
-  assert.equal(titles[0].hasIcon, true); // image がある
-  assert.deepEqual(titles[0].links.toSorted(), ['Foo Bar', 'tag']);
+  assert.equal(titles[0]!.title, 'Page One');
+  assert.equal(titles[0]!.hasIcon, true); // image がある
+  assert.deepEqual(titles[0]!.links.toSorted(), ['Foo Bar', 'tag']);
 });
 
 void test('listPageTitles: image は pages.image をそのまま返す', async () => {

@@ -94,8 +94,8 @@ void test('インポートはコミットとして残り、導出データも更
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const ops = JSON.parse(commit.ops) as { type: string; text?: string }[];
   assert.equal(ops.length, 2);
-  assert.equal(ops[0].type, 'insert');
-  assert.equal(ops[0].text, 'メタデータ付きページ');
+  assert.equal(ops[0]!.type, 'insert');
+  assert.equal(ops[0]!.text, 'メタデータ付きページ');
   const links = (
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     db.prepare('SELECT target_title_lc FROM links WHERE source_page_id = ?').all('61f0c1d2e3a4b5c6d7e8f901') as {
@@ -120,7 +120,7 @@ void test('再インポートは既定でスキップされ、内容が変わら
   const page = await storage.getPageByTitle(project.id, 'メタデータ付きページ');
   assert.ok(page);
   assert.equal(page.version, 1);
-  assert.equal(page.lines[0].created, 1750000000);
+  assert.equal(page.lines[0]!.created, 1750000000);
   await storage.close();
 });
 
@@ -128,7 +128,7 @@ void test('overwrite は既存ページを新しいコミットとして置き�
   const { db, storage } = makeStorage();
   await importCosense(storage, fixture(), { projectName: 'sandbox', now: 1760000000 });
   const modified = fixture();
-  modified.pages[0].lines[1] = {
+  modified.pages[0]!.lines[1] = {
     id: '61f0c1d2e3a4b5c6d7e8f903',
     text: '書き換えた行',
     userId: '5f1a2b3c4d5e6f7a8b9c0d1e',
@@ -144,8 +144,8 @@ void test('overwrite は既存ページを新しいコミットとして置き�
   const page = await storage.getPageByTitle(project.id, 'メタデータ付きページ');
   assert.ok(page);
   assert.equal(page.version, 2);
-  assert.equal(page.lines[1].text, '書き換えた行');
-  assert.equal(page.lines[1].updated, 1755000000);
+  assert.equal(page.lines[1]!.text, '書き換えた行');
+  assert.equal(page.lines[1]!.updated, 1755000000);
   // 上書きはインポート元のページメタデータを保持する（バックアップ復元の round-trip）
   assert.equal(page.created, 1750000000);
   assert.equal(page.updated, 1750001000);
@@ -156,8 +156,8 @@ void test('overwrite は既存ページを新しいコミットとして置き�
     .all('61f0c1d2e3a4b5c6d7e8f901') as { ops: string }[];
   assert.equal(commits.length, 2);
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  const secondOps = JSON.parse(commits[1].ops) as { type: string }[];
-  assert.equal(secondOps[0].type, 'delete');
+  const secondOps = JSON.parse(commits[1]!.ops) as { type: string }[];
+  assert.equal(secondOps[0]!.type, 'delete');
   assert.equal(secondOps.at(-1)?.type, 'insert');
   await storage.close();
 });
@@ -181,8 +181,8 @@ void test('不正な JSON と重複行 ID は拒否する', async () => {
   await assert.rejects(importCosense(storage, { nope: true }, { projectName: 'sandbox' }), /pages/);
   const dup = fixture();
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  const line1 = dup.pages[0].lines[1] as Exclude<CosenseLine, string>;
-  dup.pages[0].lines[1] = { ...line1, id: '61f0c1d2e3a4b5c6d7e8f902' };
+  const line1 = dup.pages[0]!.lines[1] as Exclude<CosenseLine, string>;
+  dup.pages[0]!.lines[1] = { ...line1, id: '61f0c1d2e3a4b5c6d7e8f902' };
   await assert.rejects(importCosense(storage, dup, { projectName: 'sandbox' }), StorageError);
   // 失敗したページは作られていない
   const project = await storage.getProject('sandbox');
@@ -213,7 +213,7 @@ void test('同名別 ID のユーザーは既存 ID に統合され、行の use
   assert.ok(project);
   const page = await storage.getPageByTitle(project.id, 'p');
   assert.ok(page);
-  assert.equal(page.lines[0].userId, 'A1');
+  assert.equal(page.lines[0]!.userId, 'A1');
   await storage.close();
 });
 

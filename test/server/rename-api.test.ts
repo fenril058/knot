@@ -36,7 +36,7 @@ void test('rewriteLinks 省略時は書き換えない', async () => {
   assert.equal(res.status, 200);
   assert.deepEqual((await res.json()).rewritten, []);
   const src = await s.storage.getPageById(srcId);
-  assert.equal(src!.lines[1].text, '[Old]');
+  assert.equal(src!.lines[1]!.text, '[Old]');
 });
 
 void test('rewriteLinks が boolean でなければ 400', async () => {

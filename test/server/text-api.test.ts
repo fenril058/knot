@@ -55,10 +55,10 @@ void test('編集で残った行の ID とメタデータは保持される', as
   await put('Doc', { baseVersion: 0, text: 'Doc\nkeep me\ndrop me' });
   const project = await s.storage.getProject('proj');
   const before = await s.storage.getPageByTitle(project!.id, 'doc');
-  const keepId = before!.lines[1].id;
+  const keepId = before!.lines[1]!.id;
   await put('Doc', { baseVersion: 1, text: 'Doc\nkeep me\nnew line' });
   const after = await s.storage.getPageByTitle(project!.id, 'doc');
-  assert.equal(after!.lines[1].id, keepId); // 不変の行は ID が変わらない
+  assert.equal(after!.lines[1]!.id, keepId); // 不変の行は ID が変わらない
 });
 
 void test('形式不正は 400', async () => {

@@ -23,7 +23,7 @@ void test('正しいエクスポート JSON を受理する', () => {
     users: [{ id: 'u1', name: 'alice' }],
     pages: [{ title: 'p', created: 1, updated: 2, lines: ['p'] }],
   };
-  assert.deepEqual(parseExportFile(data).pages[0].title, 'p');
+  assert.deepEqual(parseExportFile(data).pages[0]!.title, 'p');
 });
 
 void test('pages が無い・行が空・title 欠落は拒否する', () => {
@@ -76,6 +76,6 @@ void test('ページでない要素は位置と理由つきで拒否する', () 
 void test('返り値は入力から独立したコピーである', () => {
   const data = { pages: [{ title: 'p', lines: ['p'] }] };
   const out = parseExportFile(data);
-  out.pages[0].title = 'changed';
-  assert.equal(data.pages[0].title, 'p');
+  out.pages[0]!.title = 'changed';
+  assert.equal(data.pages[0]!.title, 'p');
 });

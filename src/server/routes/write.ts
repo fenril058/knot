@@ -155,7 +155,7 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
       // 新規作成: 適用結果の先頭行タイトルが URL と一致することを純関数で事前検証する
       try {
         const lines = applyOps([], ops, { userId: c.get('userId'), now: now(), version: 1 });
-        if (lines.length === 0 || titleLc(lines[0].text) !== urlTitleLc) {
+        if (lines.length === 0 || titleLc(lines[0]!.text) !== urlTitleLc) {
           return jsonError(c, 400, 'bad_request', { message: 'first line must match the URL title' });
         }
       } catch (e) {
@@ -196,7 +196,8 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     const newTexts = text.split('\n');
     const page = await storage.getPageByTitle(project.id, urlTitleLc);
     if (!page && baseVersion !== 0) return jsonError(c, 404, 'not_found');
-    if (!page && titleLc(newTexts[0]) !== urlTitleLc) {
+    // split は必ず 1 要素以上を返す。
+    if (!page && titleLc(newTexts[0]!) !== urlTitleLc) {
       return jsonError(c, 400, 'bad_request', { message: 'first line must match the URL title' });
     }
     if (page && baseVersion !== page.version) {

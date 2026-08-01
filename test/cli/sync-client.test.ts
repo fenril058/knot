@@ -7,7 +7,7 @@ type Handler = (url: string, init?: RequestInit) => Response;
 function fakeFetch(handler: Handler): typeof fetch {
   // Request をそのまま String() すると '[object Request]' になるので URL を取り出す
   return ((url: string | URL | Request, init?: RequestInit) =>
-    Promise.resolve(handler(url instanceof Request ? url.url : String(url), init))) as typeof fetch;
+    Promise.resolve(handler(url instanceof Request ? url.url : String(url), init)));
 }
 
 function json(status: number, body: unknown): Response {

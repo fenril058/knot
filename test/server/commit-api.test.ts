@@ -39,7 +39,7 @@ void test('新規作成 → 編集 → 冪等な再送', async () => {
   // 行の userId はセッションユーザー
   const project = await s.storage.getProject('proj');
   const page = await s.storage.getPageByTitle(project!.id, 'new_page!');
-  assert.equal(page!.lines[0].userId, userId);
+  assert.equal(page!.lines[0]!.userId, userId);
 });
 
 void test('baseVersion 不一致は 409 reason version で最新状態を返す', async () => {

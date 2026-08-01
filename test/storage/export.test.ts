@@ -33,10 +33,10 @@ void test('round-trip: インポート → エクスポートで意味が保存�
     const gotLines = got.lines as ObjectLine[];
     assert.deepEqual(gotLines.map((l) => l.text), srcLines.map((l) => l.text));
     srcLines.forEach((l, i) => {
-      if (l.id !== null) assert.equal(gotLines[i].id, l.id);
-      if (l.created !== null) assert.equal(gotLines[i].created, l.created);
-      if (l.updated !== null) assert.equal(gotLines[i].updated, l.updated);
-      if (l.userId !== null) assert.equal(gotLines[i].userId, l.userId);
+      if (l.id !== null) assert.equal(gotLines[i]!.id, l.id);
+      if (l.created !== null) assert.equal(gotLines[i]!.created, l.created);
+      if (l.updated !== null) assert.equal(gotLines[i]!.updated, l.updated);
+      if (l.userId !== null) assert.equal(gotLines[i]!.userId, l.userId);
     });
     if (page.id !== undefined) assert.equal(got.id, page.id);
     if (page.created !== undefined) assert.equal(got.created, page.created);

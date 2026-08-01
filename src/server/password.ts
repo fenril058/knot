@@ -17,8 +17,9 @@ export function verifyPassword(password: string, stored: string): boolean {
   // DB 内の値をそのまま scryptSync に渡すと、巨大な N を仕込まれたときに
   // イベントループを止められる（保存値由来の DoS）ため、パラメータは検証せず照合で弾く。
   if (parts[1] !== String(N) || parts[2] !== String(R) || parts[3] !== String(P)) return false;
-  const salt = Buffer.from(parts[4], 'base64url');
-  const expected = Buffer.from(parts[5], 'base64url');
+  // 直前に parts.length === 6 を確認済み。
+  const salt = Buffer.from(parts[4]!, 'base64url');
+  const expected = Buffer.from(parts[5]!, 'base64url');
   if (salt.length !== 16 || expected.length !== 32) return false;
   try {
     const actual = scryptSync(password, salt, expected.length, { N, r: R, p: P });

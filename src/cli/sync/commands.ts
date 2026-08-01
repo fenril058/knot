@@ -155,7 +155,8 @@ function chooseFilename(dir: string, state: SyncState, pageId: string, title: st
 
 export async function runSync(argv: string[], deps: SyncDeps = {}): Promise<SyncResult> {
   try {
-    const [sub, ...rest] = argv;
+    // 既定値を置いて sub から undefined を外す。サブコマンド無しは default の usage エラーへ落ちる。
+    const [sub = '', ...rest] = argv;
     const { values, positionals } = parseArgs({
       args: rest,
       allowPositionals: true,

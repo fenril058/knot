@@ -38,6 +38,7 @@ const KNIP = `{
 
 const PKG = `{
   "scripts": {
+    "typecheck": "tsc --noEmit",
     "lint": "oxlint src public test e2e config",
     "quality": "npm run typecheck && npm run lint && npm run lint:duplicates && npm run lint:dead-code"
   }
@@ -51,7 +52,17 @@ const CI = `jobs:
       - run: npm test
 `;
 
-const BASE: Sources = { oxlint: OXLINT, jscpd: JSCPD, knip: KNIP, pkg: PKG, ci: CI };
+const TSCONFIG = `{
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "erasableSyntaxOnly": true
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}
+`;
+
+const BASE: Sources = { oxlint: OXLINT, tsconfig: TSCONFIG, jscpd: JSCPD, knip: KNIP, pkg: PKG, ci: CI };
 
 function run(head: Partial<Sources>, doc: string[] = []): string[] {
   const headSources: Sources = { ...BASE, ...head };
@@ -62,6 +73,60 @@ function run(head: Partial<Sources>, doc: string[] = []): string[] {
   ).map((v) => v.key);
   return [...new Set(keys)].toSorted();
 }
+
+void test('検査スクリプトの本文の書き換えを落とす', () => {
+  // tsconfig を凍結しても、それを使うコマンドが自由なら意味がない。
+  // --noCheck を足すだけで型検査は全部消えるが、ステップ名も lint の対象語も変わらない。
+  const cases: [string, string][] = [
+    ['tsc --noEmit', 'tsc --noEmit --noCheck'],
+    ['tsc --noEmit', 'tsc -p tsconfig.loose.json --noEmit'],
+    ['oxlint src public test e2e config', 'oxlint src public test e2e config --config .oxlintrc-loose.json'],
+  ];
+  for (const [from, to] of cases) {
+    assert.deepEqual(run({ pkg: PKG.replace(from, to) }), ['package:scripts'], to);
+  }
+});
+
+void test('承認記録がオプション名の部分文字列で別項目まで通さない', () => {
+  // 「strictNullChecks を false にする」の 1 行で strict まで承認されてはいけない。
+  const head = TSCONFIG
+    .replace('"strict": true', '"strict": false')
+    .replace('"noUncheckedIndexedAccess": true,', '"noUncheckedIndexedAccess": true,\n    "strictNullChecks": false,');
+  const doc = ['- compilerOptions の strictNullChecks を false にする'];
+  const reasons = compareGuards(
+    extractGuards(BASE, null),
+    extractGuards({ ...BASE, tsconfig: head }, null),
+    doc,
+  ).map((v) => v.reason);
+  assert.ok(
+    reasons.some((r) => r.includes('strict=true')),
+    `strict の書き換えが誤って承認されている: ${JSON.stringify(reasons)}`,
+  );
+});
+
+void test('既存オプションの値変更は「新しい値」を書けば承認される', () => {
+  // 承認記録には新しい値を書く、と docs に書いてある。旧値の内部表現を要求してはいけない。
+  const base = TSCONFIG.replace('"strict": true,', '"strict": true,\n    "target": "es2023",');
+  const head = base.replace('"target": "es2023"', '"target": "es5"');
+  const keys = compareGuards(
+    extractGuards({ ...BASE, tsconfig: base }, null),
+    extractGuards({ ...BASE, tsconfig: head }, null),
+    ['- compilerOptions の target を es5 にする'],
+  ).map((v) => v.key);
+  assert.deepEqual(keys, []);
+});
+
+void test('ネストしたオブジェクトのキー順の入れ替えでは落とさない', () => {
+  // paths のキー順に意味は無い。並べ替えただけで違反にすると誤検出になる。
+  const base = TSCONFIG.replace('"strict": true,', '"strict": true,\n    "paths": { "a": ["1"], "b": ["2"] },');
+  const head = TSCONFIG.replace('"strict": true,', '"strict": true,\n    "paths": { "b": ["2"], "a": ["1"] },');
+  const keys = compareGuards(
+    extractGuards({ ...BASE, tsconfig: base }, null),
+    extractGuards({ ...BASE, tsconfig: head }, null),
+    [],
+  ).map((v) => v.key);
+  assert.deepEqual(keys, []);
+});
 
 void test('parseJsonc は行コメント・ブロックコメントを落とし、文字列内の // は残す', () => {
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
@@ -124,6 +189,45 @@ void test('typeAware の無効化を落とす（型情報つきルールが一�
   assert.deepEqual(run({ oxlint: OXLINT.replace('"typeAware": true', '"typeAware": false') }), ['oxlint:typeAware']);
 });
 
+void test('exclude の追加による検査対象の縮小を落とす', () => {
+  // include を縮めなくても exclude を足せば同じことができる。
+  const head = TSCONFIG.replace('"compilerOptions": {', '"exclude": ["src/cli/**"],\n  "compilerOptions": {');
+  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:exclude']);
+});
+
+void test('extends の新設を落とす（継承元の設定は解決しないため）', () => {
+  // 継承元に noCheck を置けばルート側は無変更に見える。解決しない以上 extends 自体を止める。
+  const head = TSCONFIG.replace('{\n  "compilerOptions"', '{\n  "extends": "./base.json",\n  "compilerOptions"');
+  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:noExtends']);
+});
+
+void test('一覧に無いオプションの新設を落とす（compilerOptions の凍結）', () => {
+  // 危険なオプションの列挙は漏れる。noUncheckedSideEffectImports と allowUmdGlobalAccess は
+  // どちらも既定値に頼っていたものを明示して倒す形で、一覧には無い。
+  for (const added of ['"noUncheckedSideEffectImports": false', '"allowUmdGlobalAccess": true']) {
+    const head = TSCONFIG.replace('"strict": true,', `"strict": true,\n    ${added},`);
+    assert.deepEqual(run({ tsconfig: head }), ['tsconfig:compilerOptions'], added);
+  }
+});
+
+void test('既存オプションの値の書き換えを落とす（凍結）', () => {
+  // 一覧に無く boolean でもない値でも、書き換われば落ちる。
+  const base = TSCONFIG.replace('"strict": true,', '"strict": true,\n    "target": "es2023",');
+  const head = base.replace('"target": "es2023"', '"target": "es5"');
+  const keys = compareGuards(
+    extractGuards({ ...BASE, tsconfig: base }, null),
+    extractGuards({ ...BASE, tsconfig: head }, null),
+    [],
+  ).map((v) => v.key);
+  assert.deepEqual([...new Set(keys)].toSorted(), ['tsconfig:compilerOptions']);
+});
+
+void test('記録行があれば compilerOptions の変更を通す', () => {
+  const head = TSCONFIG.replace('"strict": true,', '"strict": true,\n    "allowUmdGlobalAccess": true,');
+  const doc = ['- compilerOptions に allowUmdGlobalAccess を足す'];
+  assert.deepEqual(run({ tsconfig: head }, doc), []);
+});
+
 void test('型情報つきルールの移行用の例外リストにファイルを足すのを落とす', () => {
   // 足したファイル（src/b.ts）の実効値が base の root（error）から off へ緩むので違反になる。
   const base = OXLINT.replace('"overrides": [', '"overrides": [\n    { "files": ["src/a.ts"], "rules": { "typescript/no-explicit-any": "off" } },');
@@ -171,11 +275,11 @@ void test('knip の検査対象の縮小を落とす', () => {
 });
 
 void test('lint の検査対象ディレクトリの削減を落とす', () => {
-  assert.deepEqual(run({ pkg: PKG.replace('oxlint src public test e2e config', 'oxlint src public config') }), ['package:lintTargets']);
+  assert.deepEqual(run({ pkg: PKG.replace('oxlint src public test e2e config', 'oxlint src public config') }), ['package:scripts']);
 });
 
 void test('quality スクリプトからの検査削除を落とす', () => {
-  assert.deepEqual(run({ pkg: PKG.replace(' && npm run lint:duplicates', '') }), ['package:qualitySteps']);
+  assert.deepEqual(run({ pkg: PKG.replace(' && npm run lint:duplicates', '') }), ['package:scripts']);
 });
 
 void test('CI から検査ステップを外すのを落とす', () => {

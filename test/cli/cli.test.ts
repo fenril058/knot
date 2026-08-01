@@ -46,7 +46,7 @@ void test('export --out はファイルに書き、reindex は未知プロジェ
   const exp = JSON.parse(
     (await import('node:fs')).readFileSync(outFile, 'utf8'),
   ) as { pages: { lines: unknown[] }[] };
-  assert.equal(typeof exp.pages[0].lines[0], 'string');
+  assert.equal(typeof exp.pages[0]!.lines[0], 'string');
   await assert.rejects(runReindex(dir, 'nope'), /unknown project/);
 });
 

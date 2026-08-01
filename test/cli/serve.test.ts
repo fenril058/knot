@@ -36,7 +36,7 @@ void test('knot serve が起動し、未認証 401 → ログイン → ペー�
     assert.equal(login.status, 200);
     // loopback の http 起動では secureCookie: 'auto' が false に解決される
     assert.doesNotMatch(login.headers.get('set-cookie')!, /secure/i);
-    const cookie = login.headers.get('set-cookie')!.split(';')[0];
+    const cookie = login.headers.get('set-cookie')!.split(';')[0]!;
 
     const put = await fetch(`${base}/api/knot/pages/proj/Hello/text`, {
       method: 'PUT',

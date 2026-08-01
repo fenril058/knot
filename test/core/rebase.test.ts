@@ -40,7 +40,7 @@ void test('編集した行が削除されていたら同じ ID で復活する',
   const latest = mk(['a', 't'], ['c', 'z']);
   const out = apply(latest, rebase(base, local, latest));
   assert.deepEqual(texts(out), ['t', 'x-mine', 'z']);
-  assert.equal(out[1].id, 'b');
+  assert.equal(out[1]!.id, 'b');
 });
 
 void test('触っていない行の削除は受け入れる', () => {
@@ -78,7 +78,7 @@ void test('プロパティ: ローカルの全編集が生き残り、他者だ�
       const out = src.map((l) => ({ ...l }));
       const action = rnd();
       const at = Math.floor(rnd() * out.length);
-      if (action < 0.4 && out.length > 0) out[at] = { ...out[at], text: `${out[at].text}-${tag}` };
+      if (action < 0.4 && out.length > 0) out[at] = { ...out[at]!, text: `${out[at]!.text}-${tag}` };
       else if (action < 0.7 && out.length > 1) out.splice(at, 1);
       else out.splice(at, 0, { id: `${tag}${round}`, text: `added-${tag}${round}`, created: 1, updated: 1, updatedVersion: 1, userId: 'u' });
       return out;
@@ -128,10 +128,10 @@ void test('プロパティ: 同一行を両者が触る競合が規則どおり�
     const localKind = rnd() < 0.5 ? 'update' : 'delete';
     const latestKind = rnd() < 0.5 ? 'update' : 'delete';
     const local = base.map((l) => ({ ...l }));
-    if (localKind === 'update') local[target] = { ...local[target], text: 'mine' };
+    if (localKind === 'update') local[target] = { ...local[target]!, text: 'mine' };
     else local.splice(target, 1);
     const latest = base.map((l) => ({ ...l }));
-    if (latestKind === 'update') latest[target] = { ...latest[target], text: 'theirs' };
+    if (latestKind === 'update') latest[target] = { ...latest[target]!, text: 'theirs' };
     else latest.splice(target, 1);
     const merged = apply(latest, rebase(base, local, latest));
     const found = merged.find((m) => m.id === `B${target}`);

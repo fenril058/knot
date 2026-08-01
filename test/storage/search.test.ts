@@ -27,9 +27,9 @@ void test('3 文字以上は FTS で全文検索し、一致行を返す', async
   const { storage, project } = await setup();
   const hits = await storage.search(project.id, '設計書');
   assert.equal(hits.length, 1);
-  assert.equal(hits[0].pageId, 'pg1');
-  assert.equal(hits[0].title, 'knot 設計書');
-  assert.deepEqual(hits[0].lines, ['knot 設計書']);
+  assert.equal(hits[0]!.pageId, 'pg1');
+  assert.equal(hits[0]!.title, 'knot 設計書');
+  assert.deepEqual(hits[0]!.lines, ['knot 設計書']);
   await storage.close();
 });
 
@@ -38,8 +38,8 @@ void test('3 文字未満は LIKE フォールバックで見つかる', async (
   // FTS(trigram) では 2 文字クエリは 0 件になる（Task 1 で実測済み）
   const hits = await storage.search(project.id, '設計');
   assert.equal(hits.length, 1);
-  assert.equal(hits[0].pageId, 'pg1');
-  assert.deepEqual(hits[0].lines, ['knot 設計書', '検索の設計を書く']);
+  assert.equal(hits[0]!.pageId, 'pg1');
+  assert.deepEqual(hits[0]!.lines, ['knot 設計書', '検索の設計を書く']);
   await storage.close();
 });
 
