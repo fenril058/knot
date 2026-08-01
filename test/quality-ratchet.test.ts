@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { execFileSync } from 'node:child_process';
-import { compareGuards, extractGuards, parseJsonc, STRICT_SUBFLAGS, type Sources } from '../scripts/quality-ratchet.ts';
+import { compareGuards, extractGuards, parseJsonc, type Sources } from '../scripts/quality-ratchet.ts';
 
 const OXLINT = `{
   // 移行用の上限
@@ -89,12 +88,20 @@ void test('検査スクリプトの本文の書き換えを落とす', () => {
 });
 
 void test('承認記録がオプション名の部分文字列で別項目まで通さない', () => {
-  // 「strictNullChecks を外す」の 1 行で strict まで承認されてはいけない。
+  // 「strictNullChecks を false にする」の 1 行で strict まで承認されてはいけない。
   const head = TSCONFIG
     .replace('"strict": true', '"strict": false')
     .replace('"noUncheckedIndexedAccess": true,', '"noUncheckedIndexedAccess": true,\n    "strictNullChecks": false,');
   const doc = ['- compilerOptions の strictNullChecks を false にする'];
-  assert.ok(run({ tsconfig: head }, doc).includes('tsconfig:strict'), 'strict が誤って承認されている');
+  const reasons = compareGuards(
+    extractGuards(BASE, null),
+    extractGuards({ ...BASE, tsconfig: head }, null),
+    doc,
+  ).map((v) => v.reason);
+  assert.ok(
+    reasons.some((r) => r.includes('strict=true')),
+    `strict の書き換えが誤って承認されている: ${JSON.stringify(reasons)}`,
+  );
 });
 
 void test('既存オプションの値変更は「新しい値」を書けば承認される', () => {
@@ -182,105 +189,16 @@ void test('typeAware の無効化を落とす（型情報つきルールが一�
   assert.deepEqual(run({ oxlint: OXLINT.replace('"typeAware": true', '"typeAware": false') }), ['oxlint:typeAware']);
 });
 
-void test('noUncheckedIndexedAccess の無効化を落とす（添字アクセスの検査が消える）', () => {
-  const head = TSCONFIG.replace('"noUncheckedIndexedAccess": true', '"noUncheckedIndexedAccess": false');
-  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:compilerOptions', 'tsconfig:noUncheckedIndexedAccess']);
-});
-
-void test('strict の無効化と include の縮小を落とす', () => {
-  const head = TSCONFIG
-    .replace('"strict": true', '"strict": false')
-    .replace('"src/**/*.ts", "test/**/*.ts"', '"src/**/*.ts"');
-  // strict を落とすと、そこから値を継いでいる sub-flag もまとめて違反になる。
-  assert.deepEqual(run({ tsconfig: head }), [
-    'tsconfig:alwaysStrict',
-    'tsconfig:compilerOptions',
-    'tsconfig:include',
-    'tsconfig:noImplicitAny',
-    'tsconfig:noImplicitThis',
-    'tsconfig:strict',
-    'tsconfig:strictBindCallApply',
-    'tsconfig:strictBuiltinIteratorReturn',
-    'tsconfig:strictFunctionTypes',
-    'tsconfig:strictNullChecks',
-    'tsconfig:strictPropertyInitialization',
-    'tsconfig:useUnknownInCatchVariables',
-  ]);
-});
-
-void test('strict を立てたまま sub-flag だけ落とすのを落とす', () => {
-  // strict: true でも strictNullChecks: false を明示すると null 検査が消える。
-  const head = TSCONFIG.replace('"strict": true,', '"strict": true,\n    "strictNullChecks": false,');
-  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:compilerOptions', 'tsconfig:strictNullChecks']);
-});
-
 void test('exclude の追加による検査対象の縮小を落とす', () => {
   // include を縮めなくても exclude を足せば同じことができる。
   const head = TSCONFIG.replace('"compilerOptions": {', '"exclude": ["src/cli/**"],\n  "compilerOptions": {');
   assert.deepEqual(run({ tsconfig: head }), ['tsconfig:exclude']);
 });
 
-void test('noCheck による型検査の丸ごと無効化を落とす', () => {
-  // noCheck: true は tsc を exit 0 にする。strict 系を残したままでも検査は消える。
-  const head = TSCONFIG.replace('"strict": true,', '"strict": true,\n    "noCheck": true,');
-  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:compilerOptions', 'tsconfig:noCheck']);
-});
-
-void test('strictBuiltinIteratorReturn の個別無効化を落とす', () => {
-  const head = TSCONFIG.replace('"strict": true,', '"strict": true,\n    "strictBuiltinIteratorReturn": false,');
-  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:compilerOptions', 'tsconfig:strictBuiltinIteratorReturn']);
-});
-
 void test('extends の新設を落とす（継承元の設定は解決しないため）', () => {
   // 継承元に noCheck を置けばルート側は無変更に見える。解決しない以上 extends 自体を止める。
   const head = TSCONFIG.replace('{\n  "compilerOptions"', '{\n  "extends": "./base.json",\n  "compilerOptions"');
   assert.deepEqual(run({ tsconfig: head }), ['tsconfig:noExtends']);
-});
-
-void test('outDir による検査対象の暗黙の縮小を落とす', () => {
-  // TypeScript は outDir 配下を暗黙に exclude する。include を書き換えずに
-  // "outDir": "test" と足すだけで test 配下が型検査から外れる。
-  const head = TSCONFIG.replace('"strict": true,', '"strict": true,\n    "outDir": "test",');
-  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:compilerOptions', 'tsconfig:noOutDir']);
-});
-
-void test('declarationDir による検査対象の暗黙の縮小を落とす', () => {
-  const head = TSCONFIG.replace('"strict": true,', '"strict": true,\n    "declarationDir": "test",');
-  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:compilerOptions', 'tsconfig:noDeclarationDir']);
-});
-
-void test('STRICT_SUBFLAGS が strict 系フラグを取りこぼしていない', () => {
-  // TypeScript の更新で strict 系が増えると、増えた分は無監視になる。
-  // tsc の help から「strict が false でない限り true」のオプションを取り、実装と突き合わせる。
-  const help = execFileSync('tsc', ['--help', '--all', '--pretty', 'false'], {
-    encoding: 'utf8',
-    env: { ...process.env, PATH: `${new URL('../node_modules/.bin', import.meta.url).pathname}:${process.env.PATH ?? ''}` },
-  });
-  const fromHelp = new Set<string>();
-  let current = '';
-  for (const raw of help.split('\n')) {
-    const name = /^--([a-zA-Z]+)\s*$/.exec(raw.trim());
-    if (name) current = name[1]!;
-    else if (/unless .?strict.? is/.test(raw) && current !== '') {
-      fromHelp.add(current);
-      current = '';
-    }
-  }
-  // 書式が変わってパースが空振りしたら、突き合わせが素通りするので先に落とす。
-  assert.ok(fromHelp.size > 0, 'tsc --help から strict 系フラグを 1 つも取れなかった');
-  const guarded = new Set(STRICT_SUBFLAGS);
-  const missing = [...fromHelp].filter((name) => !guarded.has(name)).toSorted();
-  assert.deepEqual(missing, [], `STRICT_SUBFLAGS に足りないフラグ: ${missing.join(', ')}`);
-  // 逆向きも見る。片方向だと、既存フラグの help 表記だけが変わったときに
-  // fromHelp から落ちても missing が空のままで気づけない。
-  // alwaysStrict は help 上 "default: true" としか出ず抽出されないので除く。
-  const stale = [...guarded].filter((name) => name !== 'alwaysStrict' && !fromHelp.has(name)).toSorted();
-  assert.deepEqual(stale, [], `help から取れなくなったフラグ: ${stale.join(', ')}`);
-});
-
-void test('erasableSyntaxOnly の無効化を落とす', () => {
-  const head = TSCONFIG.replace('"erasableSyntaxOnly": true', '"erasableSyntaxOnly": false');
-  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:compilerOptions', 'tsconfig:erasableSyntaxOnly']);
 });
 
 void test('一覧に無いオプションの新設を落とす（compilerOptions の凍結）', () => {

@@ -63,57 +63,34 @@ union の分岐は `as` ではなく網羅 `switch` で書く。網羅してい�
 - 数値上限の引き上げ（`.oxlintrc.json` の root と override、`.jscpd.json` の `threshold` / `minLines` / `minTokens`）
 - severity の格下げ・無効化（`warn`、`off`、`categories` の格下げ、ルール定義の削除）
 - 緩い `overrides` の新設（既存 override の削除は root の値へ戻るので許可する）
-- 検査対象の縮小（`ignorePatterns` の追加、`jscpd` の `pattern` 縮小・`ignore` 追加、`knip` の `entry` / `project` 縮小、`tsconfig.json` の `include` 縮小・`exclude` 追加・`outDir` / `declarationDir` の新設）
-- 検査そのものの取り外し（`sonarjs` プラグイン、`options.typeAware`、`tsconfig.json` の `strict` / `noUncheckedIndexedAccess` / `erasableSyntaxOnly` / `noCheck`、`knip` の `includeEntryExports`、CI の `run` ステップ）
+- 検査対象の縮小（`ignorePatterns` の追加、`jscpd` の `pattern` 縮小・`ignore` 追加、`knip` の `entry` / `project` 縮小、`tsconfig.json` の `include` 縮小・`exclude` 追加）
+- 検査そのものの取り外し（`sonarjs` プラグイン、`options.typeAware`、`knip` の `includeEntryExports`、CI の `run` ステップ）
+- `tsconfig.json` の `compilerOptions` の変更（内容を問わず。下記の凍結）
 - 検査スクリプト本文の書き換え（`package.json` の `typecheck` / `lint` / `lint:duplicates` / `lint:dead-code` / `quality`）
 
-### tsconfig の緩和経路
+### tsconfig の凍結
 
-型検査は 1 つのフラグでは守れない。ガードは `scripts/quality-ratchet.ts` の 4 つの
-一覧に集約してあり、**緩和経路が見つかったら対応する一覧に足す**。
+型検査は 1 つのフラグでは守れない。`strict: true` のまま `strictNullChecks: false` を
+明示する、`noCheck: true` を足す、`outDir` で対象を暗黙に縮める、といった経路が
+いくらでもある。危険なオプションを列挙する方式では取りこぼす（実際
+`noCheck` / `outDir` / `erasableSyntaxOnly` / `noUncheckedSideEffectImports` /
+`allowUmdGlobalAccess` はいずれもレビューで後から見つかった）。
 
-| 一覧 | 求めること | 現在の対象 |
-| --- | --- | --- |
-| `STRICT_SUBFLAGS` | 実効値が `true` | `strict` が束ねる個別フラグ |
-| `REQUIRED_TRUE_OPTIONS` | `true` の維持 | `noUncheckedIndexedAccess`、`erasableSyntaxOnly` |
-| `FORBIDDEN_OPTIONS` | 不在または `false` | `noCheck`、`outDir`、`declarationDir` |
-| （個別） | — | `extends`、`include`、`exclude` |
+そのため `compilerOptions` は**凍結**してある。緩和はどれも「既定値に頼っていた
+オプションを明示して倒す」か「既存の値を書き換える」形になるので、次の 2 つで足りる。
 
-`strict` は個別フラグの束なので、`strict: true` のまま `strictNullChecks: false` を
-明示すれば検査を外せる。そのためラチェットは `strict` の値ではなく、
-個別フラグの**実効値**（明示があればそれ、無ければ `strict` を継ぐ）を見る。
-TypeScript の更新で strict 系が増えると取りこぼすため、`tsc --help --all` の出力と
-`STRICT_SUBFLAGS` を突き合わせるテストを置いてある。
+- 値の変更・削除（`supersets`）
+- オプション名の追加（`subsets`）
 
-`noCheck: true` は strict 系とは独立に型検査そのものを黙らせ、`tsc` を exit 0 にする。
+**`compilerOptions` を触る変更は、内容を問わずこの文書への記録を要する。**
 
-`outDir` と `declarationDir` は、その配下が既定の `exclude` に足される。
-`include` を書き換えずに `"outDir": "test"` と足すだけで `test/` 配下が検査から外れる。
-このリポジトリは `noEmit` なのでどちらも用途が無く、新設自体を違反にしている。
+`paths` のようにキー順へ意味が無い値は、キーを揃えてから比較する。
+並べ替えただけでは落ちない。配列の順序は意味を持つので保つ。
 
 `extends` は**解決していない**。継承元に `noCheck` を置けばルート側は無変更に見えるため、
 実効設定を判定できない。そのため `extends` の新設自体を違反として落とす。
 tsconfig を分割したくなった場合は、この文書に記録して通したうえで、
 継承元を読むようにガードを設計し直すこと。
-
-#### compilerOptions の凍結
-
-上の一覧は「何を守っているか」を示すもので、**網羅はしていない**。実際
-`noCheck` / `outDir` / `erasableSyntaxOnly` / `noUncheckedSideEffectImports` /
-`allowUmdGlobalAccess` はいずれもレビューで後から見つかった。危険なオプションを
-列挙し続ける限り取りこぼすため、網羅は別の層で担保する。
-
-`compilerOptions` は凍結してある。緩和はどれも「既定値に頼っていたオプションを
-明示して倒す」か「既存の値を書き換える」形になるので、次の 2 つで足りる。
-
-- 値の変更・削除（`supersets`）
-- オプション名の追加（`subsets`）
-
-そのため **`tsconfig.json` の `compilerOptions` を触る変更は、内容を問わず
-この文書への記録を要する**。
-
-`paths` のようにキー順へ意味が無い値は、キーを揃えてから比較する。
-並べ替えただけでは落ちない。配列の順序は意味を持つので保つ。
 
 ### 検査スクリプトの凍結
 
