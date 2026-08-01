@@ -22,9 +22,7 @@
           packages = with pkgs; [
             jdk
             just
-            pinact
             zizmor
-            ghalint
             actionlint
             typescript-language-server
             biome
@@ -40,6 +38,14 @@
 
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
           PLAYWRIGHT_BROWSERS_PATH = "${playwrightBrowsers}";
+        };
+
+        devShells.workflow = pkgs.mkShell {
+          packages = with pkgs; [
+            actionlint
+            ghalint
+            zizmor
+          ];
         };
       }
     );
