@@ -105,15 +105,13 @@ direnv exec . node src/cli/main.ts sync status --dir ./wiki --remote
 
 ## E2E テスト（Playwright）
 
-初回のみブラウザバイナリを導入する（flake.nix が `PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"` を設定済み）。
+Playwright が使用する Chromium は Nix shell に含まれる。
 
 ```sh
-direnv exec . npx playwright install chromium
 direnv exec . npm run test:e2e
 ```
 
 `test:e2e` は一時 data dir に seed した専用サーバ（`e2e/server.ts`）を自動起動し、`npm run build:client` を前段で実行する。
-ホストの libc で chromium が動かない環境（純 NixOS 等）では、nixpkgs の `playwright-driver.browsers` に切り替えて `PLAYWRIGHT_BROWSERS_PATH` をそこへ向ける。
 
 ## 既知の先送り最適化
 

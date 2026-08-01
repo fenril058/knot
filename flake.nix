@@ -12,6 +12,10 @@
         pkgs = nixpkgs.legacyPackages.${system};
         inherit (pkgs) importNpmLock;
         nodejs = pkgs.nodejs_24;
+        playwrightBrowsers = pkgs.playwright-driver.browsers.override {
+          withFirefox = false;
+          withWebkit = false;
+        };
       in
       {
         devShells.default = pkgs.mkShell {
@@ -34,10 +38,8 @@
             inherit nodejs;
           };
 
-          postShellHook = ''
-            export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-            export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
-          '';
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
+          PLAYWRIGHT_BROWSERS_PATH = "${playwrightBrowsers}";
         };
       }
     );
