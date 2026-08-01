@@ -250,18 +250,21 @@ export function extractGuards(sources: Sources, otherOxlint: string | null): Gua
   return guards;
 }
 
+// 識別子の一部とみなす文字。英数字・_ に加えて -・.・/ も含める
+// （max-lines-per-function や knip:entry のような名前を 1 語として扱うため）。
+function isWordChar(c: string): boolean {
+  return c !== '' && /[\w\-./]/.test(c);
+}
+
 // 識別子として「単語ひとつ」で現れているか。部分文字列一致だと、strictNullChecks を
-// 名指しした 1 行が strict まで承認してしまう。英数字・_・-・. ・/ を語の一部とみなす。
+// 名指しした 1 行が strict まで承認してしまう。
 function mentionsToken(line: string, token: string): boolean {
   if (token === '') return false;
   let from = 0;
   for (;;) {
     const at = line.indexOf(token, from);
     if (at === -1) return false;
-    const before = line[at - 1] ?? '';
-    const after = line[at + token.length] ?? '';
-    const isWordChar = (c: string): boolean => c !== '' && /[\w\-./]/.test(c);
-    if (!isWordChar(before) && !isWordChar(after)) return true;
+    if (!isWordChar(line[at - 1] ?? '') && !isWordChar(line[at + token.length] ?? '')) return true;
     from = at + 1;
   }
 }
