@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { compareGuards, extractGuards, parseJsonc, type Sources } from '../scripts/quality-ratchet.ts';
+import { execFileSync } from 'node:child_process';
+import { compareGuards, extractGuards, parseJsonc, STRICT_SUBFLAGS, type Sources } from '../scripts/quality-ratchet.ts';
 
 const OXLINT = `{
   // 移行用の上限
@@ -54,7 +55,8 @@ const CI = `jobs:
 const TSCONFIG = `{
   "compilerOptions": {
     "strict": true,
-    "noUncheckedIndexedAccess": true
+    "noUncheckedIndexedAccess": true,
+    "erasableSyntaxOnly": true
   },
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }
@@ -185,6 +187,47 @@ void test('extends の新設を落とす（継承元の設定は解決しない�
   // 継承元に noCheck を置けばルート側は無変更に見える。解決しない以上 extends 自体を止める。
   const head = TSCONFIG.replace('{\n  "compilerOptions"', '{\n  "extends": "./base.json",\n  "compilerOptions"');
   assert.deepEqual(run({ tsconfig: head }), ['tsconfig:noExtends']);
+});
+
+void test('outDir による検査対象の暗黙の縮小を落とす', () => {
+  // TypeScript は outDir 配下を暗黙に exclude する。include を書き換えずに
+  // "outDir": "test" と足すだけで test 配下が型検査から外れる。
+  const head = TSCONFIG.replace('"strict": true,', '"strict": true,\n    "outDir": "test",');
+  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:noOutDir']);
+});
+
+void test('declarationDir による検査対象の暗黙の縮小を落とす', () => {
+  const head = TSCONFIG.replace('"strict": true,', '"strict": true,\n    "declarationDir": "test",');
+  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:noDeclarationDir']);
+});
+
+void test('STRICT_SUBFLAGS が strict 系フラグを取りこぼしていない', () => {
+  // TypeScript の更新で strict 系が増えると、増えた分は無監視になる。
+  // tsc の help から「strict が false でない限り true」のオプションを取り、実装と突き合わせる。
+  const help = execFileSync('tsc', ['--help', '--all', '--pretty', 'false'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${new URL('../node_modules/.bin', import.meta.url).pathname}:${process.env.PATH ?? ''}` },
+  });
+  const fromHelp = new Set<string>();
+  let current = '';
+  for (const raw of help.split('\n')) {
+    const name = /^--([a-zA-Z]+)\s*$/.exec(raw.trim());
+    if (name) current = name[1]!;
+    else if (/unless .?strict.? is/.test(raw) && current !== '') {
+      fromHelp.add(current);
+      current = '';
+    }
+  }
+  // 書式が変わってパースが空振りしたら、突き合わせが素通りするので先に落とす。
+  assert.ok(fromHelp.size > 0, 'tsc --help から strict 系フラグを 1 つも取れなかった');
+  const guarded = new Set(STRICT_SUBFLAGS);
+  const missing = [...fromHelp].filter((name) => !guarded.has(name)).toSorted();
+  assert.deepEqual(missing, [], `STRICT_SUBFLAGS に足りないフラグ: ${missing.join(', ')}`);
+});
+
+void test('erasableSyntaxOnly の無効化を落とす', () => {
+  const head = TSCONFIG.replace('"erasableSyntaxOnly": true', '"erasableSyntaxOnly": false');
+  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:erasableSyntaxOnly']);
 });
 
 void test('型情報つきルールの移行用の例外リストにファイルを足すのを落とす', () => {

@@ -167,7 +167,7 @@ function addOxlintGuards(guards: Guards, config: Record<string, unknown>, scopes
 
 // strict が束ねる個別フラグ。strict: true のまま 1 つだけ false を明示すると、
 // strict だけを見るガードは素通りしてしまうため、実効値を個別に見る。
-const STRICT_SUBFLAGS = [
+export const STRICT_SUBFLAGS = [
   'noImplicitAny',
   'noImplicitThis',
   'alwaysStrict',
@@ -179,14 +179,30 @@ const STRICT_SUBFLAGS = [
   'useUnknownInCatchVariables',
 ];
 
+// strict には含まれないが、落とすと検査が緩む boolean オプション。true の維持を求める。
+const REQUIRED_TRUE_OPTIONS = [
+  // 落とすと添字アクセスが T になり、lines[i]! の ! が無意味になる
+  // （no-unnecessary-type-assertion が一斉に外せと言い出す）。
+  'noUncheckedIndexedAccess',
+  // 落とすと enum や namespace など、消去だけでは実行できない構文が通るようになる。
+  'erasableSyntaxOnly',
+];
+
+// 付けると検査が消えるか、検査対象が暗黙に縮むオプション。無効か不在であることを求める。
+// outDir と declarationDir は、その配下が既定の exclude に足される（include を
+// 書き換えずに "outDir": "test" と足すだけで test 配下が検査から外れる）。
+const FORBIDDEN_OPTIONS: { name: string; key: string }[] = [
+  { name: 'noCheck', key: 'tsconfig:noCheck' },
+  { name: 'outDir', key: 'tsconfig:noOutDir' },
+  { name: 'declarationDir', key: 'tsconfig:noDeclarationDir' },
+];
+
 function addTsconfigGuards(guards: Guards, config: Record<string, unknown>): void {
   const options = asRecord(config.compilerOptions);
   const strict = options.strict === true;
   // 継承元は読まないので、extends があると実効設定を判定できない
   // （継承元に noCheck を置けばルート側は無変更に見える）。extends の新設自体を止める。
   guards.flags.set('tsconfig:noExtends', config.extends === undefined);
-  // noCheck は型検査そのものを黙らせ、tsc を exit 0 にする。strict 系とは独立に効く。
-  guards.flags.set('tsconfig:noCheck', options.noCheck !== true);
   // strict を落とすと型検査が一斉に緩む。
   guards.flags.set('tsconfig:strict', strict);
   for (const name of STRICT_SUBFLAGS) {
@@ -194,9 +210,14 @@ function addTsconfigGuards(guards: Guards, config: Record<string, unknown>): voi
     const explicit = options[name];
     guards.flags.set(`tsconfig:${name}`, explicit === undefined ? strict : explicit === true);
   }
-  // これを落とすと添字アクセスが T になり、lines[i]! の ! が無意味になる
-  // （no-unnecessary-type-assertion が一斉に外せと言い出す）。strict には含まれない。
-  guards.flags.set('tsconfig:noUncheckedIndexedAccess', options.noUncheckedIndexedAccess === true);
+  for (const name of REQUIRED_TRUE_OPTIONS) {
+    guards.flags.set(`tsconfig:${name}`, options[name] === true);
+  }
+  for (const { name, key } of FORBIDDEN_OPTIONS) {
+    // 不在か、明示的に無効。noCheck: false と outDir 未指定のどちらも安全側に入る。
+    const value = options[name];
+    guards.flags.set(key, value === undefined || value === false);
+  }
   guards.supersets.set('tsconfig:include', asStringArray(config.include));
   // include を縮めなくても exclude を足せば検査対象を減らせる。
   guards.subsets.set('tsconfig:exclude', asStringArray(config.exclude));
