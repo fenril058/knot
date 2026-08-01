@@ -651,6 +651,7 @@ export class SqliteStorage implements Storage {
       }
       const oldTitleLc = row.title_lc;
 
+      // ページが存在する以上タイトル行は必ず残っている（コミットは 1 行以上を保証する）。
       const lines = this.#getLines(pageId);
       const titleCommit = this.#applyCommit({
         projectId, pageId, commitId: ulid(now * 1000), baseVersion,
@@ -675,6 +676,7 @@ export class SqliteStorage implements Storage {
           const srcLines = this.#getLines(source.id);
           const changes = rewritePageLinks(srcLines.map((l) => l.text), oldTitleLc, newTitle);
           const ops: LineOp[] = [];
+          // changes は srcLines を map した結果なので添字が対応する。
           changes.forEach((text, i) => {
             if (text !== null) ops.push({ type: 'update', id: srcLines[i]!.id, text });
           });
@@ -730,6 +732,7 @@ export class SqliteStorage implements Storage {
     const deleted = newLines.length === 0;
     // 新規作成はタイトル行が残る最初のコミットでなければならない（スペック「行操作とコミット」）
     if (!row && deleted) throw new BadCommitError('page creation must leave at least one line');
+    // deleted が false なので newLines は 1 行以上ある。
     const newTitle = deleted ? (row ? row.title : '') : newLines[0]!.text;
     const newTitleLc = titleLc(newTitle);
 
@@ -833,6 +836,7 @@ export class SqliteStorage implements Storage {
 
       if (existing && onConflict === 'skip') return { kind: 'skipped' as const, pageId: existing.id };
 
+      // i === 0 を先に分岐しているので lines[i - 1] は範囲内。
       const insertOps: LineOp[] = lines.map((l, i) => ({
         type: 'insert' as const,
         id: l.id,

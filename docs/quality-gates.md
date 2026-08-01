@@ -49,6 +49,10 @@ union の分岐は `as` ではなく網羅 `switch` で書く。網羅してい�
 範囲内であることがループ不変条件などから明らかな箇所は `!` を付け、なぜ範囲内なのかを
 コメントに書く。根拠が書けない箇所は `!` ではなく `?? 既定値` か明示的な検査で扱う。
 
+`!` は「範囲内である」という主張なので、主張が偽になりうる入力を関数が受け付けるなら
+`!` を付ける前に入力側で弾く。`ulid()` は時刻部分が 48 bit に収まらない `now` を
+`RangeError` で落とす（以前は添字が外れて `'undefined'` を含む ID を黙って返していた）。
+
 ## ラチェット
 
 上限を超えれば CI が落ちるが、それだけでは「上限そのものを引き上げる」変更が素通りする。
@@ -59,8 +63,12 @@ union の分岐は `as` ではなく網羅 `switch` で書く。網羅してい�
 - 数値上限の引き上げ（`.oxlintrc.json` の root と override、`.jscpd.json` の `threshold` / `minLines` / `minTokens`）
 - severity の格下げ・無効化（`warn`、`off`、`categories` の格下げ、ルール定義の削除）
 - 緩い `overrides` の新設（既存 override の削除は root の値へ戻るので許可する）
-- 検査対象の縮小（`ignorePatterns` の追加、`jscpd` の `pattern` 縮小・`ignore` 追加、`knip` の `entry` / `project` 縮小、`tsconfig.json` の `include` 縮小、`npm run lint` の対象ディレクトリ削減）
+- 検査対象の縮小（`ignorePatterns` の追加、`jscpd` の `pattern` 縮小・`ignore` 追加、`knip` の `entry` / `project` 縮小、`tsconfig.json` の `include` 縮小・`exclude` 追加、`npm run lint` の対象ディレクトリ削減）
 - 検査そのものの取り外し（`sonarjs` プラグイン、`options.typeAware`、`tsconfig.json` の `strict` と `noUncheckedIndexedAccess`、`knip` の `includeEntryExports`、`quality` スクリプトの構成、CI の `run` ステップ）
+
+`strict` は個別フラグの束なので、`strict: true` のまま `strictNullChecks: false` を
+明示すれば検査を外せる。そのためラチェットは `strict` の値ではなく、
+個別フラグの**実効値**（明示があればそれ、無ければ `strict` を継ぐ）を見る。
 
 base ref は、PR では対象ブランチ、push では直前の tip（`event.before`）を使う。
 force-push とブランチの初回 push では `event.before` を解決できないため、既定ブランチとの

@@ -165,14 +165,35 @@ function addOxlintGuards(guards: Guards, config: Record<string, unknown>, scopes
   guards.subsets.set('oxlint:ignorePatterns', asStringArray(config.ignorePatterns));
 }
 
+// strict が束ねる個別フラグ。strict: true のまま 1 つだけ false を明示すると、
+// strict だけを見るガードは素通りしてしまうため、実効値を個別に見る。
+const STRICT_SUBFLAGS = [
+  'noImplicitAny',
+  'noImplicitThis',
+  'alwaysStrict',
+  'strictNullChecks',
+  'strictFunctionTypes',
+  'strictBindCallApply',
+  'strictPropertyInitialization',
+  'useUnknownInCatchVariables',
+];
+
 function addTsconfigGuards(guards: Guards, config: Record<string, unknown>): void {
   const options = asRecord(config.compilerOptions);
+  const strict = options.strict === true;
   // strict を落とすと型検査が一斉に緩む。
-  guards.flags.set('tsconfig:strict', options.strict === true);
+  guards.flags.set('tsconfig:strict', strict);
+  for (const name of STRICT_SUBFLAGS) {
+    // 明示があればそれが勝ち、無ければ strict の値を継ぐ（tsc の解決と同じ）。
+    const explicit = options[name];
+    guards.flags.set(`tsconfig:${name}`, explicit === undefined ? strict : explicit === true);
+  }
   // これを落とすと添字アクセスが T になり、lines[i]! の ! が無意味になる
-  // （no-unnecessary-type-assertion が一斉に外せと言い出す）。
+  // （no-unnecessary-type-assertion が一斉に外せと言い出す）。strict には含まれない。
   guards.flags.set('tsconfig:noUncheckedIndexedAccess', options.noUncheckedIndexedAccess === true);
   guards.supersets.set('tsconfig:include', asStringArray(config.include));
+  // include を縮めなくても exclude を足せば検査対象を減らせる。
+  guards.subsets.set('tsconfig:exclude', asStringArray(config.exclude));
 }
 
 function addJscpdGuards(guards: Guards, config: Record<string, unknown>): void {

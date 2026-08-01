@@ -142,7 +142,31 @@ void test('strict の無効化と include の縮小を落とす', () => {
   const head = TSCONFIG
     .replace('"strict": true', '"strict": false')
     .replace('"src/**/*.ts", "test/**/*.ts"', '"src/**/*.ts"');
-  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:include', 'tsconfig:strict']);
+  // strict を落とすと、そこから値を継いでいる sub-flag もまとめて違反になる。
+  assert.deepEqual(run({ tsconfig: head }), [
+    'tsconfig:alwaysStrict',
+    'tsconfig:include',
+    'tsconfig:noImplicitAny',
+    'tsconfig:noImplicitThis',
+    'tsconfig:strict',
+    'tsconfig:strictBindCallApply',
+    'tsconfig:strictFunctionTypes',
+    'tsconfig:strictNullChecks',
+    'tsconfig:strictPropertyInitialization',
+    'tsconfig:useUnknownInCatchVariables',
+  ]);
+});
+
+void test('strict を立てたまま sub-flag だけ落とすのを落とす', () => {
+  // strict: true でも strictNullChecks: false を明示すると null 検査が消える。
+  const head = TSCONFIG.replace('"strict": true,', '"strict": true,\n    "strictNullChecks": false,');
+  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:strictNullChecks']);
+});
+
+void test('exclude の追加による検査対象の縮小を落とす', () => {
+  // include を縮めなくても exclude を足せば同じことができる。
+  const head = TSCONFIG.replace('"compilerOptions": {', '"exclude": ["src/cli/**"],\n  "compilerOptions": {');
+  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:exclude']);
 });
 
 void test('型情報つきルールの移行用の例外リストにファイルを足すのを落とす', () => {
