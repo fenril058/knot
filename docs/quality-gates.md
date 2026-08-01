@@ -19,7 +19,7 @@ CI は、具体的な不具合または不要コードを検出できる検査�
 | 未使用コード | `npm run lint:dead-code` | 未使用のファイル、依存関係、export |
 | 単体・統合テスト | `npm test` | 実装の振る舞いの退行 |
 | E2E | `npm run test:e2e` | ブラウザ上の主要操作の退行 |
-| Docker smoke | `bash scripts/docker-smoke.sh` | コンテナのビルドと起動の失敗 |
+| Docker smoke | `bash test/docker-smoke.sh` | コンテナのビルドと起動の失敗 |
 
 GitHub Actions の構文は `actionlint` で検査する。
 
