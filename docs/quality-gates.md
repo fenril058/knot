@@ -64,11 +64,25 @@ union の分岐は `as` ではなく網羅 `switch` で書く。網羅してい�
 - severity の格下げ・無効化（`warn`、`off`、`categories` の格下げ、ルール定義の削除）
 - 緩い `overrides` の新設（既存 override の削除は root の値へ戻るので許可する）
 - 検査対象の縮小（`ignorePatterns` の追加、`jscpd` の `pattern` 縮小・`ignore` 追加、`knip` の `entry` / `project` 縮小、`tsconfig.json` の `include` 縮小・`exclude` 追加、`npm run lint` の対象ディレクトリ削減）
-- 検査そのものの取り外し（`sonarjs` プラグイン、`options.typeAware`、`tsconfig.json` の `strict` と `noUncheckedIndexedAccess`、`knip` の `includeEntryExports`、`quality` スクリプトの構成、CI の `run` ステップ）
+- 検査そのものの取り外し（`sonarjs` プラグイン、`options.typeAware`、`tsconfig.json` の `strict` / `noUncheckedIndexedAccess` / `noCheck`、`knip` の `includeEntryExports`、`quality` スクリプトの構成、CI の `run` ステップ）
+
+### tsconfig の緩和経路
+
+型検査は 1 つのフラグでは守れないため、次の 3 経路をそれぞれ塞いでいる。
 
 `strict` は個別フラグの束なので、`strict: true` のまま `strictNullChecks: false` を
 明示すれば検査を外せる。そのためラチェットは `strict` の値ではなく、
 個別フラグの**実効値**（明示があればそれ、無ければ `strict` を継ぐ）を見る。
+対象は `scripts/quality-ratchet.ts` の `STRICT_SUBFLAGS`。
+**TypeScript の更新で strict 系フラグが増えたら、ここに足す必要がある。**
+
+`noCheck: true` は strict 系とは独立に型検査そのものを黙らせ、`tsc` を exit 0 にする。
+これも監視対象。
+
+`extends` は**解決していない**。継承元に `noCheck` を置けばルート側は無変更に見えるため、
+実効設定を判定できない。そのため `extends` の新設自体を違反として落とす。
+tsconfig を分割したくなった場合は、`docs/quality-gates.md` に記録して通したうえで、
+継承元を読むようにガードを設計し直すこと。
 
 base ref は、PR では対象ブランチ、push では直前の tip（`event.before`）を使う。
 force-push とブランチの初回 push では `event.before` を解決できないため、既定ブランチとの

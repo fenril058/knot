@@ -651,7 +651,7 @@ export class SqliteStorage implements Storage {
       }
       const oldTitleLc = row.title_lc;
 
-      // ページが存在する以上タイトル行は必ず残っている（コミットは 1 行以上を保証する）。
+      // 未削除ページであることを上で確認済み。未削除なら 1 行以上あることをコミットが保証する。
       const lines = this.#getLines(pageId);
       const titleCommit = this.#applyCommit({
         projectId, pageId, commitId: ulid(now * 1000), baseVersion,

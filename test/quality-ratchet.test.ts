@@ -150,6 +150,7 @@ void test('strict の無効化と include の縮小を落とす', () => {
     'tsconfig:noImplicitThis',
     'tsconfig:strict',
     'tsconfig:strictBindCallApply',
+    'tsconfig:strictBuiltinIteratorReturn',
     'tsconfig:strictFunctionTypes',
     'tsconfig:strictNullChecks',
     'tsconfig:strictPropertyInitialization',
@@ -167,6 +168,23 @@ void test('exclude の追加による検査対象の縮小を落とす', () => {
   // include を縮めなくても exclude を足せば同じことができる。
   const head = TSCONFIG.replace('"compilerOptions": {', '"exclude": ["src/cli/**"],\n  "compilerOptions": {');
   assert.deepEqual(run({ tsconfig: head }), ['tsconfig:exclude']);
+});
+
+void test('noCheck による型検査の丸ごと無効化を落とす', () => {
+  // noCheck: true は tsc を exit 0 にする。strict 系を残したままでも検査は消える。
+  const head = TSCONFIG.replace('"strict": true,', '"strict": true,\n    "noCheck": true,');
+  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:noCheck']);
+});
+
+void test('strictBuiltinIteratorReturn の個別無効化を落とす', () => {
+  const head = TSCONFIG.replace('"strict": true,', '"strict": true,\n    "strictBuiltinIteratorReturn": false,');
+  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:strictBuiltinIteratorReturn']);
+});
+
+void test('extends の新設を落とす（継承元の設定は解決しないため）', () => {
+  // 継承元に noCheck を置けばルート側は無変更に見える。解決しない以上 extends 自体を止める。
+  const head = TSCONFIG.replace('{\n  "compilerOptions"', '{\n  "extends": "./base.json",\n  "compilerOptions"');
+  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:noExtends']);
 });
 
 void test('型情報つきルールの移行用の例外リストにファイルを足すのを落とす', () => {

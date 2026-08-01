@@ -175,12 +175,18 @@ const STRICT_SUBFLAGS = [
   'strictFunctionTypes',
   'strictBindCallApply',
   'strictPropertyInitialization',
+  'strictBuiltinIteratorReturn',
   'useUnknownInCatchVariables',
 ];
 
 function addTsconfigGuards(guards: Guards, config: Record<string, unknown>): void {
   const options = asRecord(config.compilerOptions);
   const strict = options.strict === true;
+  // 継承元は読まないので、extends があると実効設定を判定できない
+  // （継承元に noCheck を置けばルート側は無変更に見える）。extends の新設自体を止める。
+  guards.flags.set('tsconfig:noExtends', config.extends === undefined);
+  // noCheck は型検査そのものを黙らせ、tsc を exit 0 にする。strict 系とは独立に効く。
+  guards.flags.set('tsconfig:noCheck', options.noCheck !== true);
   // strict を落とすと型検査が一斉に緩む。
   guards.flags.set('tsconfig:strict', strict);
   for (const name of STRICT_SUBFLAGS) {
