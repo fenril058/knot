@@ -43,6 +43,7 @@
         devShells.workflow = pkgs.mkShell {
           packages = with pkgs; [
             actionlint
+            ghalint
             zizmor
           ];
         };

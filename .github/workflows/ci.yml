@@ -21,6 +21,7 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
       - run: nix develop .#workflow --command actionlint -color .github/workflows/*.yml
       - run: nix develop .#workflow --command zizmor .github/workflows/*.yml
+      - run: nix develop .#workflow --command ghalint run
 
   test:
     runs-on: ubuntu-latest

@@ -35,7 +35,7 @@ GitHub Actions のセキュリティ上の問題は `zizmor` で検査する。
 
 `.oxlintrc.json` は `correctness` と `suspicious` category を error として扱う。
 
-型情報を使う次のルールも有効にする。
+型安全性に関する次のルールも有効にする。
 
 - `typescript/no-explicit-any`
 - `typescript/no-unsafe-type-assertion`
