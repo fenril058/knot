@@ -137,7 +137,7 @@ void test('typeAware の無効化を落とす（型情報つきルールが一�
 
 void test('noUncheckedIndexedAccess の無効化を落とす（添字アクセスの検査が消える）', () => {
   const head = TSCONFIG.replace('"noUncheckedIndexedAccess": true', '"noUncheckedIndexedAccess": false');
-  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:noUncheckedIndexedAccess']);
+  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:compilerOptions', 'tsconfig:noUncheckedIndexedAccess']);
 });
 
 void test('strict の無効化と include の縮小を落とす', () => {
@@ -147,6 +147,7 @@ void test('strict の無効化と include の縮小を落とす', () => {
   // strict を落とすと、そこから値を継いでいる sub-flag もまとめて違反になる。
   assert.deepEqual(run({ tsconfig: head }), [
     'tsconfig:alwaysStrict',
+    'tsconfig:compilerOptions',
     'tsconfig:include',
     'tsconfig:noImplicitAny',
     'tsconfig:noImplicitThis',
@@ -163,7 +164,7 @@ void test('strict の無効化と include の縮小を落とす', () => {
 void test('strict を立てたまま sub-flag だけ落とすのを落とす', () => {
   // strict: true でも strictNullChecks: false を明示すると null 検査が消える。
   const head = TSCONFIG.replace('"strict": true,', '"strict": true,\n    "strictNullChecks": false,');
-  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:strictNullChecks']);
+  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:compilerOptions', 'tsconfig:strictNullChecks']);
 });
 
 void test('exclude の追加による検査対象の縮小を落とす', () => {
@@ -175,12 +176,12 @@ void test('exclude の追加による検査対象の縮小を落とす', () => {
 void test('noCheck による型検査の丸ごと無効化を落とす', () => {
   // noCheck: true は tsc を exit 0 にする。strict 系を残したままでも検査は消える。
   const head = TSCONFIG.replace('"strict": true,', '"strict": true,\n    "noCheck": true,');
-  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:noCheck']);
+  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:compilerOptions', 'tsconfig:noCheck']);
 });
 
 void test('strictBuiltinIteratorReturn の個別無効化を落とす', () => {
   const head = TSCONFIG.replace('"strict": true,', '"strict": true,\n    "strictBuiltinIteratorReturn": false,');
-  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:strictBuiltinIteratorReturn']);
+  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:compilerOptions', 'tsconfig:strictBuiltinIteratorReturn']);
 });
 
 void test('extends の新設を落とす（継承元の設定は解決しないため）', () => {
@@ -193,12 +194,12 @@ void test('outDir による検査対象の暗黙の縮小を落とす', () => {
   // TypeScript は outDir 配下を暗黙に exclude する。include を書き換えずに
   // "outDir": "test" と足すだけで test 配下が型検査から外れる。
   const head = TSCONFIG.replace('"strict": true,', '"strict": true,\n    "outDir": "test",');
-  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:noOutDir']);
+  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:compilerOptions', 'tsconfig:noOutDir']);
 });
 
 void test('declarationDir による検査対象の暗黙の縮小を落とす', () => {
   const head = TSCONFIG.replace('"strict": true,', '"strict": true,\n    "declarationDir": "test",');
-  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:noDeclarationDir']);
+  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:compilerOptions', 'tsconfig:noDeclarationDir']);
 });
 
 void test('STRICT_SUBFLAGS が strict 系フラグを取りこぼしていない', () => {
@@ -223,11 +224,43 @@ void test('STRICT_SUBFLAGS が strict 系フラグを取りこぼしていない
   const guarded = new Set(STRICT_SUBFLAGS);
   const missing = [...fromHelp].filter((name) => !guarded.has(name)).toSorted();
   assert.deepEqual(missing, [], `STRICT_SUBFLAGS に足りないフラグ: ${missing.join(', ')}`);
+  // 逆向きも見る。片方向だと、既存フラグの help 表記だけが変わったときに
+  // fromHelp から落ちても missing が空のままで気づけない。
+  // alwaysStrict は help 上 "default: true" としか出ず抽出されないので除く。
+  const stale = [...guarded].filter((name) => name !== 'alwaysStrict' && !fromHelp.has(name)).toSorted();
+  assert.deepEqual(stale, [], `help から取れなくなったフラグ: ${stale.join(', ')}`);
 });
 
 void test('erasableSyntaxOnly の無効化を落とす', () => {
   const head = TSCONFIG.replace('"erasableSyntaxOnly": true', '"erasableSyntaxOnly": false');
-  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:erasableSyntaxOnly']);
+  assert.deepEqual(run({ tsconfig: head }), ['tsconfig:compilerOptions', 'tsconfig:erasableSyntaxOnly']);
+});
+
+void test('一覧に無いオプションの新設を落とす（compilerOptions の凍結）', () => {
+  // 危険なオプションの列挙は漏れる。noUncheckedSideEffectImports と allowUmdGlobalAccess は
+  // どちらも既定値に頼っていたものを明示して倒す形で、一覧には無い。
+  for (const added of ['"noUncheckedSideEffectImports": false', '"allowUmdGlobalAccess": true']) {
+    const head = TSCONFIG.replace('"strict": true,', `"strict": true,\n    ${added},`);
+    assert.deepEqual(run({ tsconfig: head }), ['tsconfig:compilerOptions'], added);
+  }
+});
+
+void test('既存オプションの値の書き換えを落とす（凍結）', () => {
+  // 一覧に無く boolean でもない値でも、書き換われば落ちる。
+  const base = TSCONFIG.replace('"strict": true,', '"strict": true,\n    "target": "es2023",');
+  const head = base.replace('"target": "es2023"', '"target": "es5"');
+  const keys = compareGuards(
+    extractGuards({ ...BASE, tsconfig: base }, null),
+    extractGuards({ ...BASE, tsconfig: head }, null),
+    [],
+  ).map((v) => v.key);
+  assert.deepEqual([...new Set(keys)].toSorted(), ['tsconfig:compilerOptions']);
+});
+
+void test('記録行があれば compilerOptions の変更を通す', () => {
+  const head = TSCONFIG.replace('"strict": true,', '"strict": true,\n    "allowUmdGlobalAccess": true,');
+  const doc = ['- compilerOptions に allowUmdGlobalAccess を足す'];
+  assert.deepEqual(run({ tsconfig: head }, doc), []);
 });
 
 void test('型情報つきルールの移行用の例外リストにファイルを足すのを落とす', () => {

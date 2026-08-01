@@ -95,8 +95,25 @@ TypeScript の更新で strict 系が増えると取りこぼすため、`tsc --
 tsconfig を分割したくなった場合は、この文書に記録して通したうえで、
 継承元を読むようにガードを設計し直すこと。
 
-この一覧が緩和経路を尽くしている保証は無い。実際、`noCheck` / `outDir` /
-`erasableSyntaxOnly` はいずれも後から見つかって足したものである。
+#### compilerOptions の凍結
+
+上の一覧は「何を守っているか」を示すもので、**網羅はしていない**。実際
+`noCheck` / `outDir` / `erasableSyntaxOnly` / `noUncheckedSideEffectImports` /
+`allowUmdGlobalAccess` はいずれもレビューで後から見つかった。危険なオプションを
+列挙し続ける限り取りこぼすため、網羅は別の層で担保する。
+
+`compilerOptions` は凍結してある。緩和はどれも「既定値に頼っていたオプションを
+明示して倒す」か「既存の値を書き換える」形になるので、次の 2 つで足りる。
+
+- 値の変更・削除（`supersets`）
+- オプション名の追加（`subsets`）
+
+そのため **`tsconfig.json` の `compilerOptions` を触る変更は、内容を問わず
+この文書への記録を要する**。記録行には `compilerOptions` とオプション名の両方を含める。
+
+承認記録:
+
+- `compilerOptions` に `noUncheckedIndexedAccess` を足す（添字アクセスを `T | undefined` にするため）
 
 base ref は、PR では対象ブランチ、push では直前の tip（`event.before`）を使う。
 force-push とブランチの初回 push では `event.before` を解決できないため、既定ブランチとの

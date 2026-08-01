@@ -221,6 +221,17 @@ function addTsconfigGuards(guards: Guards, config: Record<string, unknown>): voi
   guards.supersets.set('tsconfig:include', asStringArray(config.include));
   // include を縮めなくても exclude を足せば検査対象を減らせる。
   guards.subsets.set('tsconfig:exclude', asStringArray(config.exclude));
+  // 上の一覧は「何を守っているか」を示すためのもので、網羅はしていない。
+  // 実際 noCheck / outDir / erasableSyntaxOnly / noUncheckedSideEffectImports /
+  // allowUmdGlobalAccess はいずれもレビューで後から見つかった。危険なオプションを
+  // 列挙し続ける限り取りこぼすため、compilerOptions 全体を凍結して網羅側を担保する。
+  // 緩和はどれも「既定値に頼っていたオプションを明示して倒す」か「既存の値を書き換える」
+  // 形になるので、値の変更・削除（supersets）と名前の追加（subsets）を両方見れば足りる。
+  guards.supersets.set(
+    'tsconfig:compilerOptions',
+    Object.entries(options).map(([name, value]) => `${name}=${JSON.stringify(value)}`),
+  );
+  guards.subsets.set('tsconfig:compilerOptions', Object.keys(options));
 }
 
 function addJscpdGuards(guards: Guards, config: Record<string, unknown>): void {
@@ -319,7 +330,8 @@ function compareSets(base: Guards, head: Guards, doc: string[], out: Violation[]
     const baseItems = new Set(base.subsets.get(key) ?? []);
     const added = headItems.filter((item) => !baseItems.has(item));
     for (const item of added) {
-      if (!isApprovedBy(doc, key, item)) out.push({ key, reason: `除外が追加されている: ${item}` });
+      // 除外パターンの追加も compilerOptions の新設も、どちらも「検査を緩める指定の追加」。
+      if (!isApprovedBy(doc, key, item)) out.push({ key, reason: `検査を緩める指定が追加されている: ${item}` });
     }
   }
 }
