@@ -15,7 +15,6 @@ flake.nix
 flake.lock
 playwright.config.ts
 skills-lock.json
-scripts
 *.md
 Dockerfile
 .dockerignore
