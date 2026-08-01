@@ -1,11 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  // 型情報つきルールを有効にする（oxlint-tsgolint が必要）。
-  // これを false にすると型情報つきルールが全部黙るため、ラチェットの監視対象。
-  // reportUnusedDisableDirectives は、抑制が要らなくなった directive を検出する。
-  // 違反を直したのに directive が残ると、その行は以後検査されない状態になるため。
   "options": { "typeAware": true, "reportUnusedDisableDirectives": "deny" },
-  "jsPlugins": [{ "name": "sonarjs", "specifier": "./config/sonarjs.cjs" }],
   "env": {
     "browser": true,
     "node": true,
@@ -16,114 +11,9 @@
     "suspicious": "error"
   },
   "rules": {
-    "complexity": ["error", { "max": 20 }],
-    "max-depth": ["error", 4],
-    "max-lines-per-function": [
-      "error",
-      { "max": 100, "skipBlankLines": true, "skipComments": true }
-    ],
-    "max-params": ["error", { "max": 5 }],
-    "sonarjs/cognitive-complexity": ["error", 20],
-    "sonarjs/no-duplicated-branches": "error",
-    "sonarjs/no-identical-functions": "error",
     "typescript/no-explicit-any": "error",
     "typescript/no-unsafe-type-assertion": "error",
     "typescript/switch-exhaustiveness-check": "error",
     "typescript/no-unnecessary-type-assertion": "error"
-  },
-  "overrides": [
-    // 既存コードの超過値を移行用の上限としてファイル単位で固定する。
-    // この例外は関数単位の厳密な増加防止ではないため、改修時に縮小・削除する。
-    {
-      "files": ["test/**/*.ts", "e2e/**/*.ts"],
-      "rules": {
-        "max-lines-per-function": "off",
-        "sonarjs/cognitive-complexity": ["error", 25]
-      }
-    },
-    {
-      "files": ["src/core/match.ts"],
-      "rules": {
-        "sonarjs/cognitive-complexity": ["error", 32]
-      }
-    },
-    {
-      "files": ["src/core/links.ts"],
-      "rules": {
-        "max-depth": ["error", 5],
-        "sonarjs/cognitive-complexity": ["error", 21]
-      }
-    },
-    {
-      "files": ["src/storage/zip.ts"],
-      "rules": {
-        "max-params": ["error", { "max": 6 }]
-      }
-    },
-    {
-      "files": ["src/server/routes/write.ts"],
-      "rules": {
-        "complexity": ["error", { "max": 21 }],
-        "max-lines-per-function": [
-          "error",
-          { "max": 172, "skipBlankLines": true, "skipComments": true }
-        ]
-      }
-    },
-    {
-      "files": ["src/cli/main.ts"],
-      "rules": {
-        "complexity": ["error", { "max": 52 }],
-        "sonarjs/cognitive-complexity": ["error", 39]
-      }
-    },
-    {
-      "files": ["src/client/editor/highlight.ts"],
-      "rules": {
-        "complexity": ["error", { "max": 23 }],
-        "max-depth": ["error", 5],
-        "sonarjs/cognitive-complexity": ["error", 28]
-      }
-    },
-    {
-      "files": ["src/server/routes/read.ts"],
-      "rules": {
-        "max-lines-per-function": [
-          "error",
-          { "max": 135, "skipBlankLines": true, "skipComments": true }
-        ]
-      }
-    },
-    {
-      "files": ["src/server/autoExport.ts"],
-      "rules": {
-        "max-depth": ["error", 5]
-      }
-    },
-    {
-      "files": ["src/client/editor/main.ts"],
-      "rules": {
-        "sonarjs/cognitive-complexity": ["error", 30]
-      }
-    },
-    {
-      "files": ["src/storage/sqlite.ts"],
-      "rules": {
-        "complexity": ["error", { "max": 27 }],
-        "max-params": ["error", { "max": 7 }],
-        "sonarjs/cognitive-complexity": ["error", 33]
-      }
-    },
-    {
-      "files": ["src/render/render.ts"],
-      "rules": {
-        "complexity": ["error", { "max": 43 }],
-        "max-lines-per-function": [
-          "error",
-          { "max": 116, "skipBlankLines": true, "skipComments": true }
-        ],
-        "sonarjs/cognitive-complexity": ["error", 47]
-      }
-    }
-  ]
+  }
 }

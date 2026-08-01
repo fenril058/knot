@@ -8,8 +8,6 @@
   ],
   "project": [
     "src/**/*.ts",
-    "scripts/**/*.ts",
-    "config/**/*.cjs",
     "public/*.js",
     "test/**/*.ts",
     "e2e/**/*.ts",

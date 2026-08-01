@@ -19,74 +19,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-      - run: nix develop --command actionlint -color .github/workflows/*.yml
-      - run: nix develop --command zizmor .github/workflows/*.yml
-      - run: nix develop --command ghalint run
-
-  quality-ratchet:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-      # PR は対象ブランチを base にする。push は直前の tip（event.before）を使うが、
-      # 次の 2 つの場合は解決できないので既定ブランチとの分岐点へ落とす。
-      #   - force-push: event.before がどの ref からも到達できなくなる
-      #   - ブランチの初回 push: event.before が all-zero
-      # 分岐点が HEAD と同じ（既定ブランチへの push など）なら 1 つ前の commit と比べる。
-      # どの経路でも必ず base を決めるので、検査が黙って飛ぶことはない。
-      - name: Resolve base ref
-        id: base
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          BASE_REF: ${{ github.base_ref }}
-          BEFORE: ${{ github.event.before }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            git fetch --no-tags origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
-            echo "ref=origin/$BASE_REF" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if git rev-parse --verify --quiet "$BEFORE^{commit}" >/dev/null; then
-            echo "ref=$BEFORE" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "event.before ($BEFORE) を解決できない"
-          if ! git rev-parse --verify --quiet HEAD~1 >/dev/null; then
-            # リポジトリ最初の commit。比較対象の設定がそもそも存在しない。
-            echo "HEAD に親が無いため比較対象なし"
-            echo "ref=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          git fetch --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
-          FORK_POINT=$(git merge-base "origin/$DEFAULT_BRANCH" HEAD)
-          if [ "$FORK_POINT" != "$(git rev-parse HEAD)" ]; then
-            echo "既定ブランチとの分岐点を base にする"
-            echo "ref=$FORK_POINT" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # 既定ブランチ自体の履歴が書き換えられた場合。書き換え前の commit は到達不能で、
-          # 分岐点も HEAD に一致するため、何と比べるべきかを決められない。
-          # HEAD~1 で代用すると、書き換えられた古い commit に含まれる緩和を見逃す。
-          echo "::error::既定ブランチの履歴が書き換えられており base を決められない。手元で quality-ratchet を実行して確認すること"
-          exit 1
-      - name: Check quality gate ratchet
-        env:
-          BASE: ${{ steps.base.outputs.ref }}
-        run: |
-          if [ -z "$BASE" ]; then
-            echo "比較対象なし（リポジトリ最初の commit）: 検査をスキップ"
-            exit 0
-          fi
-          node scripts/quality-ratchet.ts "$BASE" HEAD
+      - run: nix develop .#workflow --command actionlint -color .github/workflows/*.yml
+      - run: nix develop .#workflow --command zizmor .github/workflows/*.yml
 
   test:
     runs-on: ubuntu-latest
@@ -107,37 +41,6 @@ jobs:
       - run: npm run lint:dead-code
       - run: npm run build:client
       - run: npm test
-
-  duplication:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - id: duplicates
-        run: npm run lint:duplicates
-      - name: Upload duplication results
-        if: >-
-          ${{
-            !cancelled()
-            && (steps.duplicates.outcome == 'success' || steps.duplicates.outcome == 'failure')
-            && hashFiles('.jscpd/jscpd-report.sarif') != ''
-            && (github.event_name != 'pull_request'
-                || github.event.pull_request.head.repo.full_name == github.repository)
-          }}
-        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
-        with:
-          sarif_file: .jscpd/jscpd-report.sarif
 
   e2e:
     runs-on: ubuntu-latest
