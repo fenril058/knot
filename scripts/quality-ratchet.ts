@@ -85,6 +85,17 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+// オブジェクトのキー順を揃えてから文字列化する。paths のようにキー順へ意味が無い値を
+// 並べ替えただけで「値が変わった」と誤検出しないため。配列の順序は意味を持つので保つ。
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (typeof value === 'object' && value !== null) {
+    const entries = Object.entries(value).toSorted(([a], [b]) => (a < b ? -1 : 1));
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
 function asStringArray(value: unknown): string[] {
   if (typeof value === 'string') return [value];
   return Array.isArray(value) ? value.filter((v) => typeof v === 'string') : [];
@@ -229,7 +240,7 @@ function addTsconfigGuards(guards: Guards, config: Record<string, unknown>): voi
   // 形になるので、値の変更・削除（supersets）と名前の追加（subsets）を両方見れば足りる。
   guards.supersets.set(
     'tsconfig:compilerOptions',
-    Object.entries(options).map(([name, value]) => `${name}=${JSON.stringify(value)}`),
+    Object.entries(options).map(([name, value]) => `${name}=${stableStringify(value)}`),
   );
   guards.subsets.set('tsconfig:compilerOptions', Object.keys(options));
 }
@@ -251,13 +262,18 @@ function addKnipGuards(guards: Guards, config: Record<string, unknown>): void {
   guards.supersets.set('knip:project', asStringArray(config.project));
 }
 
+// 品質ゲートを実行するスクリプト。設定ファイルを凍結しても、それを読むコマンドが
+// 自由なら意味がない（"tsc --noEmit --noCheck" と足すだけで型検査は全部消えるし、
+// "oxlint ... --config .oxlintrc-loose.json" で別設定に差し替えられる）。
+// 引数の意味を解釈しようとすると必ず取りこぼすので、本文を逐語で凍結する。
+const QUALITY_SCRIPTS = ['typecheck', 'lint', 'lint:duplicates', 'lint:dead-code', 'quality'];
+
 function addPackageGuards(guards: Guards, pkg: Record<string, unknown>): void {
   const scripts = asRecord(pkg.scripts);
-  const lint = typeof scripts.lint === 'string' ? scripts.lint : '';
-  // "oxlint src public test e2e config" の検査対象ディレクトリが減っていないことを見る
-  guards.supersets.set('package:lintTargets', lint.split(/\s+/).filter((t) => t !== '' && t !== 'oxlint'));
-  const quality = typeof scripts.quality === 'string' ? scripts.quality : '';
-  guards.supersets.set('package:qualitySteps', quality.split('&&').map((s) => s.trim()).filter((s) => s !== ''));
+  guards.supersets.set(
+    'package:scripts',
+    QUALITY_SCRIPTS.map((name) => `${name}=${typeof scripts[name] === 'string' ? scripts[name] : ''}`),
+  );
 }
 
 function addCiGuards(guards: Guards, ci: string): void {
@@ -283,11 +299,28 @@ export function extractGuards(sources: Sources, otherOxlint: string | null): Gua
   return guards;
 }
 
+// 識別子として「単語ひとつ」で現れているか。部分文字列一致だと、strictNullChecks を
+// 名指しした 1 行が strict まで承認してしまう。英数字・_・-・. ・/ を語の一部とみなす。
+function mentionsToken(line: string, token: string): boolean {
+  if (token === '') return false;
+  let from = 0;
+  for (;;) {
+    const at = line.indexOf(token, from);
+    if (at === -1) return false;
+    const before = line[at - 1] ?? '';
+    const after = line[at + token.length] ?? '';
+    const isWordChar = (c: string): boolean => c !== '' && /[\w\-./]/.test(c);
+    if (!isWordChar(before) && !isWordChar(after)) return true;
+    from = at + 1;
+  }
+}
+
 // 緩和を承認する記録行かどうか。key の末尾（ルール名や設定名）と新しい値の両方を含む行を要求する。
 // 無関係な編集や、ルール名だけの言及では通さない。
+// name はトークン境界で照合する（値は数値や glob なので部分一致のままでよい）。
 function isApprovedBy(addedDocLines: string[], key: string, newValue: string): boolean {
   const name = key.includes('|') ? key.slice(key.lastIndexOf('|') + 1) : key.slice(key.indexOf(':') + 1);
-  return addedDocLines.some((line) => line.includes(name) && line.includes(newValue));
+  return addedDocLines.some((line) => mentionsToken(line, name) && line.includes(newValue));
 }
 
 function compareNumeric(base: Guards, head: Guards, doc: string[], out: Violation[]): void {
@@ -318,12 +351,35 @@ function compareFlags(base: Guards, head: Guards, doc: string[], out: Violation[
   }
 }
 
+// "name=value" 形式の項目の name 部分。素の項目（glob など）では null。
+function itemName(item: string): string | null {
+  const at = item.indexOf('=');
+  return at === -1 ? null : item.slice(0, at);
+}
+
+// "name=old" が消えた原因が値の書き換えなら、承認記録には**新しい値**を書かせたい。
+// 消えた項目そのもの（旧値）での照合も残す。
+function approvedItemChange(doc: string[], key: string, item: string, headItems: string[]): boolean {
+  if (isApprovedBy(doc, key, item)) return true;
+  const name = itemName(item);
+  if (name === null) return false;
+  const replacement = headItems.find((candidate) => itemName(candidate) === name);
+  if (replacement === undefined) return false;
+  const newValue = replacement.slice(name.length + 1);
+  // 文字列値は "es5" とシリアライズされるが、記録行には引用符なしで書く方が自然。
+  const bare = newValue.startsWith('"') && newValue.endsWith('"') ? newValue.slice(1, -1) : newValue;
+  return doc.some((line) => mentionsToken(line, name) && (line.includes(newValue) || line.includes(bare)));
+}
+
 function compareSets(base: Guards, head: Guards, doc: string[], out: Violation[]): void {
   for (const [key, baseItems] of base.supersets) {
-    const headItems = new Set(head.supersets.get(key) ?? []);
+    const headList = head.supersets.get(key) ?? [];
+    const headItems = new Set(headList);
     const missing = baseItems.filter((item) => !headItems.has(item));
     for (const item of missing) {
-      if (!isApprovedBy(doc, key, item)) out.push({ key, reason: `検査対象から外れている: ${item}` });
+      if (!approvedItemChange(doc, key, item, headList)) {
+        out.push({ key, reason: `検査対象から外れている: ${item}` });
+      }
     }
   }
   for (const [key, headItems] of head.subsets) {

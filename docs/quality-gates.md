@@ -63,8 +63,9 @@ union の分岐は `as` ではなく網羅 `switch` で書く。網羅してい�
 - 数値上限の引き上げ（`.oxlintrc.json` の root と override、`.jscpd.json` の `threshold` / `minLines` / `minTokens`）
 - severity の格下げ・無効化（`warn`、`off`、`categories` の格下げ、ルール定義の削除）
 - 緩い `overrides` の新設（既存 override の削除は root の値へ戻るので許可する）
-- 検査対象の縮小（`ignorePatterns` の追加、`jscpd` の `pattern` 縮小・`ignore` 追加、`knip` の `entry` / `project` 縮小、`tsconfig.json` の `include` 縮小・`exclude` 追加・`outDir` / `declarationDir` の新設、`npm run lint` の対象ディレクトリ削減）
-- 検査そのものの取り外し（`sonarjs` プラグイン、`options.typeAware`、`tsconfig.json` の `strict` / `noUncheckedIndexedAccess` / `erasableSyntaxOnly` / `noCheck`、`knip` の `includeEntryExports`、`quality` スクリプトの構成、CI の `run` ステップ）
+- 検査対象の縮小（`ignorePatterns` の追加、`jscpd` の `pattern` 縮小・`ignore` 追加、`knip` の `entry` / `project` 縮小、`tsconfig.json` の `include` 縮小・`exclude` 追加・`outDir` / `declarationDir` の新設）
+- 検査そのものの取り外し（`sonarjs` プラグイン、`options.typeAware`、`tsconfig.json` の `strict` / `noUncheckedIndexedAccess` / `erasableSyntaxOnly` / `noCheck`、`knip` の `includeEntryExports`、CI の `run` ステップ）
+- 検査スクリプト本文の書き換え（`package.json` の `typecheck` / `lint` / `lint:duplicates` / `lint:dead-code` / `quality`）
 
 ### tsconfig の緩和経路
 
@@ -109,11 +110,30 @@ tsconfig を分割したくなった場合は、この文書に記録して通�
 - オプション名の追加（`subsets`）
 
 そのため **`tsconfig.json` の `compilerOptions` を触る変更は、内容を問わず
-この文書への記録を要する**。記録行には `compilerOptions` とオプション名の両方を含める。
+この文書への記録を要する**。
 
-承認記録:
+`paths` のようにキー順へ意味が無い値は、キーを揃えてから比較する。
+並べ替えただけでは落ちない。配列の順序は意味を持つので保つ。
 
-- `compilerOptions` に `noUncheckedIndexedAccess` を足す（添字アクセスを `T | undefined` にするため）
+### 検査スクリプトの凍結
+
+設定ファイルを凍結しても、それを読むコマンドが自由なら意味がない。
+`tsc --noEmit --noCheck` と足せば tsconfig を一切触らずに型検査が全部消えるし、
+`oxlint ... --config .oxlintrc-loose.json` で別の設定に差し替えられる。
+
+引数の意味を解釈しようとすると必ず取りこぼすため、`package.json` の
+`typecheck` / `lint` / `lint:duplicates` / `lint:dead-code` / `quality` は
+**本文を逐語で凍結**してある。これらを書き換える変更も記録を要する。
+
+### 守れていないこと
+
+ラチェットは事故を止めるためのもので、書き手が意図的に外しにくるのは止められない。
+既知の限界は次のとおり。
+
+- CI ワークフローは `run:` の文字列だけを見る。`working-directory` や `defaults` を
+  足して別ディレクトリの `package.json` へ向けられると検出できない。
+- `extends` を承認して導入した後、継承元ファイルの中身は監視できない。
+- `scripts/quality-ratchet.ts` 自身の書き換えは、ラチェット自身では止められない。
 
 base ref は、PR では対象ブランチ、push では直前の tip（`event.before`）を使う。
 force-push とブランチの初回 push では `event.before` を解決できないため、既定ブランチとの
@@ -135,6 +155,11 @@ HEAD に一致するため、**base を決められない。この場合はジ�
 ラチェットはこの文書に追加された行だけを承認として読むため、既存行の再利用や、
 ルール名だけ・数値だけの記述では通らない。
 
+対象名は**トークン境界で照合する**。`strictNullChecks` を名指しした行が
+`strict` まで承認してしまわないようにするため。
+
+値を書き換える場合は**新しい値**を書く。オプションを新設する場合は名前だけでよい。
+
 ### 承認済みの緩和
 
-（まだ無し）
+- `compilerOptions` に `noUncheckedIndexedAccess` を足す（添字アクセスを `T | undefined` にするため）
