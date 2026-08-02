@@ -905,6 +905,8 @@ export class SqliteStorage implements Storage {
 
   #searchFts(projectId: string, query: string): { id: string; title: string; image: string | null }[] {
     const phrase = `"${query.replaceAll('"', '""')}"`;
+    // FTS5 の MATCH はテーブル別名を受け付けない（実測）。JOIN でも pages_fts に別名を付けず、
+    // 実名のまま `pages_fts MATCH ?` と書く。
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     return this.#db
       .prepare(
