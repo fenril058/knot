@@ -4,7 +4,7 @@
 - 決定日: 2026-07-10（記録日: 2026-08-02）
 
 閲覧は SSR、編集画面だけ CodeMirror 6 を載せる構成とし、サーバは Hono、ストレージは `node:sqlite` にした。
-Cosense 記法のパーサ資産（`@progfay/scrapbox-parser`）を直接使える言語が TypeScript しかなく、サーバとエディタを単一言語で書けることが決め手である。
+検討した候補（Go、TypeScript）のうち、Cosense 記法のパーサ資産（`@progfay/scrapbox-parser`）をそのまま使えて、かつサーバとエディタを単一言語で書けるのが TypeScript だけだったことが決め手である。
 将来 Cloudflare Workers + D1 でも動かせるよう、ストレージ層は差し替え可能な境界として保つ。
 
 ## 却下した案
