@@ -18,4 +18,5 @@
 
 ## 参照
 
-蒸留元は `docs/superpowers/specs/2026-07-10-knot-design.md`（最終コミット `3412fc9`）の「スキーマ」。
+蒸留元は knot 設計書（2026-07-10）の「スキーマ」。
+同書は superpowers 方式の文書整理で削除した。原文は `git show 3412fc9:docs/superpowers/specs/2026-07-10-knot-design.md` で読める。

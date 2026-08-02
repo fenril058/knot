@@ -25,5 +25,6 @@ CRDT ファーストを採らなかった理由は書き込みモデルの決定
 
 ## 参照
 
-蒸留元は `docs/superpowers/specs/2026-07-10-knot-design.md`（最終コミット `3412fc9`）の「採用アプローチと代替案」「技術選定の根拠」。
+蒸留元は knot 設計書（2026-07-10）の「採用アプローチと代替案」「技術選定の根拠」。
+同書は superpowers 方式の文書整理で削除した。原文は `git show 3412fc9:docs/superpowers/specs/2026-07-10-knot-design.md` で読める。
 同文書はバンドラを esbuild としているが、現在は Rolldown を使う。
