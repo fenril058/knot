@@ -53,7 +53,7 @@ Node.js >= 24 の type stripping で動くのでサーバ側のビルドは無�
 - 実装計画書やタスクの進捗報告を `docs/` に残さない。
 - ただし「実装したから消してよい」ではない。決定の理由、却下した案、未完了の確認事項、環境依存の検証結果はコードから導出できない。
   消す前に ADR か issue へ移す。
-- `docs/` に置くのは読者が実在する恒久文書だけ（`ops.md`、`quality-gates.md`、`adr/`）。
+- `docs/` に置くのは読者が実在する恒久文書だけ（`ops.md`、`security.md`、`quality-gates.md`、`adr/`）。
 - ブランチ寿命の会話文脈は `.dev/contexts/`（gitignore 済み）に置く。
 
 ## 用語と決定の記録
