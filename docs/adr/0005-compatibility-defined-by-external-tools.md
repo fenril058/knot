@@ -8,16 +8,22 @@ Cosense の API に公開仕様が無い以上、準拠先が存在しないた�
 
 現在の対象は次の 2 つで、実体は `test/acceptance/` の受け入れテストである。
 
-- `scrapbox-cosense-mcp` — 接続先は env `API_DOMAIN`、認証は `COSENSE_SID` を `Cookie: connect.sid=<sid>` として送る。knot のセッション cookie と同名・同形式なのでそのまま通る。
-- `@helpfeel/cosense-cli` — Cosense 運営元の公式 CLI。任意の origin を受け付け、認証は `x-personal-access-token` ヘッダ。
+- `scrapbox-cosense-mcp` — 接続先は env `API_DOMAIN`、認証は `COSENSE_SID` を `Cookie: connect.sid=<sid>` として送る。
+  knot のセッション cookie と同名・同形式なのでそのまま通る。
+- `@helpfeel/cosense-cli` — Cosense 運営元の公式 CLI。
+  任意の origin を受け付け、認証は `x-personal-access-token` ヘッダ。
 
 ## 帰結
 
-- **後追いで API を足した。** `@helpfeel/cosense-cli` を対象に含めた結果、PAT 認証と `/api/pages/v2/:project/:title`、`/api/projects/:project/users` の 2 エンドポイントが必要になった。
-  `/api/projects/:project/users` が 404 だと CLI の `listPages` と `readPage` が両方失敗する。ユーザー解決が必須経路にあるためで、これは互換契約の一部である。
-- **契約の範囲を超えて応答を豪華にしない。** 対象ツールが実際に読むフィールドだけを契約とする。
+- **後追いで API を足した。**
+  `@helpfeel/cosense-cli` を対象に含めた結果、PAT 認証と `/api/pages/v2/:project/:title`、`/api/projects/:project/users` の 2 エンドポイントが必要になった。
+  `/api/projects/:project/users` が 404 だと CLI の `listPages` と `readPage` が両方失敗する。
+  ユーザー解決が必須経路にあるためで、これは互換契約の一部である。
+- **契約の範囲を超えて応答を豪華にしない。**
+  対象ツールが実際に読むフィールドだけを契約とする。
   受け入れテストが失敗しても、契約の範囲外の形状変更で通そうとしない。
-- **対象ツールを増やすことは互換性の定義を変えることである。** 追加は受け入れテストの追加を伴う。
+- **対象ツールを増やすことは互換性の定義を変えることである。**
+  追加は受け入れテストの追加を伴う。
   この ADR を書き換えるのではなく、新しい ADR でこれを supersede する。
 
 ## 参照
