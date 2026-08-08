@@ -48,6 +48,17 @@ function isSymlinkAt(path: string): boolean {
   }
 }
 
+// サーバ由来の pageId をディレクトリ名として使う前に、単一の path segment であることを確認する。
+// POSIX と Windows のどちらでも conflicts/ の外へ出られないよう、両方の区切り文字を拒否する。
+function isSafePathSegment(value: string): boolean {
+  return value.length > 0
+    && value !== '.'
+    && value !== '..'
+    && !value.includes('/')
+    && !value.includes('\\')
+    && !value.includes('\0');
+}
+
 // 同期ディレクトリ直下の .txt を走査する（.knot/ とサブディレクトリは対象外）
 function readLocalFiles(dir: string): Map<string, LocalFile> {
   const out = new Map<string, LocalFile>();
@@ -248,6 +259,7 @@ function pullConflict(ctx: PullContext, pageId: string, detail: RemotePage): Pag
     saveState(ctx.dir, ctx.state);
     return ok(`reconciled: ${filename}`);
   }
+  if (!isSafePathSegment(pageId)) return warn(`skipped (invalid page id): ${filename}`);
   const cdir = join(ctx.dir, '.knot', 'conflicts', pageId);
   mkdirSync(cdir, { recursive: true });
   const remotePath = join(cdir, 'remote.txt');

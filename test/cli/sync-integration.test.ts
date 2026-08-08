@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { serve } from '@hono/node-server';
 import { openDatabase } from '../../src/storage/db.ts';
 import { SqliteStorage } from '../../src/storage/sqlite.ts';
@@ -15,7 +15,7 @@ import { generateApiToken } from '../../src/server/apiToken.ts';
 import { ulid } from '../../src/core/id.ts';
 import { seedPage } from '../helpers/pages.ts';
 import { runSync } from '../../src/cli/sync/commands.ts';
-import { loadState } from '../../src/cli/sync/state.ts';
+import { loadState, saveState } from '../../src/cli/sync/state.ts';
 
 type Env = {
   storage: Storage;
@@ -158,6 +158,47 @@ function detailPath(input: RequestInfo | URL): string | null {
   const pathname = new URL(url).pathname;
   return pathname.startsWith('/api/pages/notes/') ? pathname : null;
 }
+
+void test('pull: サーバ由来の pageId で conflicts の外へ書き込まない', async () => {
+  const env = await makeEnv();
+  const outside = mkdtempSync(join(tmpdir(), 'knot-sync-page-id-'));
+  try {
+    const actualId = await seedPage(env.storage, env.projectId, 'Alpha', ['v1 body'], env.clock.t);
+    await runSync(['pull', '--dir', env.dir]);
+
+    // 以前の pull で不正な id が state に記録された状況を作り、ローカルも変更する。
+    const state = loadState(env.dir);
+    const tracked = state.pages[actualId]!;
+    const maliciousId = relative(join(env.dir, '.knot', 'conflicts'), outside);
+    delete state.pages[actualId];
+    state.pages[maliciousId] = tracked;
+    saveState(env.dir, state);
+    writeFileSync(join(env.dir, 'Alpha.txt'), 'Alpha\nlocal edit\n');
+
+    // リモートも変更し、pull を conflict の隔離処理へ進める。
+    const page = await env.storage.getPageById(actualId);
+    env.clock.t += 10;
+    await env.storage.commit({
+      projectId: env.projectId, pageId: actualId, commitId: ulid(env.clock.t * 1000),
+      baseVersion: page!.version,
+      ops: [{ type: 'insert', id: ulid(env.clock.t * 1000), after: page!.lines.at(-1)!.id, text: 'remote add' }],
+      userId: 'u', now: env.clock.t,
+    });
+
+    // 一覧と詳細の pageId を、conflicts から outside への相対パスに差し替える。
+    const patched: typeof fetch = async (input, init) => {
+      const res = await fetch(input, init);
+      const body = (await res.text()).replaceAll(actualId, maliciousId);
+      return new Response(body, { status: res.status, headers: res.headers });
+    };
+    const result = await runSync(['pull', '--dir', env.dir], { fetchFn: patched });
+
+    assert.equal(existsSync(join(outside, 'remote.txt')), false);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.output, /skipped \(invalid page id\): Alpha\.txt/);
+    assert.equal(readFileSync(join(env.dir, 'Alpha.txt'), 'utf8'), 'Alpha\nlocal edit\n');
+  } finally { rmSync(outside, { recursive: true }); env.close(); }
+});
 
 // PUT はサーバに届くが応答が失われる状況を再現する fetch ラッパ。
 const putLosesResponse: typeof fetch = async (url, init) => {
