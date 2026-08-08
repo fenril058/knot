@@ -48,3 +48,41 @@ test('エディタで書いて自動保存され、再読み込みで内容が�
 
   expect(violations).toEqual([]);
 });
+
+test('400 で保存を拒否された後も追加入力して保存できる', async ({ page }) => {
+  const login = await page.request.post('/api/knot/session', {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: { name: 'e2e', password: 'e2e-password' },
+  });
+  expect(login.ok()).toBe(true);
+
+  let commitRequests = 0;
+  await page.route('**/api/knot/pages/e2e/recover-after-400/commits', async (route) => {
+    commitRequests += 1;
+    if (commitRequests === 1) {
+      await route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'bad_commit', message: 'simulated rejection' }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.goto('/e2e/recover-after-400/edit');
+  const editor = page.locator('#editor-root .cm-content');
+  await editor.click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.press('End');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('rejected text');
+  await expect(page.locator('#save-status')).toHaveText('エラー: simulated rejection');
+
+  await page.keyboard.type(' corrected');
+  await expect(page.locator('#save-status')).toHaveText('保存済み');
+  expect(commitRequests).toBe(2);
+
+  await page.goto('/e2e/recover-after-400');
+  await expect(page.locator('.page-body')).toContainText('rejected text corrected');
+});
