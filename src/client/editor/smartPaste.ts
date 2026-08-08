@@ -9,14 +9,16 @@ export type PasteContext = {
 
 export type PasteRule = (ctx: PasteContext) => boolean;
 
-function positionInSpanKind(ctx: PasteContext, kind: Span['kind']): boolean {
-  return ctx.spans.some(
-    (span) => span.kind === kind && ctx.from >= span.from && ctx.from <= span.to,
-  );
+function selectionIntersectsSpanKind(ctx: PasteContext, kind: Span['kind']): boolean {
+  return ctx.spans.some((span) => {
+    if (span.kind !== kind) return false;
+    if (ctx.from === ctx.to) return ctx.from >= span.from && ctx.from < span.to;
+    return ctx.from < span.to && ctx.to > span.from;
+  });
 }
 
-const inCodeBlock: PasteRule = (ctx) => positionInSpanKind(ctx, 'code-block');
-const inInlineCode: PasteRule = (ctx) => positionInSpanKind(ctx, 'code-inline');
+const inCodeBlock: PasteRule = (ctx) => selectionIntersectsSpanKind(ctx, 'code-block');
+const inInlineCode: PasteRule = (ctx) => selectionIntersectsSpanKind(ctx, 'code-inline');
 
 function currentLine(docText: string, offset: number): { text: string; offsetInLine: number } {
   const lineStart = docText.lastIndexOf('\n', offset - 1) + 1;

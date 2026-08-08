@@ -55,6 +55,32 @@ void test('インラインコード内では変換しない', () => {
   assert.equal(transformPaste(ctx('0123456789', 5, 5, spans), 'https://example.com'), null);
 });
 
+void test('選択範囲がコードブロックに交差する場合は変換しない', () => {
+  const spans: Span[] = [{ from: 4, to: 10, kind: 'code-block' }];
+  assert.equal(transformPaste(ctx('0123456789ab', 2, 7, spans), 'https://example.com'), null);
+});
+
+void test('選択範囲がインラインコード全体を含む場合は変換しない', () => {
+  const spans: Span[] = [{ from: 4, to: 8, kind: 'code-inline' }];
+  assert.equal(transformPaste(ctx('0123456789ab', 2, 10, spans), 'https://example.com'), null);
+});
+
+void test('選択範囲がコード span の直後に隣接するだけなら変換する', () => {
+  const spans: Span[] = [{ from: 0, to: 4, kind: 'code-inline' }];
+  assert.equal(
+    transformPaste(ctx('codeafter', 4, 9, spans), 'https://example.com'),
+    '[https://example.com after]',
+  );
+});
+
+void test('カーソルがコード span の終了位置にある場合は変換する', () => {
+  const spans: Span[] = [{ from: 0, to: 4, kind: 'code-inline' }];
+  assert.equal(
+    transformPaste(ctx('code', 4, 4, spans), 'https://example.com'),
+    '[https://example.com]',
+  );
+});
+
 void test('既存ブラケットの内側（[foo|bar] の内側）では変換しない', () => {
   const docText = '[foo|bar]';
   const from = docText.indexOf('|') + 1;
