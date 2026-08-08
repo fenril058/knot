@@ -13,7 +13,7 @@ void test('getRelatedPages: 1-hop は前方リンク先と逆リンク元', asyn
   await seedPage(storage, project.id, 'Back', ['see [Home]'], now + 2);
   const rel = await storage.getRelatedPages(project.id, homeId, 'home');
   const oneHop = rel.links1hop.map((p) => p.title).toSorted();
-  assert.deepEqual(oneHop, ['Back', 'Fwd']); // 赤リンク 'Red Link' はページが無いので含まれない
+  assert.deepEqual(oneHop, ['Back', 'Fwd']); // 空リンク 'Red Link' はページが無いので含まれない
   assert.equal(rel.hasBackLinks, true);
 });
 
@@ -23,7 +23,7 @@ void test('getRelatedPages: 2-hop は前方リンク先を共有するページ'
   const homeId = await seedPage(storage, project.id, 'Home', ['[Shared Topic]'], now);
   await seedPage(storage, project.id, 'Sibling', ['also [Shared Topic]'], now + 1);
   const rel = await storage.getRelatedPages(project.id, homeId, 'home');
-  assert.deepEqual(rel.links1hop, []); // Shared Topic は赤リンク
+  assert.deepEqual(rel.links1hop, []); // Shared Topic は空リンク
   assert.deepEqual(rel.links2hop.map((p) => p.title), ['Sibling']);
   assert.deepEqual(rel.links2hop[0]!.linksLc, ['shared_topic']);
   assert.equal(rel.hasBackLinks, false);

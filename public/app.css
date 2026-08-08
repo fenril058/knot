@@ -1,6 +1,6 @@
 body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem; }
 a { color: #2c6ea3; }
-.red-link { color: #c0392b; }
+.empty-link { color: #c0392b; }
 .page-nav { margin-bottom: 0.5rem; font-size: 0.9em; }
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; list-style: none; padding: 0; }
 .card { display: block; border: 1px solid #ddd; border-radius: 4px; padding: 0.5rem; text-decoration: none; color: inherit; min-width: 0; overflow: hidden; overflow-wrap: anywhere; }

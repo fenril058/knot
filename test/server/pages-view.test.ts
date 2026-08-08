@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { loginAs, makeServer } from '../helpers/server.ts';
 import { seedPage } from '../helpers/pages.ts';
 
-void test('GET /:project/:title: レンダリング結果・赤リンク・テロメア・関連ページを含む', async () => {
+void test('GET /:project/:title: レンダリング結果・空リンク・テロメア・関連ページを含む', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
@@ -12,7 +12,7 @@ void test('GET /:project/:title: レンダリング結果・赤リンク・テ�
   const res = await s.request('/proj/Alpha', {}, cookie);
   assert.equal(res.status, 200);
   const body = await res.text();
-  assert.match(body, /class="red-link"[^>]*>Ghost</);
+  assert.match(body, /class="empty-link"[^>]*>Ghost</);
   assert.match(body, /href="\/proj\/Beta"[^>]*>Beta</);
   assert.match(body, /class="telomere/);
   assert.match(body, /Beta/);

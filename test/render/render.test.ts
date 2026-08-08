@@ -26,11 +26,11 @@ void test('プレーンテキストはエスケープされる', () => {
   assert.equal(renderOne('<script>alert(1)</script>'), '<div>&lt;script&gt;alert(1)&lt;/script&gt;</div>');
 });
 
-void test('ブラケットリンク: 既存ページは通常リンク、存在しないページは赤リンク', () => {
+void test('ブラケットリンク: 既存ページは通常リンク、存在しないページは空リンク', () => {
   const html = renderOne('[Foo]', [['foo', 'Foo']]);
   assert.match(html, /<a href="\/proj\/Foo"[^>]*>Foo<\/a>/);
   const red = renderOne('[Bar]');
-  assert.match(red, /class="red-link"/);
+  assert.match(red, /class="empty-link"/);
   assert.match(red, /href="\/proj\/Bar\/edit"/);
 });
 

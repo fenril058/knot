@@ -116,7 +116,7 @@ function makeRenderer(knownPages: Map<string, KnownPage>, projectName: string, c
         const href = entry ? pageHref(projectName, entry.title) : `${pageHref(projectName, node.href)}/edit`;
         return entry
           ? html`<a href="${href}">#${node.href}</a>`
-          : html`<a href="${href}" class="red-link">#${node.href}</a>`;
+          : html`<a href="${href}" class="empty-link">#${node.href}</a>`;
       }
       case 'icon':
       case 'strongIcon': {
@@ -128,7 +128,7 @@ function makeRenderer(knownPages: Map<string, KnownPage>, projectName: string, c
         }
         return entry
           ? html`<a href="${href}" class="icon-link">[${node.path}]</a>`
-          : html`<a href="${href}" class="icon-link red-link">[${node.path}]</a>`;
+          : html`<a href="${href}" class="icon-link empty-link">[${node.path}]</a>`;
       }
       case 'image':
       case 'strongImage':
@@ -144,7 +144,7 @@ function makeRenderer(knownPages: Map<string, KnownPage>, projectName: string, c
           const href = entry ? pageHref(projectName, entry.title) : `${pageHref(projectName, target)}/edit`;
           return entry
             ? html`<a href="${href}">${label}</a>`
-            : html`<a href="${href}" class="red-link">${label}</a>`;
+            : html`<a href="${href}" class="empty-link">${label}</a>`;
         }
         if (isHttpUrl(node.href)) {
           return renderMedia(node.href, node.content === '' ? node.href : node.content);
