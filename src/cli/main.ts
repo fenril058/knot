@@ -97,7 +97,7 @@ async function main(argv: string[]): Promise<string> {
     case 'serve': {
       if (positionals.length !== 0) throw new CliError(USAGE);
       const port = values.port === undefined ? 3000 : Number(values.port);
-      if (!Number.isInteger(port) || port < 1 || port > 65535) throw new CliError(USAGE);
+      if (!Number.isInteger(port) || port < 0 || port > 65535) throw new CliError(USAGE);
       return runServe(data, port, values.hostname ?? '127.0.0.1');
     }
     case 'user': {
