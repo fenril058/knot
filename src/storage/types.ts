@@ -192,7 +192,7 @@ export interface Storage {
   ): Promise<{ count: number; pages: PageSummary[] }>;
   /**
    * links1hop: このページの前方リンク先として存在するページ ∪ このページへ張っているページ。
-   * links2hop: このページの前方リンク先（赤リンク含む）へ張っている他のページ（自分と 1hop を除く）。
+   * links2hop: このページの前方リンク先（空リンク含む）へ張っている他のページ（自分と 1hop を除く）。
    *            その entry の linksLc は共有しているリンク先の lc。
    * 1hop の linksLc はそのページ自身の前方リンク lc。
    * hasBackLinks: extractRefs は [X.icon] もリンクとして links に記録するため、

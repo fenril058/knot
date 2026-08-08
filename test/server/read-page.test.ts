@@ -22,7 +22,7 @@ void test('GET /api/pages/:project/:title が lines / links / relatedPages を�
   ]);
   assert.equal(typeof body.version, 'number'); // knot 拡張
   assert.equal(body.lines[0].text, 'Home');
-  assert.deepEqual(body.links.toSorted(), ['Red', 'Sub Page']); // 前方リンクの原文（赤リンク含む）
+  assert.deepEqual(body.links.toSorted(), ['Red', 'Sub Page']); // 前方リンクの原文（空リンク含む）
   assert.deepEqual(body.relatedPages.links1hop.map((p: { title: string }) => p.title), ['Sub Page']);
   assert.equal(body.relatedPages.hasBackLinksOrIcons, true);
   assert.equal(body.linked, 1); // Sub Page からの被リンク

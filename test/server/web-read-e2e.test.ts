@@ -30,7 +30,7 @@ void test('login → 一覧 → 閲覧 → 再訪問 → 404 の一気通貫で�
   assert.equal(firstVisit.status, 200);
   const firstVisitBody = await firstVisit.text();
   assert.match(firstVisitBody, /href="\/proj\/Beta"[^>]*>Beta</);
-  assert.match(firstVisitBody, /class="red-link"[^>]*>Ghost</);
+  assert.match(firstVisitBody, /class="empty-link"[^>]*>Ghost</);
   assert.match(firstVisitBody, /class="telomere unread\b/);
   htmlBodies.push(firstVisitBody);
 
