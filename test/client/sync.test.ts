@@ -118,6 +118,22 @@ void test('ackFailure 後の flush は同じ commitId と内容で再送する',
   assert.equal(sync.status, 'saving');
 });
 
+void test('ackBad は拒否されたコミットを再送せず、次の編集を新しいコミットにする', () => {
+  const sync = engine([line('title', 'Title'), line('body', 'body')]);
+  sync.bufferChanged(['Title', 'rejected']);
+  const rejected = effect(sync.flush(), 'send');
+
+  assert.deepEqual(sync.ackBad(), [{ type: 'persist', record: null }]);
+  assert.equal(sync.status, 'error');
+  assert.deepEqual(sync.flush(), []);
+
+  assert.deepEqual(sync.bufferChanged(['Title', 'corrected']), [{ type: 'schedule' }]);
+  const retried = effect(sync.flush(), 'send');
+  assert.notEqual(retried?.commit.commitId, rejected?.commit.commitId);
+  assert.deepEqual(retried?.commit.ops, [{ type: 'update', id: 'body', text: 'corrected' }]);
+  assert.equal(sync.status, 'saving');
+});
+
 void test('flush は PendingRecord を永続化し、JSON 往復と不正入力を扱う', () => {
   const base = [line('title', 'Title'), line('body', 'body')];
   const sync = engine(base);

@@ -56,7 +56,6 @@ let storageKey = pendingKey(title);
 let engine: SyncEngine;
 let view: EditorView;
 let timer: number | undefined;
-let stopped = false;
 let statusMessage: string | undefined;
 let suppressChanges = false;
 
@@ -112,7 +111,6 @@ async function executeEffects(effects: readonly SyncEffect[], keepalive = false)
   }
   for (const effect of effects) {
     if (effect.type === 'schedule') {
-      if (stopped) continue;
       if (timer !== undefined) window.clearTimeout(timer);
       timer = window.setTimeout(() => {
         timer = undefined;
@@ -124,7 +122,6 @@ async function executeEffects(effects: readonly SyncEffect[], keepalive = false)
     if (effect.type === 'persist') {
       continue;
     }
-    if (stopped) continue;
 
     const bodySize = new TextEncoder().encode(JSON.stringify(effect.commit)).byteLength;
     if (keepalive && bodySize > KEEPALIVE_BODY_LIMIT) {
@@ -149,8 +146,7 @@ async function executeEffects(effects: readonly SyncEffect[], keepalive = false)
     } else if (result.kind === 'network') {
       await executeEffects(engine.ackFailure(), keepalive);
     } else {
-      stopped = true;
-      localStorage.removeItem(storageKey);
+      await executeEffects(engine.ackBad(), keepalive);
       statusMessage = result.message === 'first line must match the URL title'
         ? 'タイトル行が URL と一致しません'
         : `エラー: ${result.message}`;
@@ -249,7 +245,7 @@ async function start(): Promise<void> {
         now: unixTime,
       }),
       EditorView.updateListener.of((update) => {
-        if (!update.docChanged || suppressChanges || stopped) return;
+        if (!update.docChanged || suppressChanges) return;
         statusMessage = undefined;
         void executeEffects(engine.bufferChanged(update.state.doc.toString().split('\n')));
         renderStatus();
@@ -265,7 +261,6 @@ async function start(): Promise<void> {
 }
 
 function flushOnExit(): void {
-  if (stopped) return;
   if (timer !== undefined) window.clearTimeout(timer);
   timer = undefined;
   void executeEffects(engine.flush(), true);

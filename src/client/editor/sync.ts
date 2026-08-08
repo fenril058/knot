@@ -151,6 +151,16 @@ export class SyncEngine {
     return [{ type: 'schedule' }];
   }
 
+  ackBad(): SyncEffect[] {
+    if (this.#inflight === null) return [];
+    this.#inflight = null;
+    this.#retryPending = false;
+    this.#buffer = this.#confirmed.lines.map(({ text }) => text);
+    this.#hasBufferChanged = false;
+    this.#status = 'error';
+    return [{ type: 'persist', record: null }];
+  }
+
   #startCommit(ops: LineOp[]): SyncEffect[] {
     const record: PendingRecord = {
       commitId: this.#makeId(),
