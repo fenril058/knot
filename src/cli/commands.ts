@@ -37,12 +37,13 @@ export async function runServe(dataDir: string, port: number, hostname: string):
   }
   const storage = openStorage(dataDir);
   const app = createApp({ storage, config });
-  serve({ fetch: app.fetch, port, hostname });
+  serve({ fetch: app.fetch, port, hostname }, (info) => {
+    console.log(`knot serving http://${hostname}:${info.port}/ (data: ${dataDir})`);
+  });
   if (config.autoExportDir !== null) {
     const { startAutoExport } = await import('../server/autoExport.ts');
     startAutoExport({ storage, dataDir, config });
   }
-  console.log(`knot serving http://${hostname}:${port}/ (data: ${dataDir})`);
   return new Promise<never>(() => {});
 }
 
