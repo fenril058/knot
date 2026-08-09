@@ -1,7 +1,7 @@
 import { html } from 'hono/html';
 import type { Line } from '../../core/ops.ts';
 import { pageHref } from '../../core/title.ts';
-import type { RenderedLine } from '../../render/render.ts';
+import type { RenderConfig, RenderedLine } from '../../render/render.ts';
 import type { PageSnapshot, Project, RelatedPages, Visit } from '../../storage/types.ts';
 import { layout, type Html } from './layout.ts';
 
@@ -14,11 +14,18 @@ function ageClass(page: PageSnapshot, updated: number): string {
   return 'age-3';
 }
 
+function nestIndentedLine(content: Html, indent: number): Html {
+  if (indent === 0) return content;
+  let nested = html`<div class="line-indent-content">${content}</div>`;
+  for (let depth = 0; depth < indent; depth += 1) nested = html`<div class="line-indent">${nested}</div>`;
+  return nested;
+}
+
 function lineRow(page: PageSnapshot, line: Line, rendered: RenderedLine, previousVisit: Visit | null): Html {
   const unread = previousVisit === null || line.updatedVersion > previousVisit.lastSeenVersion;
   return html`<div class="line-row" id="L${line.id}">
 <span class="telomere${unread ? ' unread' : ''} ${ageClass(page, line.updated)}" data-updated="${line.updated}" data-user="${line.userId}"></span>
-${rendered.html}
+${nestIndentedLine(rendered.html, rendered.indent)}
 </div>`;
 }
 
@@ -37,6 +44,7 @@ export function pageViewPage(
   related: RelatedPages,
   userName: string,
   styleNonce: string,
+  renderConfig: RenderConfig,
 ): Html {
   return layout(page.title, html`
 <nav class="page-nav"><a href="/${encodeURIComponent(project.name)}">${project.displayName}</a></nav>
@@ -82,6 +90,8 @@ ${related.hasBackLinks ? html`<p class="backlinks-badge">逆リンクまたは�
   data-user-name="${userName}"
   data-last-seen-version="${previousVisit?.lastSeenVersion ?? 0}"
   data-csp-nonce="${styleNonce}"
+  data-allowed-image-hosts="${JSON.stringify(renderConfig.allowedImageHosts)}"
+  data-allowed-media-hosts="${JSON.stringify(renderConfig.allowedMediaHosts)}"
 >${rendered.map((line, index) => lineRow(page, page.lines[index]!, line, previousVisit))}</div>
 ${relatedSection('関連ページ', related.links1hop, project.name)}
 ${relatedSection('2-hop リンク', related.links2hop, project.name)}
@@ -92,7 +102,13 @@ ${relatedSection('2-hop リンク', related.links2hop, project.name)}
   );
 }
 
-export function pageNotFoundPage(project: Project, title: string, userName: string, styleNonce: string): Html {
+export function pageNotFoundPage(
+  project: Project,
+  title: string,
+  userName: string,
+  styleNonce: string,
+  renderConfig: RenderConfig,
+): Html {
   return layout('ページが見つかりません', html`
 <nav class="page-nav"><a href="/${encodeURIComponent(project.name)}">${project.displayName}</a></nav>
 <main>
@@ -107,6 +123,8 @@ export function pageNotFoundPage(project: Project, title: string, userName: stri
   data-user-name="${userName}"
   data-last-seen-version="0"
   data-csp-nonce="${styleNonce}"
+  data-allowed-image-hosts="${JSON.stringify(renderConfig.allowedImageHosts)}"
+  data-allowed-media-hosts="${JSON.stringify(renderConfig.allowedMediaHosts)}"
 ><p>このページはまだ作成されていません。</p></div>
 </main>
 <script type="module" src="/assets/build/editor.js"></script>`,
