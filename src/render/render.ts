@@ -1,7 +1,7 @@
-import { parse, type Node } from '@progfay/scrapbox-parser';
 import { html, raw } from 'hono/html';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { classifyUrl, isAllowedImageUrl, isAttachmentUrl, isHostAllowed } from '../core/media.ts';
+import { parsePageSyntax, type SyntaxNode } from '../core/syntax.ts';
 import { pageHref, titleLc } from '../core/title.ts';
 
 export type KnownPage = { title: string; image: string | null };
@@ -21,16 +21,6 @@ function isHttpUrl(href: string): boolean {
 
 function hasUriScheme(href: string): boolean {
   return /^[a-z][a-z\d+.-]*:/i.test(href);
-}
-
-function countIndentedBodyLines(lines: { text: string }[], headerIndex: number, headerIndent: number): number {
-  let count = 0;
-  for (let lineIndex = headerIndex + 1; lineIndex < lines.length; lineIndex += 1) {
-    const indent = /^\s+/.exec(lines[lineIndex]!.text)?.[0].length ?? 0;
-    if (indent <= headerIndent) break;
-    count += 1;
-  }
-  return count;
 }
 
 const renderExternalLink = (url: string, label: string | undefined): RenderedHtml =>
@@ -73,7 +63,7 @@ function makeRenderer(knownPages: Map<string, KnownPage>, projectName: string, c
   };
 
   // oxlint-disable-next-line typescript/consistent-return -- union を網羅する switch。末尾の return を書かないことで、分岐漏れを型エラーにしている
-  const renderNode = (node: Node): RenderedHtml => {
+  const renderNode = (node: SyntaxNode): RenderedHtml => {
     switch (node.type) {
       case 'plain':
       case 'blank':
@@ -157,7 +147,7 @@ function makeRenderer(knownPages: Map<string, KnownPage>, projectName: string, c
     }
   };
 
-  const renderTableCell = (nodes: Node[]): RenderedHtml => html`<td>${nodes.map(renderNode)}</td>`;
+  const renderTableCell = (nodes: SyntaxNode[]): RenderedHtml => html`<td>${nodes.map(renderNode)}</td>`;
   return { renderNode, renderTableCell };
 }
 
@@ -169,7 +159,7 @@ export function renderLines(
 ): RenderedLine[] {
   const { renderNode, renderTableCell } = makeRenderer(knownPages, projectName, config);
   const result: RenderedLine[] = lines.map(({ id }) => ({ lineId: id, html: raw('') }));
-  const blocks = parse(lines.map(({ text }) => text).join('\n'), { hasTitle: true });
+  const blocks = parsePageSyntax(lines.map(({ text }) => text).join('\n'), { hasTitle: true });
 
   let index = 0;
   for (const block of blocks) {
@@ -179,7 +169,7 @@ export function renderLines(
       result[index] = { lineId: lines[index]!.id, html: html`<div>${block.nodes.map(renderNode)}</div>` };
       index += 1;
     } else if (block.type === 'codeBlock') {
-      const bodyLineCount = countIndentedBodyLines(lines, index, block.indent);
+      const bodyLineCount = block.lineRanges.length - 1;
       const contentLines = block.content === '' ? [] : block.content.split('\n');
       result[index] = { lineId: lines[index]!.id, html: html`<div class="code-header">${block.fileName}</div>` };
       Array.from({ length: bodyLineCount }, (_, offset) => contentLines[offset] ?? '').forEach((content, offset) => {
@@ -191,7 +181,7 @@ export function renderLines(
       });
       index += 1 + bodyLineCount;
     } else if (block.type === 'table') {
-      const bodyLineCount = countIndentedBodyLines(lines, index, block.indent);
+      const bodyLineCount = block.lineRanges.length - 1;
       result[index] = { lineId: lines[index]!.id, html: html`<div class="table-header">${block.fileName}</div>` };
       Array.from({ length: bodyLineCount }, (_, offset) => block.cells[offset] ?? []).forEach((row, offset) => {
         const lineIndex = index + 1 + offset;

@@ -1,5 +1,5 @@
 import type { Context, Hono } from 'hono';
-import { parse } from '@progfay/scrapbox-parser';
+import { parsePageSyntax } from '../../core/syntax.ts';
 import type { AppDeps } from '../app.ts';
 import { jsonError, resolvePage, resolveProject, safeDecode, type ApiEnv } from '../http.ts';
 import { titleLc } from '../../core/title.ts';
@@ -157,7 +157,7 @@ export function registerReadRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     if (!page) return jsonError(c, 404, 'not_found');
     const filename = safeDecode(c.req.param('filename'));
     if (filename === null) return jsonError(c, 404, 'not_found');
-    const blocks = parse(page.lines.map((line) => line.text).join('\n'), { hasTitle: true });
+    const blocks = parsePageSyntax(page.lines.map((line) => line.text).join('\n'), { hasTitle: true });
     const contents: string[] = [];
     for (const block of blocks) {
       if (block.type === 'codeBlock' && block.fileName === filename) contents.push(block.content);
