@@ -6,7 +6,7 @@ import { pageHref, titleLc } from '../core/title.ts';
 
 export type KnownPage = { title: string; image: string | null };
 export type RenderConfig = { allowedImageHosts: string[]; allowedMediaHosts: string[] };
-export type RenderedLine = { lineId: string; html: HtmlEscapedString | Promise<HtmlEscapedString> };
+export type RenderedLine = { lineId: string; indent: number; html: HtmlEscapedString | Promise<HtmlEscapedString> };
 
 type RenderedHtml = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -158,7 +158,11 @@ export function renderLines(
   config: RenderConfig,
 ): RenderedLine[] {
   const { renderNode, renderTableCell } = makeRenderer(knownPages, projectName, config);
-  const result: RenderedLine[] = lines.map(({ id }) => ({ lineId: id, html: raw('') }));
+  const result: RenderedLine[] = lines.map(({ id, text }) => ({
+    lineId: id,
+    indent: /^\s*/.exec(text)?.[0].length ?? 0,
+    html: raw(''),
+  }));
   const blocks = parsePageSyntax(lines.map(({ text }) => text).join('\n'), { hasTitle: true });
 
   let index = 0;
@@ -166,27 +170,27 @@ export function renderLines(
     if (block.type === 'title') {
       index += 1;
     } else if (block.type === 'line') {
-      result[index] = { lineId: lines[index]!.id, html: html`<div>${block.nodes.map(renderNode)}</div>` };
+      result[index] = { ...result[index]!, html: html`<div>${block.nodes.map(renderNode)}</div>` };
       index += 1;
     } else if (block.type === 'codeBlock') {
       const bodyLineCount = block.lineRanges.length - 1;
       const contentLines = block.content === '' ? [] : block.content.split('\n');
-      result[index] = { lineId: lines[index]!.id, html: html`<div class="code-header">${block.fileName}</div>` };
+      result[index] = { ...result[index]!, html: html`<div class="code-header">${block.fileName}</div>` };
       Array.from({ length: bodyLineCount }, (_, offset) => contentLines[offset] ?? '').forEach((content, offset) => {
         const lineIndex = index + 1 + offset;
         result[lineIndex] = {
-          lineId: lines[lineIndex]!.id,
+          ...result[lineIndex]!,
           html: html`<div class="code-line">${content}</div>`,
         };
       });
       index += 1 + bodyLineCount;
     } else if (block.type === 'table') {
       const bodyLineCount = block.lineRanges.length - 1;
-      result[index] = { lineId: lines[index]!.id, html: html`<div class="table-header">${block.fileName}</div>` };
+      result[index] = { ...result[index]!, html: html`<div class="table-header">${block.fileName}</div>` };
       Array.from({ length: bodyLineCount }, (_, offset) => block.cells[offset] ?? []).forEach((row, offset) => {
         const lineIndex = index + 1 + offset;
         result[lineIndex] = {
-          lineId: lines[lineIndex]!.id,
+          ...result[lineIndex]!,
           html: html`<div class="table-row"><table><tr>${row.map(renderTableCell)}</tr></table></div>`,
         };
       });

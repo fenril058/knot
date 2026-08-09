@@ -26,6 +26,12 @@ void test('プレーンテキストはエスケープされる', () => {
   assert.equal(renderOne('<script>alert(1)</script>'), '<div>&lt;script&gt;alert(1)&lt;/script&gt;</div>');
 });
 
+void test('インデントされた行は深さを描画結果へ保持する', () => {
+  const lines = [{ id: 'title', text: 'Title' }, { id: 'l1', text: '  nested' }];
+  const out = renderLines(lines, new Map(), 'proj', cfg);
+  assert.equal(out[1]?.indent, 2);
+});
+
 void test('ブラケットリンク: 既存ページは通常リンク、存在しないページは空リンク', () => {
   const html = renderOne('[Foo]', [['foo', 'Foo']]);
   assert.match(html, /<a href="\/proj\/Foo"[^>]*>Foo<\/a>/);

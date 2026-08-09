@@ -6,6 +6,7 @@ import { fetchPage, postCommit, uploadFile } from './api.ts';
 import { titleAutocompletion } from './cm/complete.ts';
 import { syntaxHighlighting } from './cm/decorations.ts';
 import { editorKeymap } from './cm/keymap.ts';
+import { lineWysiwyg } from './cm/lineWysiwyg.ts';
 import { pasteHandlers } from './cm/paste.ts';
 import { refreshTelomereGutter, telomereGutter } from './cm/telomere.ts';
 import {
@@ -37,6 +38,18 @@ const title = data.title;
 const userName = data.userName;
 const cspNonce = data.cspNonce;
 const lastSeenVersion = Number(data.lastSeenVersion ?? 0);
+
+function stringArrayData(value: string | undefined, name: string): string[] {
+  if (value === undefined) throw new Error(`${name} is missing`);
+  const parsed: unknown = JSON.parse(value);
+  if (!Array.isArray(parsed) || !parsed.every((entry) => typeof entry === 'string')) {
+    throw new Error(`${name} must be a string array`);
+  }
+  return parsed;
+}
+
+const allowedImageHosts = stringArrayData(data.allowedImageHosts, 'allowed image hosts');
+const allowedMediaHosts = stringArrayData(data.allowedMediaHosts, 'allowed media hosts');
 
 function unixTime(): number {
   return Math.floor(Date.now() / 1000);
@@ -235,6 +248,7 @@ async function start(): Promise<void> {
     extensions: [
       EditorView.cspNonce.of(cspNonce),
       historyExtension(),
+      lineWysiwyg({ project, allowedImageHosts, allowedMediaHosts }),
       keymap.of([...editorKeymap(userName), ...defaultKeymap, ...historyKeymap]),
       pasteHandlers({
         uploadFile: (file) => uploadFile(project, file),
