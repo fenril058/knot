@@ -31,7 +31,7 @@ void test('ブラケットリンク: 既存ページは通常リンク、存在�
   assert.match(html, /<a href="\/proj\/Foo"[^>]*>Foo<\/a>/);
   const red = renderOne('[Bar]');
   assert.match(red, /class="empty-link"/);
-  assert.match(red, /href="\/proj\/Bar\/edit"/);
+  assert.match(red, /href="\/proj\/Bar"/);
 });
 
 void test('ハッシュタグは title_lc で解決しブラケットリンクと同じ扱い', () => {

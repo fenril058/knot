@@ -25,7 +25,7 @@ dialog form { display: grid; gap: 1rem; }
 .dialog-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
 .danger { color: #c0392b; }
 
-#editor-root { max-width: 960px; margin: 0 auto; }
+#editor-root.editor-active { max-width: 960px; margin: 0 auto; }
 #editor-root .cm-editor { min-height: 70vh; border: 1px solid #ddd; border-radius: 4px; }
 #editor-root .cm-content { padding: 1rem; }
 #editor-root .cm-focused { outline: 2px solid #2c6ea3; outline-offset: 2px; }
