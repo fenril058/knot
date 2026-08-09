@@ -1,6 +1,6 @@
-import { parse, type Node } from '@progfay/scrapbox-parser';
 import { titleLc } from './title.ts';
 import { classifyUrl, isAttachmentUrl } from './media.ts';
+import { parsePageSyntax, type SyntaxNode } from './syntax.ts';
 
 const LINE_ID_RE = /^([0-9a-f]{24}|[0-9A-HJKMNP-TV-Z]{26})$/;
 
@@ -24,7 +24,7 @@ export function extractRefs(text: string): PageRefs {
     if (!targets.has(lc)) targets.set(lc, title);
   };
 
-  const visit = (node: Node): void => {
+  const visit = (node: SyntaxNode): void => {
     if (node.type === 'link' && node.pathType === 'relative') {
       add(stripLineId(node.href));
     } else if (node.type === 'hashTag') {
@@ -43,7 +43,7 @@ export function extractRefs(text: string): PageRefs {
     if ('nodes' in node) for (const child of node.nodes) visit(child);
   };
 
-  for (const block of parse(text)) {
+  for (const block of parsePageSyntax(text, { hasTitle: false })) {
     if (block.type === 'line') {
       for (const node of block.nodes) visit(node);
     } else if (block.type === 'table') {
@@ -56,73 +56,38 @@ export function extractRefs(text: string): PageRefs {
 /**
  * ページ本文中の旧タイトルへのリンクを新タイトルに書き換える。
  * 返り値は lines と同じ長さで、変更のない行（タイトル行、コードブロック内を含む）は null。
- * scrapbox-parser のブロック構造で行位置を追跡する。
- * 置換はノードの出現順に cursor を進めながら位置を特定して行う。code 記法内などに
- * 同じ文字列が先行していても、AST が指すノードと別の箇所を書き換えることがない。
+ * 内部構文ノードのソース範囲を使うため、同じ文字列が先行していても別の箇所を書き換えない。
  */
 export function rewritePageLinks(lines: string[], oldTitleLc: string, newTitle: string): (string | null)[] {
-  const result: (string | null)[] = lines.map(() => null);
-  const blocks = parse(lines.join('\n'), { hasTitle: true });
+  const source = lines.join('\n');
+  const blocks = parsePageSyntax(source, { hasTitle: true });
   const hashtagSafe = !HASHTAG_UNSAFE_RE.test(newTitle);
+  const replacements: { from: number; to: number; text: string }[] = [];
 
-  // ノードの raw 全体を置き換えた文字列を返す。書き換え不要なら null。
-  const rewriteNode = (node: Node): string | null => {
+  const visit = (node: SyntaxNode): void => {
     if (node.type === 'link' && node.pathType === 'relative') {
       const target = stripLineId(node.href);
-      if (titleLc(target) !== oldTitleLc) return null;
-      const fragment = node.href.slice(target.length); // '#<行ID>' または ''
-      return `[${newTitle}${fragment}]`;
+      if (titleLc(target) === oldTitleLc) {
+        const fragment = node.href.slice(target.length);
+        replacements.push({ ...node.range, text: `[${newTitle}${fragment}]` });
+      }
+    } else if (node.type === 'hashTag' && titleLc(node.href) === oldTitleLc) {
+      replacements.push({ ...node.range, text: hashtagSafe ? `#${newTitle}` : `[${newTitle}]` });
+    } else if (node.type === 'icon' && node.pathType === 'relative' && titleLc(node.path) === oldTitleLc) {
+      replacements.push({ ...node.range, text: `[${newTitle}.icon]` });
     }
-    if (node.type === 'hashTag') {
-      if (titleLc(node.href) !== oldTitleLc) return null;
-      return hashtagSafe ? `#${newTitle}` : `[${newTitle}]`;
-    }
-    if (node.type === 'icon' && node.pathType === 'relative') {
-      if (titleLc(node.path) !== oldTitleLc) return null;
-      return `[${newTitle}.icon]`;
-    }
-    if ('nodes' in node) {
-      // 子ノードを raw 内で出現順に位置特定しながら再帰的に置換する
-      return spliceChildren(node.raw, node.nodes);
-    }
-    return null;
+    if ('nodes' in node) for (const child of node.nodes) visit(child);
   };
 
-  // text 中で nodes を順に位置特定し、書き換え結果を継ぎ合わせる。変更がなければ null。
-  const spliceChildren = (text: string, nodes: Node[]): string | null => {
-    let out = '';
-    let cursor = 0;
-    let changed = false;
-    for (const node of nodes) {
-      const pos = text.indexOf(node.raw, cursor);
-      if (pos === -1) continue; // 位置を特定できないノードは触らない
-      const replacement = rewriteNode(node);
-      out += text.slice(cursor, pos) + (replacement ?? node.raw);
-      cursor = pos + node.raw.length;
-      if (replacement !== null) changed = true;
-    }
-    out += text.slice(cursor);
-    return changed ? out : null;
-  };
-
-  const rewriteAt = (index: number, nodes: Node[]): void => {
-    const rewrittenLine = spliceChildren(result[index] ?? lines[index]!, nodes);
-    if (rewrittenLine !== null) result[index] = rewrittenLine;
-  };
-
-  let index = 0;
   for (const block of blocks) {
-    if (block.type === 'title') {
-      index += 1; // タイトル行は書き換えない
-    } else if (block.type === 'line') {
-      rewriteAt(index, block.nodes);
-      index += 1;
-    } else if (block.type === 'codeBlock') {
-      index += 1 + (block.content === '' ? 0 : block.content.split('\n').length);
-    } else if (block.type === 'table') {
-      block.cells.forEach((row, r) => rewriteAt(index + 1 + r, row.flat()));
-      index += 1 + block.cells.length;
-    }
+    if (block.type === 'line') for (const node of block.nodes) visit(node);
+    if (block.type === 'table') for (const row of block.cells) for (const cell of row) for (const node of cell) visit(node);
   }
-  return result;
+
+  let rewritten = source;
+  for (const replacement of replacements.toSorted((left, right) => right.from - left.from)) {
+    rewritten = rewritten.slice(0, replacement.from) + replacement.text + rewritten.slice(replacement.to);
+  }
+  const rewrittenLines = rewritten.split('\n');
+  return lines.map((line, index) => rewrittenLines[index] === line ? null : rewrittenLines[index] ?? null);
 }

@@ -1,4 +1,4 @@
-import { parse, type Node } from '@progfay/scrapbox-parser';
+import { parsePageSyntax, type SyntaxNode } from '../../core/syntax.ts';
 
 export type SpanKind =
   | 'title'
@@ -18,20 +18,9 @@ export type SpanKind =
 
 export type Span = { from: number; to: number; kind: SpanKind };
 
-type SourceLine = { text: string; from: number };
-
-function sourceLines(docText: string): SourceLine[] {
-  let from = 0;
-  return docText.split('\n').map((text) => {
-    const line = { text, from };
-    from += text.length + 1;
-    return line;
-  });
-}
-
 // span にならない node 型があるため戻り値に undefined を含む。そのぶん分岐漏れは
 // 型エラーにならないので、未知の型は末尾で明示的に undefined にする。
-function nodeKind(node: Node): SpanKind | undefined {
+function nodeKind(node: SyntaxNode): SpanKind | undefined {
   switch (node.type) {
     case 'link':
       if (node.pathType === 'relative') return 'link';
@@ -80,85 +69,47 @@ function appendSpan(spans: Span[], from: number, to: number, kind: SpanKind | un
 
 function appendNodeSpans(
   spans: Span[],
-  node: Node,
-  from: number,
+  node: SyntaxNode,
   inheritedKind: SpanKind | undefined,
 ): void {
   const kind = nodeKind(node) ?? inheritedKind;
   if (!('nodes' in node) || node.nodes.length === 0) {
-    appendSpan(spans, from, from + node.raw.length, kind);
+    appendSpan(spans, node.range.from, node.range.to, kind);
     return;
   }
 
-  let cursor = 0;
+  let cursor = node.range.from;
   for (const child of node.nodes) {
-    const childFrom = node.raw.indexOf(child.raw, cursor);
-    if (childFrom === -1) {
-      appendSpan(spans, from + cursor, from + node.raw.length, kind);
-      return;
-    }
-    appendSpan(spans, from + cursor, from + childFrom, kind);
-    appendNodeSpans(spans, child, from + childFrom, kind);
-    cursor = childFrom + child.raw.length;
+    appendSpan(spans, cursor, child.range.from, kind);
+    appendNodeSpans(spans, child, kind);
+    cursor = child.range.to;
   }
-  appendSpan(spans, from + cursor, from + node.raw.length, kind);
-}
-
-function leadingWhitespaceLength(text: string): number {
-  return /^\s*/.exec(text)?.[0].length ?? 0;
-}
-
-function indentedBodyLineCount(lines: SourceLine[], headerIndex: number, headerIndent: number): number {
-  let count = 0;
-  for (let index = headerIndex + 1; index < lines.length; index += 1) {
-    if (leadingWhitespaceLength(lines[index]!.text) <= headerIndent) break;
-    count += 1;
-  }
-  return count;
+  appendSpan(spans, cursor, node.range.to, kind);
 }
 
 export function highlightSpans(docText: string): Span[] {
-  const lines = sourceLines(docText);
   const spans: Span[] = [];
   let blocks;
   try {
-    blocks = parse(docText, { hasTitle: true });
+    blocks = parsePageSyntax(docText, { hasTitle: true });
   } catch {
     return spans;
   }
 
-  let lineIndex = 0;
   for (const block of blocks) {
     try {
-      const line = lines[lineIndex];
-      if (line === undefined) break;
-
       if (block.type === 'title') {
-        if (line.text === block.text) appendSpan(spans, line.from, line.from + line.text.length, 'title');
-        lineIndex += 1;
+        appendSpan(spans, block.range.from, block.range.to, 'title');
       } else if (block.type === 'line') {
-        const content = line.text.slice(block.indent);
-        if (block.indent <= line.text.length && block.nodes.map((node) => node.raw).join('') === content) {
-          appendSpan(spans, line.from, line.from + block.indent, 'indent');
-          let withinLine = block.indent;
-          for (const node of block.nodes) {
-            appendNodeSpans(spans, node, line.from + withinLine, undefined);
-            withinLine += node.raw.length;
-          }
-        }
-        lineIndex += 1;
+        appendSpan(spans, block.range.from, block.range.from + block.indent, 'indent');
+        for (const node of block.nodes) appendNodeSpans(spans, node, undefined);
       } else {
-        const bodyLineCount = indentedBodyLineCount(lines, lineIndex, block.indent);
-        for (let offset = 0; offset <= bodyLineCount; offset += 1) {
-          const blockLine = lines[lineIndex + offset];
-          if (blockLine !== undefined) {
-            appendSpan(spans, blockLine.from, blockLine.from + blockLine.text.length, 'code-block');
-          }
+        for (const range of block.lineRanges) {
+          appendSpan(spans, range.from, range.to, 'code-block');
         }
-        lineIndex += 1 + bodyLineCount;
       }
     } catch {
-      lineIndex += 1;
+      continue;
     }
   }
   return spans;
