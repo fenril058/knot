@@ -113,7 +113,7 @@ function makeRenderer(knownPages: Map<string, KnownPage>, projectName: string, c
         return html`<code>${node.symbol}${node.text}</code>`;
       case 'hashTag': {
         const entry = knownPages.get(titleLc(node.href));
-        const href = entry ? pageHref(projectName, entry.title) : `${pageHref(projectName, node.href)}/edit`;
+        const href = pageHref(projectName, entry?.title ?? node.href);
         return entry
           ? html`<a href="${href}">#${node.href}</a>`
           : html`<a href="${href}" class="empty-link">#${node.href}</a>`;
@@ -141,7 +141,7 @@ function makeRenderer(knownPages: Map<string, KnownPage>, projectName: string, c
           const target = node.href.split('#')[0]!;
           const entry = knownPages.get(titleLc(target));
           const label = node.content === '' ? target : node.content;
-          const href = entry ? pageHref(projectName, entry.title) : `${pageHref(projectName, target)}/edit`;
+          const href = pageHref(projectName, entry?.title ?? target);
           return entry
             ? html`<a href="${href}">${label}</a>`
             : html`<a href="${href}" class="empty-link">${label}</a>`;

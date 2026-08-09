@@ -35,12 +35,15 @@ export function pageViewPage(
   rendered: RenderedLine[],
   previousVisit: Visit | null,
   related: RelatedPages,
+  userName: string,
+  styleNonce: string,
 ): Html {
-  const editHref = `${pageHref(project.name, page.title)}/edit`;
   return layout(page.title, html`
 <nav class="page-nav"><a href="/${encodeURIComponent(project.name)}">${project.displayName}</a></nav>
+<main>
 <h1>${page.title}</h1>
-<a href="${editHref}">編集</a>
+<button type="button" id="edit-page-button">編集</button>
+<div id="save-status" aria-live="polite" hidden></div>
 <div id="page-menu-root" data-project="${project.name}" data-title="${page.title}" data-version="${page.version}">
 <details id="page-actions" class="page-actions">
 <summary>操作</summary>
@@ -71,19 +74,42 @@ export function pageViewPage(
 </form></dialog>
 </div>
 ${related.hasBackLinks ? html`<p class="backlinks-badge">逆リンクまたはアイコン参照あり</p>` : ''}
-<div class="page-body">${rendered.map((line, index) => lineRow(page, page.lines[index]!, line, previousVisit))}</div>
+<div
+  id="editor-root"
+  class="page-body"
+  data-project="${project.name}"
+  data-title="${page.title}"
+  data-user-name="${userName}"
+  data-last-seen-version="${previousVisit?.lastSeenVersion ?? 0}"
+  data-csp-nonce="${styleNonce}"
+>${rendered.map((line, index) => lineRow(page, page.lines[index]!, line, previousVisit))}</div>
 ${relatedSection('関連ページ', related.links1hop, project.name)}
 ${relatedSection('2-hop リンク', related.links2hop, project.name)}
+</main>
 <script src="/assets/line-ui.js" defer></script>
-<script type="module" src="/assets/build/page-menu.js"></script>`,
+<script type="module" src="/assets/build/page-menu.js"></script>
+<script type="module" src="/assets/build/editor.js"></script>`,
   );
 }
 
-export function pageNotFoundPage(project: Project, title: string): Html {
-  const editHref = `${pageHref(project.name, title)}/edit`;
+export function pageNotFoundPage(project: Project, title: string, userName: string, styleNonce: string): Html {
   return layout('ページが見つかりません', html`
+<nav class="page-nav"><a href="/${encodeURIComponent(project.name)}">${project.displayName}</a></nav>
+<main>
 <h1>「${title}」はまだありません</h1>
-<a href="${editHref}">このタイトルで新規作成する</a>`,
+<button type="button" id="edit-page-button">このタイトルで新規作成する</button>
+<div id="save-status" aria-live="polite" hidden></div>
+<div
+  id="editor-root"
+  class="page-body"
+  data-project="${project.name}"
+  data-title="${title}"
+  data-user-name="${userName}"
+  data-last-seen-version="0"
+  data-csp-nonce="${styleNonce}"
+><p>このページはまだ作成されていません。</p></div>
+</main>
+<script type="module" src="/assets/build/editor.js"></script>`,
   );
 }
 

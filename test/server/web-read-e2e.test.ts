@@ -44,7 +44,7 @@ void test('login → 一覧 → 閲覧 → 再訪問 → 404 の一気通貫で�
   assert.equal(notFound.status, 404);
   const notFoundBody = await notFound.text();
   assert.match(notFoundBody, /Nope/);
-  assert.match(notFoundBody, /href="\/proj\/Nope\/edit"/);
+  assert.match(notFoundBody, /id="edit-page-button"[^>]*>このタイトルで新規作成する<\/button>/);
   htmlBodies.push(notFoundBody);
 
   for (const body of htmlBodies) {

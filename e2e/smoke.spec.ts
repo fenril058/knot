@@ -26,8 +26,11 @@ test('エディタで書いて自動保存され、再読み込みで内容が�
   });
   expect(login.ok()).toBe(true);
 
-  await page.goto('/e2e/hello/edit');
+  await page.goto('/e2e/hello');
+  await page.locator('#edit-page-button').click();
   const editor = page.locator('#editor-root .cm-content');
+  await expect(page).toHaveURL(/\/e2e\/hello$/);
+  await expect(editor).toBeFocused();
   await expect(editor).toContainText('hello');
 
   await editor.click();
@@ -42,7 +45,8 @@ test('エディタで書いて自動保存され、再読み込みで内容が�
   await expect(page.locator('.page-body')).toContainText('knot editor smoke body');
   await collectViolations();
 
-  await page.goto('/e2e/hello/edit');
+  await page.goto('/e2e/hello');
+  await page.locator('#edit-page-button').click();
   await expect(page.locator('#editor-root .cm-content')).toContainText('knot editor smoke body');
   await collectViolations();
 
@@ -70,8 +74,11 @@ test('400 で保存を拒否された後も追加入力して保存できる', a
     await route.continue();
   });
 
-  await page.goto('/e2e/recover-after-400/edit');
+  await page.goto('/e2e/recover-after-400');
+  await page.locator('#edit-page-button').click();
   const editor = page.locator('#editor-root .cm-content');
+  await expect(page).toHaveURL(/\/e2e\/recover-after-400$/);
+  await expect(editor).toBeFocused();
   await editor.click();
   await page.keyboard.press('Control+End');
   await page.keyboard.press('End');
@@ -85,4 +92,36 @@ test('400 で保存を拒否された後も追加入力して保存できる', a
 
   await page.goto('/e2e/recover-after-400');
   await expect(page.locator('.page-body')).toContainText('rejected text corrected');
+});
+
+test('JavaScript 無効でもログイン済み利用者は SSR 本文とリンクを読める', async ({ browser, baseURL }) => {
+  const context = await browser.newContext({ baseURL, javaScriptEnabled: false });
+  try {
+    const login = await context.request.post('/api/knot/session', {
+      headers: { 'X-Knot-Client': 'e2e' },
+      data: { name: 'e2e', password: 'e2e-password' },
+    });
+    expect(login.ok()).toBe(true);
+    const created = await context.request.post('/api/knot/pages/e2e/no-js/commits', {
+      headers: { 'X-Knot-Client': 'e2e' },
+      data: {
+        commitId: 'no-js-commit',
+        baseVersion: 0,
+        ops: [
+          { type: 'insert', id: 'no-js-title', after: '_head', text: 'no-js' },
+          { type: 'insert', id: 'no-js-body', after: 'no-js-title', text: '[linked-page]' },
+        ],
+      },
+    });
+    expect(created.ok()).toBe(true);
+
+    const page = await context.newPage();
+    await page.goto('/e2e/no-js');
+
+    await expect(page.locator('.page-body')).toContainText('linked-page');
+    await expect(page.locator('.page-body a')).toHaveAttribute('href', '/e2e/linked-page');
+    await expect(page.locator('.cm-editor')).toHaveCount(0);
+  } finally {
+    await context.close();
+  }
 });

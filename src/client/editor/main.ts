@@ -22,9 +22,11 @@ const KEEPALIVE_BODY_LIMIT = 64 * 1024;
 
 const root = document.querySelector<HTMLElement>('#editor-root');
 const statusElement = document.querySelector<HTMLElement>('#save-status');
-if (root === null || statusElement === null) throw new Error('editor root is missing');
+const editButtonElement = document.querySelector<HTMLButtonElement>('#edit-page-button');
+if (root === null || statusElement === null || editButtonElement === null) throw new Error('editor root is missing');
 const editorRoot = root;
 const saveStatus = statusElement;
+const editButton = editButtonElement;
 
 const data = editorRoot.dataset;
 if (data.project === undefined || data.title === undefined || data.userName === undefined || data.cspNonce === undefined) {
@@ -61,6 +63,7 @@ let suppressChanges = false;
 
 function renderStatus(): void {
   const labels = { saved: '保存済み', saving: '保存中', dirty: '未保存', error: 'エラー' } as const;
+  saveStatus.hidden = false;
   saveStatus.textContent = statusMessage ?? labels[engine.status];
   saveStatus.dataset.status = engine.status;
 }
@@ -74,7 +77,7 @@ function moveTitleIfNeeded(previousTitle: string): void {
     localStorage.setItem(storageKey, pending);
     localStorage.removeItem(oldKey);
   }
-  window.history.replaceState(null, '', `${pageHref(project, engine.currentTitle)}/edit`);
+  window.history.replaceState(null, '', pageHref(project, engine.currentTitle));
 }
 
 function syncDocument(lines: readonly string[]): void {
@@ -222,6 +225,10 @@ async function start(): Promise<void> {
     ?? rejectedPendingTexts
     ?? (page === null ? [title] : page.snapshot.lines.map(({ text }) => text));
 
+  editorRoot.replaceChildren();
+  editorRoot.classList.add('editor-active');
+  editButton.hidden = true;
+  document.querySelector<HTMLElement>('#page-menu-root')?.setAttribute('hidden', '');
   view = new EditorView({
     doc: initialLines.join('\n'),
     parent: editorRoot,
@@ -253,6 +260,7 @@ async function start(): Promise<void> {
     ],
   });
   renderStatus();
+  view.focus();
   // 拒否された pending の内容が画面に載ったので、ここで初めて record を消してよい。
   if (rejectedPendingTexts !== null) localStorage.removeItem(storageKey);
   if (recovery !== null) await executeEffects(recovery.effects);
@@ -271,8 +279,17 @@ function handleVisibilityChange(): void {
   if (document.visibilityState === 'hidden') flushOnExit();
 }
 
-void start().catch((error: unknown) => {
-  console.error(error);
-  saveStatus.textContent = 'エラー';
-  saveStatus.dataset.status = 'error';
+let starting = false;
+editButton.addEventListener('click', () => {
+  if (starting) return;
+  starting = true;
+  editButton.disabled = true;
+  void start().catch((error: unknown) => {
+    console.error(error);
+    starting = false;
+    editButton.disabled = false;
+    saveStatus.hidden = false;
+    saveStatus.textContent = 'エラー';
+    saveStatus.dataset.status = 'error';
+  });
 });

@@ -26,7 +26,7 @@ if (createButton === null || createDialog === null || createForm === null || cre
 createButton.addEventListener('click', () => createDialog.showModal());
 createForm.addEventListener('submit', (event) => {
   event.preventDefault();
-  window.location.assign(`${pageHref(project, createTitle.value.trim())}/edit`);
+  window.location.assign(pageHref(project, createTitle.value.trim()));
 });
 for (const button of document.querySelectorAll<HTMLButtonElement>('[data-dialog-close]')) {
   button.addEventListener('click', () => button.closest('dialog')?.close());
