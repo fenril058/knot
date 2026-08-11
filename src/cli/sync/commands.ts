@@ -1,5 +1,16 @@
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+  closeSync,
+  constants,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { parseArgs } from 'node:util';
 import { titleLc } from '../../core/title.ts';
 import { CliError } from '../commands.ts';
@@ -36,16 +47,77 @@ function is401(e: unknown): e is SyncHttpError {
   return e instanceof SyncHttpError && e.status === 401;
 }
 
-// 書き込み先が symlink かどうかを無条件の lstat で判定する。
-// existsSync は symlink を辿るため、ダングリング symlink（リンク先が存在しない）では
-// false を返してガードを素通りさせてしまう。lstat は辿らないので symlink 自体を検出できる。
-// ENOENT（何も無い）は false = 通常の新規書き込み可、とする。
-function isSymlinkAt(path: string): boolean {
-  try {
-    return lstatSync(path).isSymbolicLink();
-  } catch {
-    return false;
+function hasErrorCode(error: unknown, code: string): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === code;
+}
+
+function pathSegmentsWithin(root: string, target: string): string[] | undefined {
+  const path = relative(resolve(root), resolve(target));
+  if (path === '') return [];
+  if (path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path)) return undefined;
+  return path.split(sep);
+}
+
+// root 自体は、利用者が symlink 経由で同期ディレクトリを指定する場合があるため検査対象外にする。
+// その配下は各 path component を lstat し、末端だけでなく祖先の symlink も拒否する。
+function hasSymlinkWithin(root: string, target: string): boolean {
+  const segments = pathSegmentsWithin(root, target);
+  if (segments === undefined) return true;
+  let current = resolve(root);
+  for (const segment of segments) {
+    current = join(current, segment);
+    try {
+      if (lstatSync(current).isSymbolicLink()) return true;
+    } catch (error) {
+      if (hasErrorCode(error, 'ENOENT')) return false;
+      throw error;
+    }
   }
+  return false;
+}
+
+// recursive mkdir は既存の祖先 symlink を辿るため、各階層を検査してから個別に作る。
+function ensureDirectoryWithoutSymlinks(root: string, target: string): boolean {
+  const segments = pathSegmentsWithin(root, target);
+  if (segments === undefined) return false;
+  let current = resolve(root);
+  for (const segment of segments) {
+    current = join(current, segment);
+    try {
+      const stat = lstatSync(current);
+      if (stat.isSymbolicLink() || !stat.isDirectory()) return false;
+      continue;
+    } catch (error) {
+      if (!hasErrorCode(error, 'ENOENT')) throw error;
+    }
+    try {
+      mkdirSync(current);
+    } catch (error) {
+      // lstat と mkdir の間に作られた場合は、直後の lstat で種類を検査する。
+      if (!hasErrorCode(error, 'EEXIST')) throw error;
+    }
+    const stat = lstatSync(current);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) return false;
+  }
+  return true;
+}
+
+// O_NOFOLLOW 付きで末端を開き、lstat と write の間に末端を差し替える競合も拒否する。
+function writeWithoutSymlinks(root: string, target: string, contents: string): boolean {
+  if (hasSymlinkWithin(root, target)) return false;
+  let fd: number;
+  try {
+    fd = openSync(target, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW, 0o666);
+  } catch (error) {
+    if (hasErrorCode(error, 'ELOOP')) return false;
+    throw error;
+  }
+  try {
+    writeFileSync(fd, contents);
+  } finally {
+    closeSync(fd);
+  }
+  return true;
 }
 
 // サーバ由来の pageId をディレクトリ名として使う前に、単一の path segment であることを確認する。
@@ -261,11 +333,13 @@ function pullConflict(ctx: PullContext, pageId: string, detail: RemotePage): Pag
   }
   if (!isSafePathSegment(pageId)) return warn(`skipped (invalid page id): ${filename}`);
   const cdir = join(ctx.dir, '.knot', 'conflicts', pageId);
-  mkdirSync(cdir, { recursive: true });
+  if (!ensureDirectoryWithoutSymlinks(ctx.dir, cdir)) {
+    return warn(`skipped (refusing to write through symlink): ${filename}`);
+  }
   const remotePath = join(cdir, 'remote.txt');
-  // symlink を辿って隔離ディレクトリ外へ書き込まない
-  if (isSymlinkAt(remotePath)) return warn(`skipped (refusing to write through symlink): ${filename}`);
-  writeFileSync(remotePath, `${detail.text}\n`);
+  if (!writeWithoutSymlinks(ctx.dir, remotePath, `${detail.text}\n`)) {
+    return warn(`skipped (refusing to write through symlink): ${filename}`);
+  }
   return warn(`conflict: ${filename} (remote copy in .knot/conflicts/${pageId}/)`);
 }
 
@@ -276,9 +350,9 @@ function pullWrite(ctx: PullContext, pageId: string, detail: RemotePage): PageOu
     ? prev.filename
     : chooseFilename(ctx.dir, ctx.state, pageId, detail.title);
   const targetPath = join(ctx.dir, filename);
-  // symlink を辿って同期ディレクトリ外へ書き込まない
-  if (isSymlinkAt(targetPath)) return warn(`skipped (refusing to write through symlink): ${filename}`);
-  writeFileSync(targetPath, `${detail.text}\n`);
+  if (!writeWithoutSymlinks(ctx.dir, targetPath, `${detail.text}\n`)) {
+    return warn(`skipped (refusing to write through symlink): ${filename}`);
+  }
   if (prev !== undefined && prev.filename !== filename) rmSync(join(ctx.dir, prev.filename), { force: true });
   ctx.state.pages[pageId] = {
     title: detail.title, filename, version: detail.version, contentHash: contentHash(detail.text),
