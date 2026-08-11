@@ -311,3 +311,5 @@ cosense listPages https://wiki.example.com/notes
 cosense readPage https://wiki.example.com/notes/PageTitle
 cosense searchFullText https://wiki.example.com/notes '検索語'
 ```
+
+検索語は空白区切りで AND 条件になり、先頭に `-` を付けると除外条件、二重引用符で囲むと空白を含むフレーズになります。

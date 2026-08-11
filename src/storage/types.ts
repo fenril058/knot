@@ -1,4 +1,5 @@
 import type { Line, LineOp } from '../core/ops.ts';
+import type { SearchQuery } from '../core/searchQuery.ts';
 
 export type Project = {
   id: string;
@@ -211,7 +212,7 @@ export interface Storage {
   /** タイトル変更 + 任意でリンク元書き換え。単一トランザクションで全部成功か全部失敗 */
   renamePage(input: RenameInput): Promise<RenameResult>;
   importPage(input: ImportPageInput): Promise<ImportPageResult>;
-  search(projectId: string, query: string): Promise<SearchHit[]>;
+  search(projectId: string, query: SearchQuery): Promise<SearchHit[]>;
   reindex(projectId?: string): Promise<{ pages: number }>;
   /** 前回訪問を上書きする前に呼ぶこと。未訪問は null */
   getVisit(userId: string, pageId: string): Promise<Visit | null>;

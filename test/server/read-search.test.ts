@@ -34,6 +34,39 @@ void test('existsExactTitleMatch はタイトル lc 一致で true', async () =>
   assert.equal(body.existsExactTitleMatch, true);
 });
 
+void test('search/query は空白区切りを AND、先頭 - を除外、引用符内をフレーズとして扱う', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'Together', ['alpha beta'], s.clock.t);
+  await seedPage(s.storage, project.id, 'Split', ['alpha', 'beta'], s.clock.t + 1);
+  await seedPage(s.storage, project.id, 'Excluded', ['alpha beta gamma'], s.clock.t + 2);
+  await seedPage(s.storage, project.id, 'Only Alpha', ['alpha'], s.clock.t + 3);
+
+  const andResponse = await s.request(
+    '/api/pages/proj/search/query?q=alpha%20beta%20-gamma',
+    {},
+    cookie,
+  );
+  assert.equal(andResponse.status, 200);
+  const andBody = await andResponse.json();
+  assert.deepEqual(andBody.query, { words: ['alpha', 'beta'], excludes: ['gamma'] });
+  assert.deepEqual(andBody.pages.map((page: { title: string }) => page.title).toSorted(), ['Split', 'Together']);
+  assert.deepEqual(andBody.pages.find((page: { title: string }) => page.title === 'Split').lines, ['alpha', 'beta']);
+  assert.ok(andBody.pages.every((page: { words: string[] }) =>
+    page.words.length === 2 && page.words[0] === 'alpha' && page.words[1] === 'beta'));
+
+  const phraseResponse = await s.request(
+    '/api/pages/proj/search/query?q=%22alpha%20beta%22%20-gamma',
+    {},
+    cookie,
+  );
+  assert.equal(phraseResponse.status, 200);
+  const phraseBody = await phraseResponse.json();
+  assert.deepEqual(phraseBody.query, { words: ['alpha beta'], excludes: ['gamma'] });
+  assert.deepEqual(phraseBody.pages.map((page: { title: string }) => page.title), ['Together']);
+});
+
 void test('/api/code はコードブロックを返す', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);

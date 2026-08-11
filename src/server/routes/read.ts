@@ -1,5 +1,6 @@
 import type { Context, Hono } from 'hono';
 import { parsePageSyntax } from '../../core/syntax.ts';
+import { parseSearchQuery } from '../../core/searchQuery.ts';
 import type { AppDeps } from '../app.ts';
 import { jsonError, resolvePage, resolveProject, safeDecode, type ApiEnv } from '../http.ts';
 import { titleLc } from '../../core/title.ts';
@@ -124,12 +125,12 @@ export function registerReadRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     if (q === undefined || q.trim() === '') {
       return jsonError(c, 400, 'bad_request', { message: 'q required' });
     }
-    const hits = await storage.search(project.id, q);
-    const words = q.split(/\s+/).filter((word) => word !== '');
+    const query = parseSearchQuery(q);
+    const hits = await storage.search(project.id, query);
     return c.json({
       projectName: project.name,
       searchQuery: q,
-      query: { words, excludes: [] },
+      query,
       limit: 100,
       count: hits.length,
       existsExactTitleMatch: hits.some((hit) => titleLc(hit.title) === titleLc(q)),
@@ -137,7 +138,7 @@ export function registerReadRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
         id: hit.pageId,
         title: hit.title,
         image: hit.image,
-        words,
+        words: query.words,
         lines: hit.lines,
       })),
     });
