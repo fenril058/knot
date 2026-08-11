@@ -1,5 +1,11 @@
 import { normalizeLines, parseExportFile } from '../core/cosense.ts';
 import { ulid } from '../core/id.ts';
+import {
+  importAttachments,
+  type AttachmentImportContext,
+  type AttachmentImportOptions,
+  type AttachmentImportSummary,
+} from './importAttachments.ts';
 import type { ImportLine, Storage } from './types.ts';
 
 export const IMPORTER_USER_NAME = 'knot-import';
@@ -8,9 +14,16 @@ export type ImportOptions = {
   projectName: string;
   onConflict?: 'skip' | 'overwrite';
   now?: number;
+  attachments?: AttachmentImportOptions;
 };
 
-export type ImportSummary = { created: number; overwritten: number; skipped: number; users: number };
+export type ImportSummary = {
+  created: number;
+  overwritten: number;
+  skipped: number;
+  users: number;
+  attachments?: AttachmentImportSummary;
+};
 
 export async function importCosense(storage: Storage, data: unknown, options: ImportOptions): Promise<ImportSummary> {
   const exp = parseExportFile(data);
@@ -36,14 +49,28 @@ export async function importCosense(storage: Storage, data: unknown, options: Im
   );
 
   const summary: ImportSummary = { created: 0, overwritten: 0, skipped: 0, users: users.length };
+  let attachmentContext: AttachmentImportContext | undefined;
+  if (options.attachments !== undefined) {
+    summary.attachments = { created: 0, reused: 0, failed: 0 };
+    attachmentContext = {
+      storage,
+      projectId: project.id,
+      userId: importerId,
+      now,
+      options: options.attachments,
+      cache: new Map(),
+      summary: summary.attachments,
+    };
+  }
   for (const page of exp.pages) {
-    const lines: ImportLine[] = normalizeLines(page).map((line) => ({
+    let lines: ImportLine[] = normalizeLines(page).map((line) => ({
       id: line.id ?? ulid(now * 1000),
       text: line.text,
       created: line.created ?? now,
       updated: line.updated ?? now,
       userId: line.userId !== null ? (effectiveUserId.get(line.userId) ?? line.userId) : importerId,
     }));
+    if (attachmentContext !== undefined) lines = await importAttachments(lines, attachmentContext);
     const result = await storage.importPage({
       projectId: project.id,
       page: {

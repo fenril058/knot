@@ -28,7 +28,7 @@ knot serve --data <dir> [--port <n>] [--hostname <s>]
 | `allowedImageHosts` | `["i.gyazo.com", "gyazo.com", "scrapbox.io"]` | 外部画像の表示を許可するホスト名の配列です。 |
 | `allowedMediaHosts` | `[]` | 外部の動画と音声の読み込みを許可するホスト名の配列です。 |
 | `allowedFrameHosts` | `[]` | iframe への埋め込みを許可するホスト名の配列で、空配列では埋め込みをすべて拒否します。 |
-| `maxUploadBytes` | `10485760` | 添付ファイル 1 個あたりの最大バイト数で、既定値は 10 MiB です。 |
+| `maxUploadBytes` | `10485760` | アップロードまたは Cosense import で保存する添付ファイル 1 個あたりの最大バイト数で、既定値は 10 MiB です。 |
 | `secureCookie` | `"auto"` | セッション Cookie に `Secure` 属性を付けるかを `true`、`false`、`"auto"` で指定します。 |
 | `sessionTtlSeconds` | `2592000` | セッションの有効期間を秒単位で指定し、既定値は 30 日です。 |
 | `autoExportDir` | `null` | 自動エクスポートの出力先で、`null` は無効を意味し、相対パスはデータディレクトリを基準に解決されます。 |
@@ -42,6 +42,16 @@ knot serve --data <dir> [--port <n>] [--hostname <s>]
 ただし、`knot export --with-files` と自動エクスポートは zip をメモリ上に構築するため、実行中は対象プロジェクトの添付ファイル合計の約 3 倍（未圧縮 Buffer、圧縮 Buffer、最終 zip）と zlib の作業領域に相当するピークメモリが上乗せされます。
 数 GB 規模の添付ファイルを持つ運用は v1 の対象外です。
 `knot backup` はファイルのコピーと SQLite の backup API を使い、メモリ上に zip を作らないため、この上乗せの対象外です。
+
+### Cosense import の添付画像
+
+CLI と import API は、本文中の `https://scrapbox.io/files/…` 画像を取得してデータディレクトリの `files/` に保存します。
+本文 URL は `/files/<id>/<filename>` に書き換わり、同じ SHA-256 の添付はプロジェクト内の既存レコードを再利用します。
+
+取得は 10 秒で打ち切り、リダイレクトを拒否します。
+`maxUploadBytes` を超える応答、対応外の MIME type、MIME type とマジックバイトが一致しない応答も保存しません。
+取得に失敗した URL は本文にそのまま残り、import 応答の `attachments.failed` に件数が入ります。
+認証が必要な private プロジェクトの添付取得には対応していません。
 
 ## 2. ユーザーとトークン
 

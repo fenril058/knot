@@ -14,7 +14,7 @@ import { registerFileRoutes } from './routes/files.ts';
 import { registerWriteRoutes } from './routes/write.ts';
 import { registerPageRoutes } from './routes/pages.ts';
 
-export type AppDeps = { storage: Storage; config: ServerConfig; now?: () => number };
+export type AppDeps = { storage: Storage; config: ServerConfig; now?: () => number; fetchFn?: typeof fetch };
 
 const SESSION_COOKIE = 'connect.sid';
 const REFRESH_MARGIN_SECONDS = 24 * 60 * 60;
