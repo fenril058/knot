@@ -20,6 +20,16 @@ void test('不正・予約語のプロジェクト名を拒否する', async () 
   await storage.close();
 });
 
+void test('プロジェクト名は64文字まで受理し、65文字以上を拒否する', async () => {
+  const { storage } = makeStorage();
+  const accepted = 'a'.repeat(64);
+  const rejected = 'a'.repeat(65);
+
+  assert.equal((await storage.ensureProject(accepted, 1)).name, accepted);
+  await assert.rejects(storage.ensureProject(rejected, 1), StorageError);
+  await storage.close();
+});
+
 void test('listProjects は name 昇順ですべてのプロジェクトを返す', async () => {
   const { storage } = makeStorage();
   await storage.ensureProject('zeta', 100);

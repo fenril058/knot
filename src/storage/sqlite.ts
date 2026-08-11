@@ -40,6 +40,7 @@ import {
 } from './types.ts';
 
 const PROJECT_NAME_RE = /^[a-z0-9-]+$/;
+const MAX_PROJECT_NAME_LENGTH = 64;
 const RESERVED_PROJECT_NAMES = new Set(['api', 'login', 'files', 'assets']);
 
 type UserRow = {
@@ -118,7 +119,7 @@ export class SqliteStorage implements Storage {
   }
 
   async ensureProject(name: string, now: number): Promise<Project> {
-    if (!PROJECT_NAME_RE.test(name) || RESERVED_PROJECT_NAMES.has(name)) {
+    if (!PROJECT_NAME_RE.test(name) || name.length > MAX_PROJECT_NAME_LENGTH || RESERVED_PROJECT_NAMES.has(name)) {
       throw new StorageError(`invalid project name: ${name}`);
     }
     return this.#tx(() => {
