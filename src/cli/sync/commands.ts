@@ -11,7 +11,16 @@ import {
 import { loadSyncConfig, normalizeBaseUrl, resolveToken, writeSyncConfig } from './config.ts';
 import { planPull, planPush, type PullAction, type PushAction } from './decisions.ts';
 import { titleToFilename } from './filenames.ts';
-import { loadState, saveState, type SyncState } from './state.ts';
+import {
+  clearPendingPullRename,
+  loadPendingPullRename,
+  loadState,
+  savePendingPullRename,
+  saveState,
+  type PageState,
+  type PendingPullRename,
+  type SyncState,
+} from './state.ts';
 
 export type SyncResult = { output: string; exitCode: 0 | 1 | 2 };
 export type SyncDeps = { fetchFn?: typeof fetch; env?: NodeJS.ProcessEnv };
@@ -240,6 +249,48 @@ type PullContext = {
   remoteById: Map<string, PageEntry>;
 };
 
+function samePageState(left: PageState, right: PageState): boolean {
+  return left.title === right.title
+    && left.filename === right.filename
+    && left.version === right.version
+    && left.contentHash === right.contentHash;
+}
+
+function localContentHash(path: string): string | undefined {
+  try {
+    const stat = lstatSync(path);
+    if (!stat.isFile() || stat.isSymbolicLink()) return undefined;
+    return contentHash(canonicalizeText(readFileSync(path, 'utf8')));
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') return undefined;
+    throw error;
+  }
+}
+
+function recoverPendingPullRename(dir: string, state: SyncState): string | undefined {
+  const pending = loadPendingPullRename(dir);
+  if (pending === undefined) return undefined;
+  const current = state.pages[pending.pageId];
+  const currentIsFrom = current !== undefined && samePageState(current, pending.from);
+  const currentIsTo = current !== undefined && samePageState(current, pending.to);
+  if (!isSafePathSegment(pending.from.filename)
+    || !isSafePathSegment(pending.to.filename)
+    || (!currentIsFrom && !currentIsTo)
+    || localContentHash(join(dir, pending.to.filename)) !== pending.to.contentHash) {
+    clearPendingPullRename(dir);
+    return undefined;
+  }
+
+  if (pending.from.filename !== pending.to.filename
+    && localContentHash(join(dir, pending.from.filename)) === pending.from.contentHash) {
+    rmSync(join(dir, pending.from.filename), { force: true });
+  }
+  state.pages[pending.pageId] = pending.to;
+  saveState(dir, state);
+  clearPendingPullRename(dir);
+  return `reconciled: ${pending.to.filename}`;
+}
+
 function pullDeleteLocal(ctx: PullContext, pageId: string): PageOutcome {
   const st = ctx.state.pages[pageId]!;
   rmSync(join(ctx.dir, st.filename), { force: true });
@@ -275,15 +326,25 @@ function pullWrite(ctx: PullContext, pageId: string, detail: RemotePage): PageOu
   const filename = prev !== undefined && titleLc(prev.title) === titleLc(detail.title)
     ? prev.filename
     : chooseFilename(ctx.dir, ctx.state, pageId, detail.title);
-  const targetPath = join(ctx.dir, filename);
-  // symlink を辿って同期ディレクトリ外へ書き込まない
-  if (isSymlinkAt(targetPath)) return warn(`skipped (refusing to write through symlink): ${filename}`);
-  writeFileSync(targetPath, `${detail.text}\n`);
-  if (prev !== undefined && prev.filename !== filename) rmSync(join(ctx.dir, prev.filename), { force: true });
-  ctx.state.pages[pageId] = {
+  const next: PageState = {
     title: detail.title, filename, version: detail.version, contentHash: contentHash(detail.text),
   };
+  const pending: PendingPullRename | undefined = prev !== undefined && prev.filename !== filename
+    ? { pageId, from: prev, to: next }
+    : undefined;
+  // ファイル操作より先に記録し、どの段階で停止しても次回 pull で同じ新ファイルを追跡し直せるようにする。
+  if (pending !== undefined) savePendingPullRename(ctx.dir, pending);
+  const targetPath = join(ctx.dir, filename);
+  // symlink を辿って同期ディレクトリ外へ書き込まない
+  if (isSymlinkAt(targetPath)) {
+    if (pending !== undefined) clearPendingPullRename(ctx.dir);
+    return warn(`skipped (refusing to write through symlink): ${filename}`);
+  }
+  writeFileSync(targetPath, `${detail.text}\n`);
+  if (prev !== undefined && prev.filename !== filename) rmSync(join(ctx.dir, prev.filename), { force: true });
+  ctx.state.pages[pageId] = next;
   saveState(ctx.dir, ctx.state);
+  if (pending !== undefined) clearPendingPullRename(ctx.dir);
   return ok(`pulled: ${filename}`);
 }
 
@@ -324,12 +385,15 @@ async function runPull(values: SyncValues, deps: SyncDeps): Promise<SyncResult> 
   const dir = values.dir ?? '.';
   const { client } = openClient(dir, deps);
   const state = loadState(dir);
+  const recovered = recoverPendingPullRename(dir, state);
   const local = readLocalFiles(dir);
   const remote = await listRemote(client);
   if (!Array.isArray(remote)) return remote;
   const ctx: PullContext = { dir, client, state, local, remoteById: new Map(remote.map((p) => [p.id, p])) };
   const localHashes = new Map([...local].map(([name, f]) => [name, f.contentHash]));
-  return await foldOutcomes(planPull({ state, remote, localHashes }), (a) => applyPullAction(ctx, a));
+  const result = await foldOutcomes(planPull({ state, remote, localHashes }), (a) => applyPullAction(ctx, a));
+  if (recovered === undefined || result.exitCode === 2) return result;
+  return { ...result, output: result.output === 'up to date' ? recovered : `${recovered}\n${result.output}` };
 }
 
 type PushContext = {

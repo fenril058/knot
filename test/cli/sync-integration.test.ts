@@ -14,6 +14,7 @@ import { hashPassword } from '../../src/server/password.ts';
 import { generateApiToken } from '../../src/server/apiToken.ts';
 import { ulid } from '../../src/core/id.ts';
 import { seedPage } from '../helpers/pages.ts';
+import { contentHash } from '../../src/cli/sync/canonical.ts';
 import { runSync } from '../../src/cli/sync/commands.ts';
 import { loadState, saveState } from '../../src/cli/sync/state.ts';
 
@@ -130,6 +131,46 @@ void test('pull: リモートのリネームは旧ファイルを消して新名
     assert.ok(!existsSync(join(env.dir, 'Alpha.txt')));
     assert.equal(readFileSync(join(env.dir, 'Alpha2.txt'), 'utf8'), 'Alpha2\nbody\n');
     assert.equal(loadState(env.dir).pages[pageId]!.title, 'Alpha2');
+  } finally { env.close(); }
+});
+
+void test('pull: リネーム中断記録から新ファイルを追跡し直し、重複ファイルを作らない', async () => {
+  const env = await makeEnv();
+  try {
+    const pageId = await seedPage(env.storage, env.projectId, 'Alpha', ['body'], env.clock.t);
+    await runSync(['pull', '--dir', env.dir]);
+    const state = loadState(env.dir);
+    const before = state.pages[pageId]!;
+    const page = await env.storage.getPageById(pageId);
+    env.clock.t += 10;
+    await env.storage.commit({
+      projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
+      baseVersion: page!.version,
+      ops: [{ type: 'update', id: page!.lines[0]!.id, text: 'Alpha2' }],
+      userId: 'u', now: env.clock.t,
+    });
+    const renamed = await env.storage.getPageById(pageId);
+    const text = 'Alpha2\nbody';
+
+    // journal 保存、新ファイル作成、旧ファイル削除の後、state 保存前に停止した状態。
+    writeFileSync(join(env.dir, '.knot', 'pending-pull-rename.json'), `${JSON.stringify({
+      pageId,
+      from: before,
+      to: { title: 'Alpha2', filename: 'Alpha2.txt', version: renamed!.version, contentHash: contentHash(text) },
+    }, null, 2)}\n`);
+    writeFileSync(join(env.dir, 'Alpha2.txt'), `${text}\n`);
+    rmSync(join(env.dir, 'Alpha.txt'));
+
+    const result = await runSync(['pull', '--dir', env.dir]);
+
+    assert.equal(result.exitCode, 0);
+    assert.match(result.output, /^reconciled: Alpha2\.txt$/m);
+    assert.equal(readFileSync(join(env.dir, 'Alpha2.txt'), 'utf8'), `${text}\n`);
+    assert.equal(existsSync(join(env.dir, 'Alpha2~2.txt')), false);
+    assert.equal(existsSync(join(env.dir, '.knot', 'pending-pull-rename.json')), false);
+    assert.deepEqual(loadState(env.dir).pages[pageId], {
+      title: 'Alpha2', filename: 'Alpha2.txt', version: renamed!.version, contentHash: contentHash(text),
+    });
   } finally { env.close(); }
 });
 
