@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { renderLines } from '../../src/render/render.ts';
 import { importCosense } from '../../src/storage/import.ts';
 import { releaseAttachmentClaims, storeAttachment } from '../../src/storage/attachmentFiles.ts';
 import { StorageError } from '../../src/storage/types.ts';
@@ -265,6 +266,47 @@ void test('画像 URL と同じ接頭辞のリンク先が後続しても画像 
       page.lines[1]!.text,
       /^\[\/files\/[0-9A-HJKMNP-TV-Z]{26}\/prefix-link\.png  https:\/\/scrapbox\.io\/files\/prefix-link#\.png#click\]$/,
     );
+  } finally {
+    await storage.close();
+    rmSync(root, { recursive: true });
+  }
+});
+
+void test('strongImage とリンク付き画像を書き換えた後も画像として表示・索引化する', async () => {
+  const { storage } = makeStorage();
+  const root = mkdtempSync(join(tmpdir(), 'knot-import-files-'));
+  const sourceUrl = 'https://scrapbox.io/files/rendered#.png';
+  try {
+    await importCosense(storage, {
+      name: 'source',
+      pages: [{
+        title: 'Page',
+        lines: ['Page', `[[${sourceUrl}]]`, `[https://example.com ${sourceUrl}]`],
+      }],
+    }, {
+      projectName: 'sandbox',
+      attachments: {
+        filesDir: join(root, 'files'),
+        fetchFn: async () => new Response(PNG, { headers: { 'content-type': 'image/png' } }),
+        maxBytes: 1024,
+        timeoutMs: 10_000,
+      },
+    });
+
+    const project = await storage.getProject('sandbox');
+    assert.ok(project);
+    const page = await storage.getPageByTitle(project.id, 'page');
+    assert.ok(page);
+    const localUrl = page.lines[1]!.text.slice(2, -2);
+    assert.equal(page.image, localUrl);
+    const rendered = renderLines(page.lines, new Map(), project.name, {
+      allowedImageHosts: [],
+      allowedMediaHosts: [],
+    });
+    assert.ok(!(rendered[1]!.html instanceof Promise));
+    assert.ok(!(rendered[2]!.html instanceof Promise));
+    assert.match(rendered[1]!.html.toString(), new RegExp(`<img src="${localUrl.replaceAll('/', '\\/')}"`));
+    assert.match(rendered[2]!.html.toString(), new RegExp(`<img src="${localUrl.replaceAll('/', '\\/')}"`));
   } finally {
     await storage.close();
     rmSync(root, { recursive: true });

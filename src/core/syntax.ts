@@ -1,4 +1,5 @@
 import { parse, type Node as ParserNode } from '@progfay/scrapbox-parser';
+import { classifyUrl, isAttachmentUrl } from './media.ts';
 
 export type SourceRange = { from: number; to: number };
 
@@ -73,9 +74,32 @@ function blockRange(lineRanges: SourceRange[]): SourceRange {
   return { from: first.from, to: last.to };
 }
 
+function isLocalImageUrl(value: string): boolean {
+  return isAttachmentUrl(value) && classifyUrl(value) === 'image';
+}
+
+function localImageNode(raw: string, range: SourceRange): SyntaxNode | undefined {
+  if (raw.startsWith('[[') && raw.endsWith(']]')) {
+    const src = raw.slice(2, -2);
+    return isLocalImageUrl(src) ? { type: 'strongImage', raw, range, src } : undefined;
+  }
+  if (!raw.startsWith('[') || !raw.endsWith(']')) return undefined;
+  const match = /^(\S+)\s+(\S+)$/.exec(raw.slice(1, -1));
+  if (match === null) return undefined;
+  const first = match[1]!;
+  const second = match[2]!;
+  if (isLocalImageUrl(first)) return { type: 'image', raw, range, src: first, link: second };
+  if (isLocalImageUrl(second)) return { type: 'image', raw, range, src: second, link: first };
+  return undefined;
+}
+
 // oxlint-disable-next-line typescript/consistent-return -- 外部 parser の union を網羅する switch。分岐漏れを型エラーにする
 function mapNode(node: ParserNode, source: string, range: SourceRange): SyntaxNode {
   const nested = (nodes: ParserNode[]): SyntaxNode[] => locateNodes(nodes, source, range.from, range.to).nodes;
+  if (node.type === 'strong' || node.type === 'link') {
+    const localImage = localImageNode(node.raw, range);
+    if (localImage !== undefined) return localImage;
+  }
   switch (node.type) {
     case 'quote':
       return { type: node.type, raw: node.raw, range, nodes: nested(node.nodes) };
