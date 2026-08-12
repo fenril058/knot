@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { normalizeLines, parseExportFile } from '../core/cosense.ts';
 import { ulid } from '../core/id.ts';
 import { titleLc } from '../core/title.ts';
@@ -7,7 +8,7 @@ import {
   type AttachmentImportOptions,
   type AttachmentImportSummary,
 } from './importAttachments.ts';
-import { removeAttachmentIfUnreferenced } from './attachmentFiles.ts';
+import { releaseAttachmentClaims } from './attachmentFiles.ts';
 import { validateImportLines } from './importValidation.ts';
 import type { ImportLine, Storage } from './types.ts';
 
@@ -62,7 +63,7 @@ export async function importCosense(storage: Storage, data: unknown, options: Im
       now,
       options: options.attachments,
       cache: new Map(),
-      pageCreatedAttachmentIds: new Set(),
+      claimOwner: randomUUID(),
       summary: summary.attachments,
     };
   }
@@ -80,7 +81,7 @@ export async function importCosense(storage: Storage, data: unknown, options: Im
       continue;
     }
     const attachmentSummaryBeforePage = summary.attachments === undefined ? undefined : { ...summary.attachments };
-    attachmentContext?.pageCreatedAttachmentIds.clear();
+    if (attachmentContext !== undefined) attachmentContext.claimOwner = randomUUID();
     let result;
     try {
       if (attachmentContext !== undefined) lines = await importAttachments(lines, attachmentContext);
@@ -96,6 +97,7 @@ export async function importCosense(storage: Storage, data: unknown, options: Im
         userId: importerId,
         now,
         onConflict,
+        attachmentClaimOwner: attachmentContext?.claimOwner,
       });
     } catch (error) {
       if (attachmentContext !== undefined) await cleanupPageAttachments(attachmentContext);
@@ -111,9 +113,6 @@ export async function importCosense(storage: Storage, data: unknown, options: Im
 }
 
 async function cleanupPageAttachments(context: AttachmentImportContext): Promise<void> {
-  for (const id of context.pageCreatedAttachmentIds) {
-    await removeAttachmentIfUnreferenced(context.storage, context.options.filesDir, id);
-  }
-  context.pageCreatedAttachmentIds.clear();
+  await releaseAttachmentClaims(context.storage, context.options.filesDir, context.claimOwner);
   context.cache.clear();
 }

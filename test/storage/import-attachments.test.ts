@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { importCosense } from '../../src/storage/import.ts';
-import { removeAttachmentIfUnreferenced, storeAttachment } from '../../src/storage/attachmentFiles.ts';
+import { releaseAttachmentClaims, storeAttachment } from '../../src/storage/attachmentFiles.ts';
 import { StorageError } from '../../src/storage/types.ts';
 import { makeStorage } from '../helpers/storage.ts';
 
@@ -207,6 +207,38 @@ void test('改行を含む行の画像 URL を書き換えても元の行境界�
   }
 });
 
+void test('画像リンク先に同じ URL が先行しても画像 URL だけを書き換える', async () => {
+  const { storage } = makeStorage();
+  const root = mkdtempSync(join(tmpdir(), 'knot-import-files-'));
+  const sourceUrl = 'https://scrapbox.io/files/same-link#.png';
+  try {
+    await importCosense(storage, {
+      name: 'source',
+      pages: [{ title: 'Page', lines: ['Page', `[${sourceUrl}#click ${sourceUrl}]`] }],
+    }, {
+      projectName: 'sandbox',
+      attachments: {
+        filesDir: join(root, 'files'),
+        fetchFn: async () => new Response(PNG, { headers: { 'content-type': 'image/png' } }),
+        maxBytes: 1024,
+        timeoutMs: 10_000,
+      },
+    });
+
+    const project = await storage.getProject('sandbox');
+    assert.ok(project);
+    const page = await storage.getPageByTitle(project.id, 'page');
+    assert.ok(page);
+    assert.match(
+      page.lines[1]!.text,
+      /^\[https:\/\/scrapbox\.io\/files\/same-link#\.png#click \/files\/[0-9A-HJKMNP-TV-Z]{26}\/same-link\.png\]$/,
+    );
+  } finally {
+    await storage.close();
+    rmSync(root, { recursive: true });
+  }
+});
+
 void test('長い Unicode ファイル名をコードポイント境界で切り詰める', async () => {
   const { storage } = makeStorage();
   const root = mkdtempSync(join(tmpdir(), 'knot-import-files-'));
@@ -384,6 +416,7 @@ void test('補償削除は別ページが参照している添付を残す', asy
   const root = mkdtempSync(join(tmpdir(), 'knot-import-files-'));
   const filesDir = join(root, 'files');
   const project = await storage.ensureProject('sandbox', 1_760_000_000);
+  const claimOwner = 'referenced-attachment-test';
   try {
     const stored = await storeAttachment({
       storage,
@@ -394,15 +427,166 @@ void test('補償削除は別ページが参照している添付を残す', asy
       bytes: PNG,
       userId: 'u',
       now: 1_760_000_000,
+      claimOwner,
     });
-    await importCosense(storage, {
-      name: 'source',
-      pages: [{ title: 'Page', lines: ['Page', `[/files/${stored.attachment.id}/used.png]`] }],
-    }, { projectName: 'sandbox' });
+    await storage.importPage({
+      projectId: project.id,
+      page: { id: 'referencing-page', title: 'Page', created: 1, updated: 1 },
+      lines: [
+        { id: 'reference-title', text: 'Page', created: 1, updated: 1, userId: 'u' },
+        {
+          id: 'reference-body',
+          text: `[/files/${stored.attachment.id}/used.png]`,
+          created: 1,
+          updated: 1,
+          userId: 'u',
+        },
+      ],
+      userId: 'u',
+      now: 1,
+      onConflict: 'skip',
+      attachmentClaimOwner: claimOwner,
+    });
 
-    assert.equal(await removeAttachmentIfUnreferenced(storage, filesDir, stored.attachment.id), false);
+    await releaseAttachmentClaims(storage, filesDir, claimOwner);
     assert.equal((await storage.listAttachments(project.id)).length, 1);
     assert.equal(existsSync(join(filesDir, stored.attachment.id)), true);
+  } finally {
+    await storage.close();
+    rmSync(root, { recursive: true });
+  }
+});
+
+void test('補償削除は別 import が確定前に再利用した添付を残す', async () => {
+  const { storage } = makeStorage();
+  const root = mkdtempSync(join(tmpdir(), 'knot-import-files-'));
+  const filesDir = join(root, 'files');
+  const sourceUrl = 'https://scrapbox.io/files/concurrent-reuse#.png';
+  const originalImportPage = storage.importPage.bind(storage);
+  let resumeTarget: (() => void) | undefined;
+  let resumeOther: (() => void) | undefined;
+  let notifyTarget: (() => void) | undefined;
+  let notifyOther: (() => void) | undefined;
+  const targetWaiting = new Promise<void>((resolve) => {
+    notifyTarget = resolve;
+  });
+  const otherWaiting = new Promise<void>((resolve) => {
+    notifyOther = resolve;
+  });
+  const waitTarget = new Promise<void>((resolve) => {
+    resumeTarget = resolve;
+  });
+  const waitOther = new Promise<void>((resolve) => {
+    resumeOther = resolve;
+  });
+  storage.importPage = async (input) => {
+    if (input.page.title === 'Target') {
+      notifyTarget?.();
+      await waitTarget;
+    }
+    if (input.page.title === 'Other') {
+      notifyOther?.();
+      await waitOther;
+    }
+    return originalImportPage(input);
+  };
+  try {
+    const targetImport = importCosense(storage, {
+      name: 'source',
+      pages: [{ title: 'Target', lines: ['Target', `[${sourceUrl}]`] }],
+    }, {
+      projectName: 'sandbox',
+      attachments: {
+        filesDir,
+        fetchFn: async () => {
+          const project = await storage.getProject('sandbox');
+          assert.ok(project);
+          await originalImportPage({
+            projectId: project.id,
+            page: { id: 'target-winner', title: 'Target', created: 1, updated: 1 },
+            lines: [
+              { id: 'winner-title', text: 'Target', created: 1, updated: 1, userId: 'u' },
+              { id: 'winner-body', text: 'winner', created: 1, updated: 1, userId: 'u' },
+            ],
+            userId: 'u',
+            now: 1,
+            onConflict: 'skip',
+          });
+          return new Response(PNG, { headers: { 'content-type': 'image/png' } });
+        },
+        maxBytes: 1024,
+        timeoutMs: 10_000,
+      },
+    });
+    await targetWaiting;
+    const otherImport = importCosense(storage, {
+      name: 'source',
+      pages: [{ title: 'Other', lines: ['Other', `[${sourceUrl}]`] }],
+    }, {
+      projectName: 'sandbox',
+      attachments: {
+        filesDir,
+        fetchFn: async () => new Response(PNG, { headers: { 'content-type': 'image/png' } }),
+        maxBytes: 1024,
+        timeoutMs: 10_000,
+      },
+    });
+    await otherWaiting;
+    resumeTarget?.();
+    await targetImport;
+    resumeOther?.();
+    await otherImport;
+
+    const project = await storage.getProject('sandbox');
+    assert.ok(project);
+    const page = await storage.getPageByTitle(project.id, 'other');
+    assert.ok(page);
+    const attachments = await storage.listAttachments(project.id);
+    assert.equal(attachments.length, 1);
+    assert.equal(existsSync(join(filesDir, attachments[0]!.id)), true);
+    assert.equal(page.lines[1]!.text, `[/files/${attachments[0]!.id}/concurrent-reuse.png]`);
+  } finally {
+    resumeTarget?.();
+    resumeOther?.();
+    await storage.close();
+    rmSync(root, { recursive: true });
+  }
+});
+
+void test('通常アップロードが再利用した暫定添付を補償削除しない', async () => {
+  const { storage } = makeStorage();
+  const root = mkdtempSync(join(tmpdir(), 'knot-import-files-'));
+  const filesDir = join(root, 'files');
+  const project = await storage.ensureProject('sandbox', 1_760_000_000);
+  const claimOwner = 'pending-import';
+  try {
+    const provisional = await storeAttachment({
+      storage,
+      filesDir,
+      projectId: project.id,
+      filename: 'shared.png',
+      contentType: 'image/png',
+      bytes: PNG,
+      userId: 'importer',
+      now: 1_760_000_000,
+      claimOwner,
+    });
+    const uploaded = await storeAttachment({
+      storage,
+      filesDir,
+      projectId: project.id,
+      filename: 'uploaded.png',
+      contentType: 'image/png',
+      bytes: PNG,
+      userId: 'uploader',
+      now: 1_760_000_001,
+    });
+
+    assert.equal(uploaded.created, false);
+    assert.equal(uploaded.attachment.id, provisional.attachment.id);
+    await releaseAttachmentClaims(storage, filesDir, claimOwner);
+    assert.equal((await storage.listAttachments(project.id)).length, 1);
+    assert.equal(existsSync(join(filesDir, provisional.attachment.id)), true);
   } finally {
     await storage.close();
     rmSync(root, { recursive: true });

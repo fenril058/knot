@@ -14,6 +14,7 @@ export type StoreAttachmentInput = {
   userId: string;
   now: number;
   replaceGenericMetadata?: boolean;
+  claimOwner?: string;
 };
 
 export type StoreAttachmentResult = { attachment: Attachment; created: boolean };
@@ -56,20 +57,19 @@ async function reconcileMetadata(
   return { ...attachment, filename: input.filename, contentType: input.contentType };
 }
 
-export async function removeAttachmentIfUnreferenced(
+export async function releaseAttachmentClaims(
   storage: Storage,
   filesDir: string,
-  id: string,
-): Promise<boolean> {
-  if (!await storage.deleteAttachmentIfUnreferenced(id)) return false;
-  await rm(join(filesDir, id), { force: true });
-  return true;
+  owner: string,
+): Promise<void> {
+  const removedIds = await storage.releaseAttachmentClaims(owner);
+  await Promise.all(removedIds.map((id) => rm(join(filesDir, id), { force: true })));
 }
 
 export async function storeAttachment(input: StoreAttachmentInput): Promise<StoreAttachmentResult> {
   const sha256 = createHash('sha256').update(input.bytes).digest('hex');
   await mkdir(input.filesDir, { recursive: true });
-  const existing = await input.storage.findAttachmentBySha256(input.projectId, sha256);
+  const existing = await input.storage.reuseAttachmentBySha256(input.projectId, sha256, input.claimOwner);
   if (existing !== null) {
     await ensureFile(join(input.filesDir, existing.id), input.bytes, sha256);
     return { attachment: await reconcileMetadata(input.storage, existing, input), created: false };
@@ -88,11 +88,11 @@ export async function storeAttachment(input: StoreAttachmentInput): Promise<Stor
   const finalPath = join(input.filesDir, attachment.id);
   await replaceFile(finalPath, input.bytes);
   try {
-    await input.storage.createAttachment(attachment);
+    await input.storage.createAttachment(attachment, input.claimOwner);
     return { attachment, created: true };
   } catch (error) {
     await rm(finalPath, { force: true });
-    const raced = await input.storage.findAttachmentBySha256(input.projectId, sha256);
+    const raced = await input.storage.reuseAttachmentBySha256(input.projectId, sha256, input.claimOwner);
     if (raced !== null) {
       await ensureFile(join(input.filesDir, raced.id), input.bytes, sha256);
       return { attachment: await reconcileMetadata(input.storage, raced, input), created: false };

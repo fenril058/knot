@@ -40,7 +40,7 @@ export type AttachmentImportContext = {
   now: number;
   options: AttachmentImportOptions;
   cache: Map<string, CachedAttachment>;
-  pageCreatedAttachmentIds: Set<string>;
+  claimOwner: string;
   summary: AttachmentImportSummary;
 };
 
@@ -195,10 +195,10 @@ async function importOne(sourceUrl: string, context: AttachmentImportContext): P
     userId: context.userId,
     now: context.now,
     replaceGenericMetadata: true,
+    claimOwner: context.claimOwner,
   });
   if (stored.created) {
     context.summary.created++;
-    context.pageCreatedAttachmentIds.add(stored.attachment.id);
   } else context.summary.reused++;
   const result = { localUrl: attachmentUrl(stored.attachment) };
   context.cache.set(sourceUrl, result);
@@ -222,7 +222,11 @@ export async function importAttachments(lines: ImportLine[], context: Attachment
       .toSorted((left, right) => right.from - left.from)) {
       const localUrl = replacements.get(occurrence.sourceUrl);
       if (localUrl === undefined) continue;
-      const replacement = occurrence.raw.replace(occurrence.sourceUrl, localUrl);
+      const sourceFrom = occurrence.raw.lastIndexOf(occurrence.sourceUrl);
+      if (sourceFrom < 0) throw new Error('attachment URL occurrence does not contain its source URL');
+      const replacement = occurrence.raw.slice(0, sourceFrom)
+        + localUrl
+        + occurrence.raw.slice(sourceFrom + occurrence.sourceUrl.length);
       const from = occurrence.from - lineFrom;
       const to = occurrence.to - lineFrom;
       text = text.slice(0, from) + replacement + text.slice(to);
