@@ -19,6 +19,8 @@ export type StoreAttachmentInput = {
 
 export type StoreAttachmentResult = { attachment: Attachment; created: boolean };
 
+const SQLITE_CONSTRAINT_UNIQUE = 2067;
+
 export function attachmentUrl(attachment: Pick<Attachment, 'id' | 'filename'>): string {
   return `/files/${attachment.id}/${encodeURIComponent(attachment.filename)}`;
 }
@@ -41,6 +43,13 @@ async function ensureFile(path: string, bytes: Uint8Array, sha256: string): Prom
     if (!(typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT')) throw error;
   }
   await replaceFile(path, bytes);
+}
+
+function isUniqueConstraint(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'errcode' in error
+    && error.errcode === SQLITE_CONSTRAINT_UNIQUE;
 }
 
 async function reconcileMetadata(
@@ -86,17 +95,20 @@ export async function storeAttachment(input: StoreAttachmentInput): Promise<Stor
     created: input.now,
   };
   const finalPath = join(input.filesDir, attachment.id);
-  await replaceFile(finalPath, input.bytes);
-  try {
-    await input.storage.createAttachment(attachment, input.claimOwner);
-    return { attachment, created: true };
-  } catch (error) {
-    await rm(finalPath, { force: true });
-    const raced = await input.storage.reuseAttachmentBySha256(input.projectId, sha256, input.claimOwner);
-    if (raced !== null) {
-      await ensureFile(join(input.filesDir, raced.id), input.bytes, sha256);
-      return { attachment: await reconcileMetadata(input.storage, raced, input), created: false };
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await replaceFile(finalPath, input.bytes);
+    try {
+      await input.storage.createAttachment(attachment, input.claimOwner);
+      return { attachment, created: true };
+    } catch (error) {
+      await rm(finalPath, { force: true });
+      const raced = await input.storage.reuseAttachmentBySha256(input.projectId, sha256, input.claimOwner);
+      if (raced !== null) {
+        await ensureFile(join(input.filesDir, raced.id), input.bytes, sha256);
+        return { attachment: await reconcileMetadata(input.storage, raced, input), created: false };
+      }
+      if (!isUniqueConstraint(error) || attempt === 1) throw error;
     }
-    throw error;
   }
+  throw new Error('attachment creation retry exhausted');
 }

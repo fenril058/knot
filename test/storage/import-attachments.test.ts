@@ -239,6 +239,38 @@ void test('画像リンク先に同じ URL が先行しても画像 URL だけ�
   }
 });
 
+void test('画像 URL と同じ接頭辞のリンク先が後続しても画像 URL だけを書き換える', async () => {
+  const { storage } = makeStorage();
+  const root = mkdtempSync(join(tmpdir(), 'knot-import-files-'));
+  const sourceUrl = 'https://scrapbox.io/files/prefix-link#.png';
+  try {
+    await importCosense(storage, {
+      name: 'source',
+      pages: [{ title: 'Page', lines: ['Page', `[${sourceUrl} ${sourceUrl}#click]`] }],
+    }, {
+      projectName: 'sandbox',
+      attachments: {
+        filesDir: join(root, 'files'),
+        fetchFn: async () => new Response(PNG, { headers: { 'content-type': 'image/png' } }),
+        maxBytes: 1024,
+        timeoutMs: 10_000,
+      },
+    });
+
+    const project = await storage.getProject('sandbox');
+    assert.ok(project);
+    const page = await storage.getPageByTitle(project.id, 'page');
+    assert.ok(page);
+    assert.match(
+      page.lines[1]!.text,
+      /^\[\/files\/[0-9A-HJKMNP-TV-Z]{26}\/prefix-link\.png https:\/\/scrapbox\.io\/files\/prefix-link#\.png#click\]$/,
+    );
+  } finally {
+    await storage.close();
+    rmSync(root, { recursive: true });
+  }
+});
+
 void test('長い Unicode ファイル名をコードポイント境界で切り詰める', async () => {
   const { storage } = makeStorage();
   const root = mkdtempSync(join(tmpdir(), 'knot-import-files-'));
@@ -357,6 +389,48 @@ void test('同一 SHA-256 の作成競合後も画像用の MIME type とファ�
     const page = await storage.getPageByTitle(project.id, 'page');
     assert.ok(page);
     assert.equal(page.lines[1]!.text, `[/files/${attachments[0]!.id}/raced.png]`);
+  } finally {
+    await storage.close();
+    rmSync(root, { recursive: true });
+  }
+});
+
+void test('SHA-256 作成競合の勝者が消えても作成を再試行する', async () => {
+  const { storage } = makeStorage();
+  const root = mkdtempSync(join(tmpdir(), 'knot-import-files-'));
+  const filesDir = join(root, 'files');
+  const project = await storage.ensureProject('sandbox', 1_760_000_000);
+  const createAttachment = storage.createAttachment.bind(storage);
+  const releaseClaims = storage.releaseAttachmentClaims.bind(storage);
+  let first = true;
+  storage.createAttachment = async (attachment, claimOwner) => {
+    if (first) {
+      first = false;
+      await createAttachment({ ...attachment, id: '01K742SG0009ED8TWDRA2BHH37' }, 'winner');
+      try {
+        await createAttachment(attachment, claimOwner);
+      } finally {
+        await releaseClaims('winner');
+      }
+      return;
+    }
+    await createAttachment(attachment, claimOwner);
+  };
+  try {
+    const stored = await storeAttachment({
+      storage,
+      filesDir,
+      projectId: project.id,
+      filename: 'retry.png',
+      contentType: 'image/png',
+      bytes: PNG,
+      userId: 'u',
+      now: 1_760_000_000,
+      claimOwner: 'loser',
+    });
+
+    assert.equal(stored.created, true);
+    assert.equal(existsSync(join(filesDir, stored.attachment.id)), true);
   } finally {
     await storage.close();
     rmSync(root, { recursive: true });

@@ -31,7 +31,7 @@ export type AttachmentImportOptions = {
 export type AttachmentImportSummary = { created: number; reused: number; failed: number };
 
 type CachedAttachment = { localUrl: string } | { localUrl: null };
-type UrlOccurrence = { sourceUrl: string; from: number; to: number; raw: string };
+type UrlOccurrence = { sourceUrl: string; from: number; to: number };
 
 export type AttachmentImportContext = {
   storage: Storage;
@@ -62,8 +62,20 @@ function collectUrlOccurrences(lines: ImportLine[]): UrlOccurrence[] {
   const occurrences: UrlOccurrence[] = [];
   const visit = (node: SyntaxNode): void => {
     const url = node.type === 'image' || node.type === 'strongImage' ? node.src : undefined;
-    if (url !== undefined && isCosenseFileUrl(url) && node.raw.includes(url)) {
-      occurrences.push({ sourceUrl: url, from: node.range.from, to: node.range.to, raw: node.raw });
+    if (url !== undefined && isCosenseFileUrl(url)) {
+      let sourceFrom: number | undefined;
+      if (node.type === 'strongImage' && node.raw === `[[${url}]]`) sourceFrom = node.range.from + 2;
+      if (node.type === 'image') {
+        if (node.raw === `[${url}]` || node.raw === `[${url} ${node.link}]`) {
+          sourceFrom = node.range.from + 1;
+        } else if (node.raw === `[${node.link} ${url}]`) {
+          sourceFrom = node.range.from + node.link.length + 2;
+        }
+      }
+      if (sourceFrom === undefined || source.slice(sourceFrom, sourceFrom + url.length) !== url) {
+        throw new Error('attachment image syntax does not contain src at the expected range');
+      }
+      occurrences.push({ sourceUrl: url, from: sourceFrom, to: sourceFrom + url.length });
     }
     if ('nodes' in node) for (const child of node.nodes) visit(child);
   };
@@ -222,14 +234,9 @@ export async function importAttachments(lines: ImportLine[], context: Attachment
       .toSorted((left, right) => right.from - left.from)) {
       const localUrl = replacements.get(occurrence.sourceUrl);
       if (localUrl === undefined) continue;
-      const sourceFrom = occurrence.raw.lastIndexOf(occurrence.sourceUrl);
-      if (sourceFrom < 0) throw new Error('attachment URL occurrence does not contain its source URL');
-      const replacement = occurrence.raw.slice(0, sourceFrom)
-        + localUrl
-        + occurrence.raw.slice(sourceFrom + occurrence.sourceUrl.length);
       const from = occurrence.from - lineFrom;
       const to = occurrence.to - lineFrom;
-      text = text.slice(0, from) + replacement + text.slice(to);
+      text = text.slice(0, from) + localUrl + text.slice(to);
     }
     lineFrom = lineTo + 1;
     return text === line.text ? line : { ...line, text };
