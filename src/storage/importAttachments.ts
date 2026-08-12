@@ -57,25 +57,33 @@ function isCosenseFileUrl(value: string): boolean {
   }
 }
 
+function imageSourceFrom(node: Extract<SyntaxNode, { type: 'image' | 'strongImage' }>): number | undefined {
+  if (node.type === 'strongImage') {
+    return node.raw.slice(2, -2) === node.src ? node.range.from + 2 : undefined;
+  }
+  const content = node.raw.slice(1, -1);
+  const separatorFrom = content.search(/\s/);
+  if (separatorFrom < 0) return content === node.src ? node.range.from + 1 : undefined;
+  const secondOffset = content.slice(separatorFrom).search(/\S/);
+  const secondFrom = secondOffset < 0 ? -1 : separatorFrom + secondOffset;
+  if (secondFrom >= 0 && content.slice(secondFrom) === node.src) return node.range.from + secondFrom + 1;
+  if (content.slice(0, separatorFrom) === node.src) return node.range.from + 1;
+  return undefined;
+}
+
 function collectUrlOccurrences(lines: ImportLine[]): UrlOccurrence[] {
   const source = lines.map((line) => line.text).join('\n');
   const occurrences: UrlOccurrence[] = [];
   const visit = (node: SyntaxNode): void => {
-    const url = node.type === 'image' || node.type === 'strongImage' ? node.src : undefined;
-    if (url !== undefined && isCosenseFileUrl(url)) {
-      let sourceFrom: number | undefined;
-      if (node.type === 'strongImage' && node.raw === `[[${url}]]`) sourceFrom = node.range.from + 2;
-      if (node.type === 'image') {
-        if (node.raw === `[${url}]` || node.raw === `[${url} ${node.link}]`) {
-          sourceFrom = node.range.from + 1;
-        } else if (node.raw === `[${node.link} ${url}]`) {
-          sourceFrom = node.range.from + node.link.length + 2;
+    if (node.type === 'image' || node.type === 'strongImage') {
+      const url = node.src;
+      if (isCosenseFileUrl(url)) {
+        const sourceFrom = imageSourceFrom(node);
+        if (sourceFrom === undefined || source.slice(sourceFrom, sourceFrom + url.length) !== url) {
+          throw new Error('attachment image syntax does not contain src at the expected range');
         }
+        occurrences.push({ sourceUrl: url, from: sourceFrom, to: sourceFrom + url.length });
       }
-      if (sourceFrom === undefined || source.slice(sourceFrom, sourceFrom + url.length) !== url) {
-        throw new Error('attachment image syntax does not contain src at the expected range');
-      }
-      occurrences.push({ sourceUrl: url, from: sourceFrom, to: sourceFrom + url.length });
     }
     if ('nodes' in node) for (const child of node.nodes) visit(child);
   };

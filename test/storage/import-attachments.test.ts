@@ -246,7 +246,7 @@ void test('画像 URL と同じ接頭辞のリンク先が後続しても画像 
   try {
     await importCosense(storage, {
       name: 'source',
-      pages: [{ title: 'Page', lines: ['Page', `[${sourceUrl} ${sourceUrl}#click]`] }],
+      pages: [{ title: 'Page', lines: ['Page', `[${sourceUrl}  ${sourceUrl}#click]`] }],
     }, {
       projectName: 'sandbox',
       attachments: {
@@ -263,7 +263,7 @@ void test('画像 URL と同じ接頭辞のリンク先が後続しても画像 
     assert.ok(page);
     assert.match(
       page.lines[1]!.text,
-      /^\[\/files\/[0-9A-HJKMNP-TV-Z]{26}\/prefix-link\.png https:\/\/scrapbox\.io\/files\/prefix-link#\.png#click\]$/,
+      /^\[\/files\/[0-9A-HJKMNP-TV-Z]{26}\/prefix-link\.png  https:\/\/scrapbox\.io\/files\/prefix-link#\.png#click\]$/,
     );
   } finally {
     await storage.close();
