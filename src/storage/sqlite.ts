@@ -24,6 +24,7 @@ import {
   type PageSort,
   type PageSnapshot,
   type PageSummary,
+  type PageVisitMetrics,
   type Project,
   type RelatedPage,
   type RelatedPages,
@@ -448,6 +449,8 @@ export class SqliteStorage implements Storage {
       created: 'p.created DESC, p.id',
       linked: 'linked DESC, p.updated DESC, p.id',
       title: 'p.title_lc ASC',
+      views: 'views DESC, p.updated DESC, p.id',
+      accessed: 'accessed DESC, p.updated DESC, p.id',
     };
     const orderByClause = opts.pinnedFirst ? `p.pinned DESC, ${orderBy[opts.sort]}` : orderBy[opts.sort];
     const count = (
@@ -459,18 +462,22 @@ export class SqliteStorage implements Storage {
       .prepare(
         `SELECT p.*, (
            SELECT COUNT(*) FROM links l WHERE l.project_id = p.project_id AND l.target_title_lc = p.title_lc
-         ) AS linked
+         ) AS linked,
+         COALESCE((SELECT SUM(pv.views) FROM page_visits pv WHERE pv.page_id = p.id), 0) AS views,
+         COALESCE((SELECT MAX(pv.visited) FROM page_visits pv WHERE pv.page_id = p.id), 0) AS accessed
          FROM pages p WHERE p.project_id = ? AND p.deleted = 0
          ORDER BY ${orderByClause}
          LIMIT ? OFFSET ?`,
       )
-      .all(projectId, opts.limit, opts.skip) as (PageRow & { linked: number })[];
+      .all(projectId, opts.limit, opts.skip) as (PageRow & PageVisitMetrics & { linked: number })[];
     const descriptions = this.#db.prepare(
       "SELECT text FROM lines WHERE page_id = ? AND ord > 0 AND text <> '' ORDER BY ord LIMIT 5",
     );
     const pages = rows.map((r) => ({
       ...this.#pageRowToMeta(r),
       linked: r.linked,
+      views: r.views,
+      accessed: r.accessed,
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       descriptions: (descriptions.all(r.id) as { text: string }[]).map((d) => d.text),
     }));
@@ -514,6 +521,7 @@ export class SqliteStorage implements Storage {
       linksLc,
       linked: this.#linkedCount(row.project_id, row.title_lc),
       updated: row.updated,
+      accessed: this.#pageVisitMetrics(row.id).accessed,
     };
   }
 
@@ -607,13 +615,29 @@ export class SqliteStorage implements Storage {
     return row ? { visited: row.visited, lastSeenVersion: row.last_seen_version } : null;
   }
 
+  #pageVisitMetrics(pageId: string): PageVisitMetrics {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+    const row = this.#db
+      .prepare(
+        `SELECT COALESCE(SUM(views), 0) AS views, COALESCE(MAX(visited), 0) AS accessed
+         FROM page_visits WHERE page_id = ?`,
+      )
+      .get(pageId) as PageVisitMetrics;
+    return { views: row.views, accessed: row.accessed };
+  }
+
+  async getPageVisitMetrics(pageId: string): Promise<PageVisitMetrics> {
+    return this.#pageVisitMetrics(pageId);
+  }
+
   async recordVisit(userId: string, pageId: string, visitedAt: number, lastSeenVersion: number): Promise<void> {
     this.#db
       .prepare(
         `INSERT INTO page_visits (user_id, page_id, visited, last_seen_version) VALUES (?, ?, ?, ?)
          ON CONFLICT (user_id, page_id) DO UPDATE SET
            visited = MAX(page_visits.visited, excluded.visited),
-           last_seen_version = MAX(page_visits.last_seen_version, excluded.last_seen_version)`,
+           last_seen_version = MAX(page_visits.last_seen_version, excluded.last_seen_version),
+           views = page_visits.views + 1`,
       )
       .run(userId, pageId, visitedAt, lastSeenVersion);
   }

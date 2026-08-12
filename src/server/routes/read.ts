@@ -5,8 +5,7 @@ import { jsonError, resolvePage, resolveProject, safeDecode, type ApiEnv } from 
 import { titleLc } from '../../core/title.ts';
 import type { PageSummary, PageSort, RelatedPage } from '../../storage/types.ts';
 
-const SORTS = new Set<string>(['updated', 'created', 'linked', 'title']);
-const FALLBACK_SORTS = new Set<string>(['accessed', 'views']);
+const SORTS = new Set<string>(['updated', 'created', 'linked', 'title', 'accessed', 'views']);
 
 function summaryToJson(p: PageSummary) {
   return {
@@ -15,11 +14,11 @@ function summaryToJson(p: PageSummary) {
     image: p.image,
     descriptions: p.descriptions,
     pin: p.pinned,
-    views: 0,
+    views: p.views,
     linked: p.linked,
     created: p.created,
     updated: p.updated,
-    accessed: p.updated,
+    accessed: p.accessed,
     version: p.version, // knot 拡張: 同期 CLI 用
   };
 }
@@ -34,7 +33,7 @@ function relatedToJson(p: RelatedPage) {
     linksLc: p.linksLc,
     linked: p.linked,
     updated: p.updated,
-    accessed: p.updated,
+    accessed: p.accessed,
   };
 }
 
@@ -47,6 +46,7 @@ export function registerReadRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     const page = await resolvePage(storage, project.id, c);
     if (!page) return jsonError(c, 404, 'not_found');
     const authors = await storage.getPageAuthors(page.id);
+    const visitMetrics = await storage.getPageVisitMetrics(page.id);
     const related = await storage.getRelatedPages(project.id, page.id, page.titleLc);
     const titles = await storage.listPageTitles(project.id);
     const links = titles.find((t) => t.id === page.id)?.links ?? [];
@@ -61,13 +61,13 @@ export function registerReadRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
       image: page.image,
       descriptions,
       pin: page.pinned,
-      views: 0,
+      views: visitMetrics.views,
       linked: related.linked,
       created: page.created,
       updated: page.updated,
       user: authors.user ?? authors.lastUpdateUser,
       lastUpdateUser: authors.lastUpdateUser,
-      accessed: page.updated,
+      accessed: visitMetrics.accessed,
       version: page.version,
       persistent: true,
       lines: page.lines.map((l) => ({
@@ -97,11 +97,11 @@ export function registerReadRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     if (!Number.isInteger(skip) || skip < 0 || !Number.isInteger(limitRaw) || limitRaw < 1) {
       return jsonError(c, 400, 'bad_request', { message: 'invalid skip/limit' });
     }
-    if (!SORTS.has(sortRaw) && !FALLBACK_SORTS.has(sortRaw)) {
+    if (!SORTS.has(sortRaw)) {
       return jsonError(c, 400, 'bad_request', { message: `invalid sort: ${sortRaw}` });
     }
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-    const sort = (SORTS.has(sortRaw) ? sortRaw : 'updated') as PageSort;
+    const sort = sortRaw as PageSort;
     const limit = Math.min(limitRaw, 1000);
     const { count, pages } = await storage.listPageSummaries(project.id, { skip, limit, sort });
     return c.json({ projectName: project.name, skip, limit, count, pages: pages.map(summaryToJson) });

@@ -18,7 +18,7 @@ void test('マイグレーションで全テーブルが作られ user_version �
   for (const t of expected) assert.ok(names.includes(t), `${t} がない`);
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const v = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
-  assert.equal(v, 4);
+  assert.equal(v, 5);
   db.close();
 });
 
@@ -29,7 +29,7 @@ void test('再オープンしても適用済みマイグレーションを二重
   const db = openDatabase(path);
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const v = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
-  assert.equal(v, 4);
+  assert.equal(v, 5);
   db.close();
 });
 

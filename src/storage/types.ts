@@ -61,8 +61,9 @@ export type PageMeta = {
 
 export type PageSnapshot = PageMeta & { lines: Line[] };
 
-export type PageSummary = PageMeta & { descriptions: string[]; linked: number };
-export type PageSort = 'updated' | 'created' | 'linked' | 'title';
+export type PageVisitMetrics = { views: number; accessed: number };
+export type PageSummary = PageMeta & PageVisitMetrics & { descriptions: string[]; linked: number };
+export type PageSort = 'updated' | 'created' | 'linked' | 'title' | 'views' | 'accessed';
 export type ListPageSummariesOptions = { skip: number; limit: number; sort: PageSort; pinnedFirst?: boolean };
 
 export type RelatedPage = {
@@ -74,6 +75,7 @@ export type RelatedPage = {
   linksLc: string[];
   linked: number;
   updated: number;
+  accessed: number;
 };
 
 /** linked は対象ページ自身の被リンク数（ページ本体応答の linked フィールド用） */
@@ -215,6 +217,7 @@ export interface Storage {
   reindex(projectId?: string): Promise<{ pages: number }>;
   /** 前回訪問を上書きする前に呼ぶこと。未訪問は null */
   getVisit(userId: string, pageId: string): Promise<Visit | null>;
+  getPageVisitMetrics(pageId: string): Promise<PageVisitMetrics>;
   recordVisit(userId: string, pageId: string, visitedAt: number, lastSeenVersion: number): Promise<void>;
   close(): Promise<void>;
 }
