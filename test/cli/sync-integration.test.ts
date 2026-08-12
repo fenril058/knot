@@ -299,7 +299,7 @@ void test('pull: リネーム先の書き込み失敗で部分的な最終ファ
 
     assert.equal(readFileSync(join(env.dir, 'Alpha.txt'), 'utf8'), 'Alpha\nbody\n');
     assert.equal(existsSync(join(env.dir, 'Alpha2.txt')), false);
-    assert.equal(readdirSync(env.dir).some((name) => name.startsWith('Alpha2.txt.tmp-')), false);
+    assert.equal(readdirSync(join(env.dir, '.knot')).some((name) => name.startsWith('pull-rename-')), false);
     assert.deepEqual(loadState(env.dir), before);
     assert.equal(existsSync(join(env.dir, '.knot', 'pending-pull-rename.json')), true);
 
@@ -332,7 +332,7 @@ void test('pull: 長いリネーム先でも短い一時ファイル名を使っ
     assert.equal(readFileSync(join(env.dir, `${title}.txt`), 'utf8'), `${title}\nbody\n`);
     assert.equal(existsSync(join(env.dir, 'Alpha.txt')), false);
     assert.equal(existsSync(join(env.dir, '.knot', 'pending-pull-rename.json')), false);
-    assert.equal(readdirSync(env.dir).some((name) => name.startsWith('.knot-pull-rename-')), false);
+    assert.equal(readdirSync(join(env.dir, '.knot')).some((name) => name.startsWith('pull-rename-')), false);
   } finally { env.close(); }
 });
 

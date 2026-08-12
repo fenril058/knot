@@ -141,7 +141,7 @@ function writeAtomicallyWithoutSymlinks(
   writeContents: FileDescriptorWriter = writeFileSync,
 ): boolean | 'exists' {
   if (hasSymlinkWithin(root, target)) return false;
-  const tmp = join(dirname(target), `.knot-pull-rename-${randomUUID()}`);
+  const tmp = join(dirname(target), '.knot', `pull-rename-${randomUUID()}.tmp`);
   let fd: number | undefined;
   try {
     fd = openSync(
