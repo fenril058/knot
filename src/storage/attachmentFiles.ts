@@ -66,6 +66,26 @@ async function reconcileMetadata(
   return { ...attachment, filename: input.filename, contentType: input.contentType };
 }
 
+async function reuseStoredAttachment(
+  input: StoreAttachmentInput,
+  sha256: string,
+  claimOwner: string,
+): Promise<StoreAttachmentResult | null> {
+  const existing = await input.storage.reuseAttachmentBySha256(input.projectId, sha256, claimOwner);
+  if (existing === null) return null;
+  try {
+    await ensureFile(join(input.filesDir, existing.id), input.bytes, sha256);
+    const attachment = await reconcileMetadata(input.storage, existing, input);
+    if (input.claimOwner === undefined) await input.storage.finalizeAttachmentClaims(claimOwner);
+    return { attachment, created: false };
+  } catch (error) {
+    if (input.claimOwner === undefined) {
+      await releaseAttachmentClaims(input.storage, input.filesDir, claimOwner);
+    }
+    throw error;
+  }
+}
+
 export async function releaseAttachmentClaims(
   storage: Storage,
   filesDir: string,
@@ -78,11 +98,9 @@ export async function releaseAttachmentClaims(
 export async function storeAttachment(input: StoreAttachmentInput): Promise<StoreAttachmentResult> {
   const sha256 = createHash('sha256').update(input.bytes).digest('hex');
   await mkdir(input.filesDir, { recursive: true });
-  const existing = await input.storage.reuseAttachmentBySha256(input.projectId, sha256, input.claimOwner);
-  if (existing !== null) {
-    await ensureFile(join(input.filesDir, existing.id), input.bytes, sha256);
-    return { attachment: await reconcileMetadata(input.storage, existing, input), created: false };
-  }
+  const reuseClaimOwner = input.claimOwner ?? randomUUID();
+  const existing = await reuseStoredAttachment(input, sha256, reuseClaimOwner);
+  if (existing !== null) return existing;
 
   const attachment: Attachment = {
     id: ulid(input.now * 1000),
@@ -102,11 +120,8 @@ export async function storeAttachment(input: StoreAttachmentInput): Promise<Stor
       return { attachment, created: true };
     } catch (error) {
       await rm(finalPath, { force: true });
-      const raced = await input.storage.reuseAttachmentBySha256(input.projectId, sha256, input.claimOwner);
-      if (raced !== null) {
-        await ensureFile(join(input.filesDir, raced.id), input.bytes, sha256);
-        return { attachment: await reconcileMetadata(input.storage, raced, input), created: false };
-      }
+      const raced = await reuseStoredAttachment(input, sha256, reuseClaimOwner);
+      if (raced !== null) return raced;
       if (!isUniqueConstraint(error) || attempt === 1) throw error;
     }
   }

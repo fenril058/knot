@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { importCosense } from '../../src/storage/import.ts';
@@ -661,6 +661,44 @@ void test('通常アップロードが再利用した暫定添付を補償削除
     await releaseAttachmentClaims(storage, filesDir, claimOwner);
     assert.equal((await storage.listAttachments(project.id)).length, 1);
     assert.equal(existsSync(join(filesDir, provisional.attachment.id)), true);
+  } finally {
+    await storage.close();
+    rmSync(root, { recursive: true });
+  }
+});
+
+void test('通常アップロードの実体修復に失敗しても暫定添付を公開しない', async () => {
+  const { storage } = makeStorage();
+  const root = mkdtempSync(join(tmpdir(), 'knot-import-files-'));
+  const filesDir = join(root, 'files');
+  const project = await storage.ensureProject('sandbox', 1_760_000_000);
+  try {
+    const provisional = await storeAttachment({
+      storage,
+      filesDir,
+      projectId: project.id,
+      filename: 'shared.png',
+      contentType: 'image/png',
+      bytes: PNG,
+      userId: 'importer',
+      now: 1_760_000_000,
+      claimOwner: 'pending-import',
+    });
+    const path = join(filesDir, provisional.attachment.id);
+    rmSync(path);
+    mkdirSync(path);
+
+    await assert.rejects(storeAttachment({
+      storage,
+      filesDir,
+      projectId: project.id,
+      filename: 'uploaded.png',
+      contentType: 'image/png',
+      bytes: PNG,
+      userId: 'uploader',
+      now: 1_760_000_001,
+    }), /EISDIR/);
+    assert.deepEqual(await storage.listAttachments(project.id), []);
   } finally {
     await storage.close();
     rmSync(root, { recursive: true });

@@ -184,6 +184,8 @@ export interface Storage {
   updateAttachmentMetadata(id: string, filename: string, contentType: string): Promise<void>;
   /** owner の利用宣言を解除し、他の利用者もページ参照もない暫定添付 ID を返す。 */
   releaseAttachmentClaims(owner: string): Promise<string[]>;
+  /** owner が利用中の暫定添付を確定し、同じ添付に対する利用宣言を解除する。 */
+  finalizeAttachmentClaims(owner: string): Promise<void>;
   listAttachments(projectId: string): Promise<Attachment[]>;
   getAttachment(id: string): Promise<Attachment | null>;
   /** 再利用はプロジェクト単位とし、claimOwner があれば暫定添付への利用を宣言する。 */

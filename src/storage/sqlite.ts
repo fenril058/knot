@@ -383,6 +383,10 @@ export class SqliteStorage implements Storage {
     });
   }
 
+  async finalizeAttachmentClaims(owner: string): Promise<void> {
+    this.#tx(() => this.#finalizeAttachmentClaims(owner));
+  }
+
   #attachmentRowToAttachment(row: AttachmentRow): Attachment {
     return {
       id: row.id,
