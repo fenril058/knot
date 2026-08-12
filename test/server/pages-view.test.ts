@@ -21,6 +21,25 @@ void test('GET /:project/:title: レンダリング結果・空リンク・テ�
   void alphaId;
 });
 
+void test('1-hop と 2-hop の関連ページを一覧と同じカードで表示する', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'Beta', ['[/files/01ABC/beta.png]', '[Beta Link] の説明'], s.clock.t);
+  await seedPage(s.storage, project.id, 'Gamma', ['[Ghost]', 'Gamma の説明'], s.clock.t + 1);
+  await seedPage(s.storage, project.id, 'Alpha', ['[Beta] と [Ghost]'], s.clock.t + 2);
+
+  const body = await (await s.request('/proj/Alpha', {}, cookie)).text();
+
+  assert.match(body, /<section class="related-pages"><h2>関連ページ<\/h2><ul class="card-grid">/);
+  assert.match(body, /<a class="card " href="\/proj\/Beta">/);
+  assert.match(body, /<img class="card-image" src="\/files\/01ABC\/beta\.png"/);
+  assert.match(body, /Beta Link の説明/);
+  assert.match(body, /<section class="related-pages"><h2>2-hop リンク<\/h2><ul class="card-grid">/);
+  assert.match(body, /<a class="card " href="\/proj\/Gamma">/);
+  assert.match(body, /Gamma の説明/);
+});
+
 void test('閲覧画面に操作メニューと複製・リネーム・削除 dialog がありインラインハンドラを使わない', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);

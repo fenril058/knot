@@ -3,9 +3,10 @@ a { color: #2c6ea3; }
 .empty-link { color: #c0392b; }
 .page-nav { margin-bottom: 0.5rem; font-size: 0.9em; }
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; list-style: none; padding: 0; }
+.card-grid > li { min-width: 0; }
 .card { display: block; border: 1px solid #ddd; border-radius: 4px; padding: 0.5rem; text-decoration: none; color: inherit; min-width: 0; overflow: hidden; overflow-wrap: anywhere; }
 .card.pinned { border-color: #f1c40f; }
-.card img.card-image { max-width: 100%; height: 100px; object-fit: cover; }
+.card img.card-image { width: 100%; height: 100px; object-fit: cover; }
 .line-row { display: flex; align-items: flex-start; }
 .line-indent { min-width: 0; padding-inline-start: 1.25rem; }
 .line-indent-content, .cm-wysiwyg-indent-content { position: relative; }

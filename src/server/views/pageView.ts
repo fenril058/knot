@@ -1,9 +1,9 @@
 import { html } from 'hono/html';
 import type { Line } from '../../core/ops.ts';
-import { pageHref } from '../../core/title.ts';
 import type { RenderConfig, RenderedLine } from '../../render/render.ts';
-import type { PageSnapshot, Project, RelatedPages, Visit } from '../../storage/types.ts';
+import type { PageSnapshot, Project, RelatedPage, RelatedPages, Visit } from '../../storage/types.ts';
 import { layout, type Html } from './layout.ts';
+import { pageCard } from './pageCard.ts';
 
 const TELOMERE_AGE_BUCKETS = [86400, 7 * 86400];
 
@@ -29,10 +29,10 @@ ${nestIndentedLine(rendered.html, rendered.indent)}
 </div>`;
 }
 
-function relatedSection(title: string, pages: { title: string }[], projectName: string): Html {
+function relatedSection(title: string, pages: RelatedPage[], projectName: string, allowedImageHosts: string[]): Html {
   if (pages.length === 0) return html``;
-  return html`<section><h2>${title}</h2><ul>${pages.map(
-    (page) => html`<li><a href="${pageHref(projectName, page.title)}">${page.title}</a></li>`,
+  return html`<section class="related-pages"><h2>${title}</h2><ul class="card-grid">${pages.map((page) =>
+    pageCard(projectName, page, allowedImageHosts),
   )}</ul></section>`;
 }
 
@@ -93,8 +93,8 @@ ${related.hasBackLinks ? html`<p class="backlinks-badge">逆リンクまたは�
   data-allowed-image-hosts="${JSON.stringify(renderConfig.allowedImageHosts)}"
   data-allowed-media-hosts="${JSON.stringify(renderConfig.allowedMediaHosts)}"
 >${rendered.map((line, index) => lineRow(page, page.lines[index]!, line, previousVisit))}</div>
-${relatedSection('関連ページ', related.links1hop, project.name)}
-${relatedSection('2-hop リンク', related.links2hop, project.name)}
+${relatedSection('関連ページ', related.links1hop, project.name, renderConfig.allowedImageHosts)}
+${relatedSection('2-hop リンク', related.links2hop, project.name, renderConfig.allowedImageHosts)}
 </main>
 <script src="/assets/line-ui.js" defer></script>
 <script type="module" src="/assets/build/page-menu.js"></script>

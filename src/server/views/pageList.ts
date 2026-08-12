@@ -1,20 +1,7 @@
 import { html } from 'hono/html';
-import { isAllowedImageUrl, isAttachmentUrl } from '../../core/media.ts';
-import { pageHref } from '../../core/title.ts';
-import { plainLineText } from '../../render/plain.ts';
 import type { PageSummary, Project } from '../../storage/types.ts';
 import { layout, type Html } from './layout.ts';
-
-function card(project: Project, page: PageSummary, allowedImageHosts: string[]): Html {
-  const href = pageHref(project.name, page.title);
-  return html`<a class="card ${page.pinned ? 'pinned' : ''}" href="${href}">
-${page.image !== null && (isAttachmentUrl(page.image) || isAllowedImageUrl(page.image, allowedImageHosts))
-    ? html`<img class="card-image" src="${page.image}" alt="">`
-    : ''}
-<h3>${page.title}</h3>
-${page.descriptions.map((description) => html`<p>${plainLineText(description)}</p>`)}
-</a>`;
-}
+import { pageCard } from './pageCard.ts';
 
 export function pageListPage(
   project: Project,
@@ -37,7 +24,7 @@ export function pageListPage(
 <input id="search-box" type="search" placeholder="検索">
 <div id="search-results" hidden></div>
 </div>
-<div class="card-grid">${result.pages.map((page) => card(project, page, allowedImageHosts))}</div>
+<ul class="card-grid">${result.pages.map((page) => pageCard(project.name, page, allowedImageHosts))}</ul>
 ${nextSkip < result.count
     ? html`<a href="/${encodeURIComponent(project.name)}?skip=${nextSkip}&limit=${limit}">もっと見る</a>`
     : ''}
