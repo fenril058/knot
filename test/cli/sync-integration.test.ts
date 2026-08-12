@@ -291,7 +291,7 @@ void test('pull: リネーム先の書き込み失敗で部分的な最終ファ
     });
 
     await assert.rejects(runSync(['pull', '--dir', env.dir], {
-      writePullRenameFile(fd, contents) {
+      writePullRenameContents(fd, contents) {
         writeFileSync(fd, contents.slice(0, 6));
         throw new Error('simulated interrupted write');
       },
@@ -307,6 +307,114 @@ void test('pull: リネーム先の書き込み失敗で部分的な最終ファ
     assert.equal(retry.exitCode, 0);
     assert.equal(readFileSync(join(env.dir, 'Alpha2.txt'), 'utf8'), 'Alpha2\nbody\n');
     assert.equal(existsSync(join(env.dir, 'Alpha2~2.txt')), false);
+    assert.equal(existsSync(join(env.dir, '.knot', 'pending-pull-rename.json')), false);
+  } finally { env.close(); }
+});
+
+void test('pull: 長いリネーム先でも短い一時ファイル名を使って完了する', async () => {
+  const env = await makeEnv();
+  try {
+    const pageId = await seedPage(env.storage, env.projectId, 'Alpha', ['body'], env.clock.t);
+    await runSync(['pull', '--dir', env.dir]);
+    const page = await env.storage.getPageById(pageId);
+    const title = 'a'.repeat(220);
+    env.clock.t += 10;
+    await env.storage.commit({
+      projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
+      baseVersion: page!.version,
+      ops: [{ type: 'update', id: page!.lines[0]!.id, text: title }],
+      userId: 'u', now: env.clock.t,
+    });
+
+    const result = await runSync(['pull', '--dir', env.dir]);
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(readFileSync(join(env.dir, `${title}.txt`), 'utf8'), `${title}\nbody\n`);
+    assert.equal(existsSync(join(env.dir, 'Alpha.txt')), false);
+    assert.equal(existsSync(join(env.dir, '.knot', 'pending-pull-rename.json')), false);
+    assert.equal(readdirSync(env.dir).some((name) => name.startsWith('.knot-pull-rename-')), false);
+  } finally { env.close(); }
+});
+
+void test('pull: 一時ファイル書き込み中に現れたリネーム先を上書きしない', async () => {
+  const env = await makeEnv();
+  try {
+    await seedPage(env.storage, env.projectId, 'Alpha', ['body'], env.clock.t);
+    await runSync(['pull', '--dir', env.dir]);
+    const before = loadState(env.dir);
+    const pageId = Object.keys(before.pages)[0]!;
+    const page = await env.storage.getPageById(pageId);
+    env.clock.t += 10;
+    await env.storage.commit({
+      projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
+      baseVersion: page!.version,
+      ops: [{ type: 'update', id: page!.lines[0]!.id, text: 'Alpha2' }],
+      userId: 'u', now: env.clock.t,
+    });
+
+    const result = await runSync(['pull', '--dir', env.dir], {
+      writePullRenameContents(fd, contents) {
+        writeFileSync(fd, contents);
+        writeFileSync(join(env.dir, 'Alpha2.txt'), 'user-created\n');
+      },
+    });
+
+    assert.equal(result.exitCode, 1);
+    assert.match(result.output, /skipped \(filename appeared during pull\): Alpha2\.txt/);
+    assert.equal(readFileSync(join(env.dir, 'Alpha2.txt'), 'utf8'), 'user-created\n');
+    assert.equal(readFileSync(join(env.dir, 'Alpha.txt'), 'utf8'), 'Alpha\nbody\n');
+    assert.deepEqual(loadState(env.dir), before);
+    assert.equal(existsSync(join(env.dir, '.knot', 'pending-pull-rename.json')), false);
+  } finally { env.close(); }
+});
+
+void test('pull: 別ページが使用中のファイル名を古い中断記録から奪わない', async () => {
+  const env = await makeEnv();
+  try {
+    const pageId = await seedPage(env.storage, env.projectId, 'Alpha', ['body'], env.clock.t);
+    await runSync(['pull', '--dir', env.dir]);
+    const state = loadState(env.dir);
+    const before = state.pages[pageId]!;
+    let page = await env.storage.getPageById(pageId);
+    env.clock.t += 10;
+    await env.storage.commit({
+      projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
+      baseVersion: page!.version,
+      ops: [{ type: 'update', id: page!.lines[0]!.id, text: 'Beta' }],
+      userId: 'u', now: env.clock.t,
+    });
+    const beta = await env.storage.getPageById(pageId);
+    const betaText = 'Beta\nbody';
+    writeFileSync(join(env.dir, '.knot', 'pending-pull-rename.json'), `${JSON.stringify({
+      pageId,
+      from: before,
+      to: { title: 'Beta', filename: 'Beta.txt', version: beta!.version, contentHash: contentHash(betaText) },
+    }, null, 2)}\n`);
+    writeFileSync(join(env.dir, 'Beta.txt'), `${betaText}\n`);
+
+    page = beta;
+    env.clock.t += 10;
+    await env.storage.commit({
+      projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
+      baseVersion: page!.version,
+      ops: [{ type: 'update', id: page!.lines[0]!.id, text: 'Gamma' }],
+      userId: 'u', now: env.clock.t,
+    });
+    const betaPageId = await seedPage(env.storage, env.projectId, 'Beta', ['body'], env.clock.t + 1);
+    const betaPage = await env.storage.getPageById(betaPageId);
+    state.pages[betaPageId] = {
+      title: 'Beta', filename: 'Beta.txt', version: betaPage!.version, contentHash: contentHash(betaText),
+    };
+    saveState(env.dir, state);
+
+    const result = await runSync(['pull', '--dir', env.dir]);
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(readFileSync(join(env.dir, 'Beta.txt'), 'utf8'), `${betaText}\n`);
+    assert.equal(readFileSync(join(env.dir, 'Gamma.txt'), 'utf8'), 'Gamma\nbody\n');
+    const after = loadState(env.dir);
+    assert.equal(after.pages[pageId]!.filename, 'Gamma.txt');
+    assert.equal(after.pages[betaPageId]!.filename, 'Beta.txt');
     assert.equal(existsSync(join(env.dir, '.knot', 'pending-pull-rename.json')), false);
   } finally { env.close(); }
 });

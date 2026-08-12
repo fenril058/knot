@@ -3,16 +3,16 @@ import {
   closeSync,
   constants,
   existsSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   openSync,
   readdirSync,
   readFileSync,
-  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { parseArgs } from 'node:util';
 import { titleLc } from '../../core/title.ts';
 import { CliError } from '../commands.ts';
@@ -36,8 +36,12 @@ import {
 } from './state.ts';
 
 export type SyncResult = { output: string; exitCode: 0 | 1 | 2 };
-type SyncFileWriter = (fd: number, contents: string) => void;
-export type SyncDeps = { fetchFn?: typeof fetch; env?: NodeJS.ProcessEnv; writePullRenameFile?: SyncFileWriter };
+type FileDescriptorWriter = (fd: number, contents: string) => void;
+export type SyncDeps = {
+  fetchFn?: typeof fetch;
+  env?: NodeJS.ProcessEnv;
+  writePullRenameContents?: FileDescriptorWriter;
+};
 
 const SYNC_USAGE = `usage:
   knot sync init <dir> --url <base-url> --project <name>
@@ -133,10 +137,11 @@ function writeWithoutSymlinks(root: string, target: string, contents: string): b
 }
 
 function writeAtomicallyWithoutSymlinks(
-  root: string, target: string, contents: string, writeSyncFile: SyncFileWriter = writeFileSync,
-): boolean {
+  root: string, target: string, contents: string,
+  writeContents: FileDescriptorWriter = writeFileSync,
+): boolean | 'exists' {
   if (hasSymlinkWithin(root, target)) return false;
-  const tmp = `${target}.tmp-${randomUUID()}`;
+  const tmp = join(dirname(target), `.knot-pull-rename-${randomUUID()}`);
   let fd: number | undefined;
   try {
     fd = openSync(
@@ -144,11 +149,16 @@ function writeAtomicallyWithoutSymlinks(
       constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
       0o666,
     );
-    writeSyncFile(fd, contents);
+    writeContents(fd, contents);
     const completedFd = fd;
     fd = undefined;
     closeSync(completedFd);
-    renameSync(tmp, target);
+    try {
+      linkSync(tmp, target);
+    } catch (error) {
+      if (hasErrorCode(error, 'EEXIST')) return 'exists';
+      throw error;
+    }
     return true;
   } catch (error) {
     if (hasErrorCode(error, 'ELOOP')) return false;
@@ -349,7 +359,7 @@ type PullContext = {
   state: SyncState;
   local: Map<string, LocalFile>;
   remoteById: Map<string, PageEntry>;
-  writePullRenameFile?: SyncFileWriter;
+  writePullRenameContents?: FileDescriptorWriter;
 };
 
 function samePageState(left: PageState, right: PageState): boolean {
@@ -376,9 +386,13 @@ function recoverPendingPullRename(dir: string, state: SyncState): string | undef
   const current = state.pages[pending.pageId];
   const currentIsFrom = current !== undefined && samePageState(current, pending.from);
   const currentIsTo = current !== undefined && samePageState(current, pending.to);
+  const targetClaimedByAnotherPage = Object.entries(state.pages).some(
+    ([pageId, page]) => pageId !== pending.pageId && page.filename === pending.to.filename,
+  );
   if (!isSafePathSegment(pending.from.filename)
     || !isSafePathSegment(pending.to.filename)
     || (!currentIsFrom && !currentIsTo)
+    || targetClaimedByAnotherPage
     || localContentHash(join(dir, pending.to.filename)) !== pending.to.contentHash) {
     clearPendingPullRename(dir);
     return undefined;
@@ -443,7 +457,11 @@ function pullWrite(ctx: PullContext, pageId: string, detail: RemotePage): PageOu
   const targetPath = join(ctx.dir, filename);
   const written = pending === undefined
     ? writeWithoutSymlinks(ctx.dir, targetPath, `${detail.text}\n`)
-    : writeAtomicallyWithoutSymlinks(ctx.dir, targetPath, `${detail.text}\n`, ctx.writePullRenameFile);
+    : writeAtomicallyWithoutSymlinks(ctx.dir, targetPath, `${detail.text}\n`, ctx.writePullRenameContents);
+  if (written === 'exists') {
+    clearPendingPullRename(ctx.dir);
+    return warn(`skipped (filename appeared during pull): ${filename}`);
+  }
   if (!written) {
     if (pending !== undefined) clearPendingPullRename(ctx.dir);
     return warn(`skipped (refusing to write through symlink): ${filename}`);
@@ -498,7 +516,7 @@ async function runPull(values: SyncValues, deps: SyncDeps): Promise<SyncResult> 
   const local = readLocalFiles(dir);
   const ctx: PullContext = {
     dir, client, state, local, remoteById: new Map(remote.map((p) => [p.id, p])),
-    writePullRenameFile: deps.writePullRenameFile,
+    writePullRenameContents: deps.writePullRenameContents,
   };
   const localHashes = new Map([...local].map(([name, f]) => [name, f.contentHash]));
   const result = await foldOutcomes(planPull({ state, remote, localHashes }), (a) => applyPullAction(ctx, a));
