@@ -78,6 +78,15 @@ function isLocalImageUrl(value: string): boolean {
   return isAttachmentUrl(value) && classifyUrl(value) === 'image';
 }
 
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 function localImageNode(raw: string, range: SourceRange): SyntaxNode | undefined {
   if (raw.startsWith('[[') && raw.endsWith(']]')) {
     const src = raw.slice(2, -2);
@@ -88,8 +97,8 @@ function localImageNode(raw: string, range: SourceRange): SyntaxNode | undefined
   if (match === null) return undefined;
   const first = match[1]!;
   const second = match[2]!;
-  if (isLocalImageUrl(first)) return { type: 'image', raw, range, src: first, link: second };
-  if (isLocalImageUrl(second)) return { type: 'image', raw, range, src: second, link: first };
+  if (isLocalImageUrl(first) && isHttpUrl(second)) return { type: 'image', raw, range, src: first, link: second };
+  if (isLocalImageUrl(second) && isHttpUrl(first)) return { type: 'image', raw, range, src: second, link: first };
   return undefined;
 }
 
