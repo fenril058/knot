@@ -111,6 +111,33 @@ void test('pull: 両方変更は conflicts に隔離し exitCode 1', async () =>
   } finally { env.close(); }
 });
 
+void test('pull: conflicts の祖先 symlink を辿って同期ディレクトリ外へ書き込まない', async () => {
+  const env = await makeEnv();
+  const outside = mkdtempSync(join(tmpdir(), 'knot-sync-conflicts-'));
+  try {
+    const pageId = await seedPage(env.storage, env.projectId, 'Alpha', ['v1 body'], env.clock.t);
+    await runSync(['pull', '--dir', env.dir]);
+    symlinkSync(outside, join(env.dir, '.knot', 'conflicts'), 'dir');
+    writeFileSync(join(env.dir, 'Alpha.txt'), 'Alpha\nlocal edit\n');
+
+    const page = await env.storage.getPageById(pageId);
+    env.clock.t += 10;
+    await env.storage.commit({
+      projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
+      baseVersion: page!.version,
+      ops: [{ type: 'insert', id: ulid(env.clock.t * 1000), after: page!.lines.at(-1)!.id, text: 'remote add' }],
+      userId: 'u', now: env.clock.t,
+    });
+
+    const result = await runSync(['pull', '--dir', env.dir]);
+
+    assert.equal(result.exitCode, 1);
+    assert.match(result.output, /skipped \(refusing to write through symlink\): Alpha\.txt/);
+    assert.equal(existsSync(join(outside, pageId, 'remote.txt')), false);
+    assert.equal(readFileSync(join(env.dir, 'Alpha.txt'), 'utf8'), 'Alpha\nlocal edit\n');
+  } finally { rmSync(outside, { recursive: true }); env.close(); }
+});
+
 void test('pull: リモートのリネームは旧ファイルを消して新名で書く', async () => {
   const env = await makeEnv();
   try {
@@ -475,6 +502,25 @@ void test('push: リモートが既にローカルと同内容なら偽の競合
     const finalPage = await env.storage.getPageById(pageId);
     assert.equal(loadState(env.dir).pages[pageId]!.version, finalPage!.version);
   } finally { env.close(); }
+});
+
+void test('pull: state 内の追跡先に祖先 symlink があれば同期ディレクトリ外へ書き込まない', async () => {
+  const env = await makeEnv();
+  const outside = mkdtempSync(join(tmpdir(), 'knot-sync-ancestor-'));
+  try {
+    const pageId = await seedPage(env.storage, env.projectId, 'Alpha', ['body'], env.clock.t);
+    await runSync(['pull', '--dir', env.dir]);
+    const state = loadState(env.dir);
+    state.pages[pageId]!.filename = join('nested', 'Alpha.txt');
+    saveState(env.dir, state);
+    symlinkSync(outside, join(env.dir, 'nested'), 'dir');
+
+    const result = await runSync(['pull', '--dir', env.dir]);
+
+    assert.equal(result.exitCode, 1);
+    assert.match(result.output, /skipped \(refusing to write through symlink\): nested[\\/]Alpha\.txt/);
+    assert.equal(existsSync(join(outside, 'Alpha.txt')), false);
+  } finally { rmSync(outside, { recursive: true }); env.close(); }
 });
 
 void test('pull: 追跡ファイル名の位置に通常の symlink があれば書き込みを拒否し、リンク先を変えない', async () => {
