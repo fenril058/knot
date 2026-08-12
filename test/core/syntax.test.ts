@@ -80,3 +80,20 @@ void test('インデントは行範囲に含み、行内ノード範囲から除
   assert.deepEqual(line.range, { from: 6, to: 14 });
   assert.deepEqual(line.nodes[0]?.range, { from: 8, to: 14 });
 });
+
+void test('ラベルとローカル画像 URL の記法は通常のリンクとして保つ', () => {
+  const raw = '[Download /files/01ARZ3NDEKTSV4RRFFQ69G5FAV/manual.png]';
+  const blocks = parsePageSyntax(`Title\n${raw}`, { hasTitle: true });
+  const line = blocks[1];
+  assert.equal(line?.type, 'line');
+  if (line?.type !== 'line') return;
+
+  assert.deepEqual(line.nodes[0], {
+    type: 'link',
+    raw,
+    range: { from: 6, to: 6 + raw.length },
+    pathType: 'relative',
+    href: 'Download /files/01ARZ3NDEKTSV4RRFFQ69G5FAV/manual.png',
+    content: '',
+  });
+});

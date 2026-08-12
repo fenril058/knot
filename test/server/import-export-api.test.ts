@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { makeServer } from '../helpers/server.ts';
 
 const exportData = {
@@ -57,6 +60,47 @@ void test('import → 読み取り API で見える → export で往復', async
   assert.equal(out.pages.length, 1);
   assert.equal(out.pages[0].lines[1].text, 'body [Link]');
   assert.ok(out.users.some((u: { name: string }) => u.name === 'bob'));
+});
+
+void test('import API は添付画像を保存し、取得失敗数を応答に含める', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'knot-import-api-'));
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+  const fetchFn: typeof fetch = async (input) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    return url.endsWith('/ok#.png')
+      ? new Response(png, { headers: { 'content-type': 'image/png' } })
+      : new Response(null, { status: 403 });
+  };
+  const s = await makeServer({ dataDir }, { fetchFn });
+  try {
+    await s.addUser('alice', 'pw12345678');
+    const cookie = await s.login('alice', 'pw12345678');
+    const ok = 'https://scrapbox.io/files/ok#.png';
+    const failed = 'https://scrapbox.io/files/failed#.png';
+    const data = {
+      name: 'proj',
+      pages: [{ title: 'Imported', lines: ['Imported', `[${ok}]`, `[${failed}]`] }],
+    };
+
+    const response = await s.request('/api/knot/projects/proj/import', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(data),
+    }, cookie);
+
+    assert.equal(response.status, 200);
+    const summary = await response.json();
+    assert.deepEqual(summary.attachments, { created: 1, reused: 0, failed: 1 });
+    const page = await (await s.request('/api/pages/proj/Imported', {}, cookie)).json();
+    assert.match(page.lines[1].text, /^\[\/files\/[0-9A-HJKMNP-TV-Z]{26}\/ok\.png\]$/);
+    assert.equal(page.lines[2].text, `[${failed}]`);
+    const localUrl = page.lines[1].text.slice(1, -1);
+    const file = await s.request(localUrl, {}, cookie);
+    assert.equal(file.status, 200);
+    assert.deepEqual(new Uint8Array(await file.arrayBuffer()), png);
+  } finally {
+    rmSync(dataDir, { recursive: true });
+  }
 });
 
 void test('onConflict=skip が既定、overwrite 指定で上書き', async () => {

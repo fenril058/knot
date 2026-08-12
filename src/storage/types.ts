@@ -130,6 +130,8 @@ export type ImportPageInput = {
   userId: string;
   now: number;
   onConflict: 'skip' | 'overwrite';
+  /** ページ確定まで暫定添付を保持する import 処理の識別子。 */
+  attachmentClaimOwner?: string;
 };
 
 export type ImportPageResult = { kind: 'created' | 'overwritten' | 'skipped'; pageId: string };
@@ -177,11 +179,17 @@ export interface Storage {
   getSession(id: string, now: number): Promise<Session | null>;
   refreshSession(id: string, expires: number): Promise<void>;
   deleteSession(id: string): Promise<void>;
-  createAttachment(attachment: Attachment): Promise<void>;
+  /** claimOwner がある添付は、対応するページが確定するまで一覧・取得 API へ公開しない。 */
+  createAttachment(attachment: Attachment, claimOwner?: string): Promise<void>;
+  updateAttachmentMetadata(id: string, filename: string, contentType: string): Promise<void>;
+  /** owner の利用宣言を解除し、他の利用者もページ参照もない暫定添付 ID を返す。 */
+  releaseAttachmentClaims(owner: string): Promise<string[]>;
+  /** owner が利用中の暫定添付を確定し、同じ添付に対する利用宣言を解除する。 */
+  finalizeAttachmentClaims(owner: string): Promise<void>;
   listAttachments(projectId: string): Promise<Attachment[]>;
   getAttachment(id: string): Promise<Attachment | null>;
-  /** 再利用はプロジェクト単位とし、別プロジェクトの ID やメタデータを返さない。 */
-  findAttachmentBySha256(projectId: string, sha256: string): Promise<Attachment | null>;
+  /** 再利用はプロジェクト単位とし、claimOwner があれば暫定添付への利用を宣言する。 */
+  reuseAttachmentBySha256(projectId: string, sha256: string, claimOwner?: string): Promise<Attachment | null>;
   getPageByTitle(projectId: string, titleLcValue: string): Promise<PageSnapshot | null>;
   getPageById(pageId: string): Promise<PageSnapshot | null>;
   getPageAuthors(pageId: string): Promise<{ user: DisplayUser | null; lastUpdateUser: DisplayUser | null }>;
