@@ -7,6 +7,7 @@ import {
   type AttachmentImportOptions,
   type AttachmentImportSummary,
 } from './importAttachments.ts';
+import { removeAttachmentIfUnreferenced } from './attachmentFiles.ts';
 import { validateImportLines } from './importValidation.ts';
 import type { ImportLine, Storage } from './types.ts';
 
@@ -61,6 +62,7 @@ export async function importCosense(storage: Storage, data: unknown, options: Im
       now,
       options: options.attachments,
       cache: new Map(),
+      pageCreatedAttachmentIds: new Set(),
       summary: summary.attachments,
     };
   }
@@ -77,21 +79,41 @@ export async function importCosense(storage: Storage, data: unknown, options: Im
       summary.skipped++;
       continue;
     }
-    if (attachmentContext !== undefined) lines = await importAttachments(lines, attachmentContext);
-    const result = await storage.importPage({
-      projectId: project.id,
-      page: {
-        id: page.id ?? ulid(now * 1000),
-        title: page.title,
-        created: page.created ?? now,
-        updated: page.updated ?? now,
-      },
-      lines,
-      userId: importerId,
-      now,
-      onConflict,
-    });
+    const attachmentSummaryBeforePage = summary.attachments === undefined ? undefined : { ...summary.attachments };
+    attachmentContext?.pageCreatedAttachmentIds.clear();
+    let result;
+    try {
+      if (attachmentContext !== undefined) lines = await importAttachments(lines, attachmentContext);
+      result = await storage.importPage({
+        projectId: project.id,
+        page: {
+          id: page.id ?? ulid(now * 1000),
+          title: page.title,
+          created: page.created ?? now,
+          updated: page.updated ?? now,
+        },
+        lines,
+        userId: importerId,
+        now,
+        onConflict,
+      });
+    } catch (error) {
+      if (attachmentContext !== undefined) await cleanupPageAttachments(attachmentContext);
+      throw error;
+    }
+    if (result.kind === 'skipped' && attachmentContext !== undefined) {
+      await cleanupPageAttachments(attachmentContext);
+      if (attachmentSummaryBeforePage !== undefined) Object.assign(summary.attachments!, attachmentSummaryBeforePage);
+    }
     summary[result.kind]++;
   }
   return summary;
+}
+
+async function cleanupPageAttachments(context: AttachmentImportContext): Promise<void> {
+  for (const id of context.pageCreatedAttachmentIds) {
+    await removeAttachmentIfUnreferenced(context.storage, context.options.filesDir, id);
+  }
+  context.pageCreatedAttachmentIds.clear();
+  context.cache.clear();
 }

@@ -353,6 +353,17 @@ export class SqliteStorage implements Storage {
     this.#db.prepare('UPDATE attachments SET filename = ?, content_type = ? WHERE id = ?').run(filename, contentType, id);
   }
 
+  async deleteAttachmentIfUnreferenced(id: string): Promise<boolean> {
+    return this.#tx(() => {
+      const localUrlPrefix = `/files/${id}`;
+      const referenced = this.#db
+        .prepare('SELECT 1 FROM lines WHERE instr(text, ?) > 0 LIMIT 1')
+        .get(localUrlPrefix) !== undefined;
+      if (referenced) return false;
+      return this.#db.prepare('DELETE FROM attachments WHERE id = ?').run(id).changes > 0;
+    });
+  }
+
   #attachmentRowToAttachment(row: AttachmentRow): Attachment {
     return {
       id: row.id,

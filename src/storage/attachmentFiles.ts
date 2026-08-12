@@ -42,24 +42,37 @@ async function ensureFile(path: string, bytes: Uint8Array, sha256: string): Prom
   await replaceFile(path, bytes);
 }
 
+async function reconcileMetadata(
+  storage: Storage,
+  attachment: Attachment,
+  input: StoreAttachmentInput,
+): Promise<Attachment> {
+  if (
+    input.replaceGenericMetadata !== true
+    || attachment.contentType !== 'application/octet-stream'
+    || (attachment.filename === input.filename && attachment.contentType === input.contentType)
+  ) return attachment;
+  await storage.updateAttachmentMetadata(attachment.id, input.filename, input.contentType);
+  return { ...attachment, filename: input.filename, contentType: input.contentType };
+}
+
+export async function removeAttachmentIfUnreferenced(
+  storage: Storage,
+  filesDir: string,
+  id: string,
+): Promise<boolean> {
+  if (!await storage.deleteAttachmentIfUnreferenced(id)) return false;
+  await rm(join(filesDir, id), { force: true });
+  return true;
+}
+
 export async function storeAttachment(input: StoreAttachmentInput): Promise<StoreAttachmentResult> {
   const sha256 = createHash('sha256').update(input.bytes).digest('hex');
   await mkdir(input.filesDir, { recursive: true });
   const existing = await input.storage.findAttachmentBySha256(input.projectId, sha256);
   if (existing !== null) {
     await ensureFile(join(input.filesDir, existing.id), input.bytes, sha256);
-    if (
-      input.replaceGenericMetadata === true
-      && existing.contentType === 'application/octet-stream'
-      && (existing.filename !== input.filename || existing.contentType !== input.contentType)
-    ) {
-      await input.storage.updateAttachmentMetadata(existing.id, input.filename, input.contentType);
-      return {
-        attachment: { ...existing, filename: input.filename, contentType: input.contentType },
-        created: false,
-      };
-    }
-    return { attachment: existing, created: false };
+    return { attachment: await reconcileMetadata(input.storage, existing, input), created: false };
   }
 
   const attachment: Attachment = {
@@ -82,7 +95,7 @@ export async function storeAttachment(input: StoreAttachmentInput): Promise<Stor
     const raced = await input.storage.findAttachmentBySha256(input.projectId, sha256);
     if (raced !== null) {
       await ensureFile(join(input.filesDir, raced.id), input.bytes, sha256);
-      return { attachment: raced, created: false };
+      return { attachment: await reconcileMetadata(input.storage, raced, input), created: false };
     }
     throw error;
   }

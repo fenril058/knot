@@ -179,6 +179,7 @@ export interface Storage {
   deleteSession(id: string): Promise<void>;
   createAttachment(attachment: Attachment): Promise<void>;
   updateAttachmentMetadata(id: string, filename: string, contentType: string): Promise<void>;
+  deleteAttachmentIfUnreferenced(id: string): Promise<boolean>;
   listAttachments(projectId: string): Promise<Attachment[]>;
   getAttachment(id: string): Promise<Attachment | null>;
   /** 再利用はプロジェクト単位とし、別プロジェクトの ID やメタデータを返さない。 */

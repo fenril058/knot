@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { importCosense } from '../../src/storage/import.ts';
-import { storeAttachment } from '../../src/storage/attachmentFiles.ts';
+import { removeAttachmentIfUnreferenced, storeAttachment } from '../../src/storage/attachmentFiles.ts';
 import { StorageError } from '../../src/storage/types.ts';
 import { makeStorage } from '../helpers/storage.ts';
 
@@ -142,14 +142,17 @@ void test('ページ検証が失敗する場合は添付を保存しない', asy
   }
 });
 
-void test('画像と同じ URL がコードブロックにあっても画像記法だけを書き換える', async () => {
+void test('画像と同じ URL がコードブロックや通常リンクにあっても画像記法だけを書き換える', async () => {
   const { storage } = makeStorage();
   const root = mkdtempSync(join(tmpdir(), 'knot-import-files-'));
   const sourceUrl = 'https://scrapbox.io/files/example#.png';
   try {
     await importCosense(storage, {
       name: 'source',
-      pages: [{ title: 'Page', lines: ['Page', 'code:example.txt', ` ${sourceUrl}`, `[${sourceUrl}]`] }],
+      pages: [{
+        title: 'Page',
+        lines: ['Page', 'code:example.txt', ` ${sourceUrl}`, `[download ${sourceUrl}]`, `[${sourceUrl}]`],
+      }],
     }, {
       projectName: 'sandbox',
       attachments: {
@@ -165,7 +168,73 @@ void test('画像と同じ URL がコードブロックにあっても画像記�
     const page = await storage.getPageByTitle(project.id, 'page');
     assert.ok(page);
     assert.equal(page.lines[2]!.text, ` ${sourceUrl}`);
-    assert.match(page.lines[3]!.text, /^\[\/files\/[0-9A-HJKMNP-TV-Z]{26}\/example\.png\]$/);
+    assert.equal(page.lines[3]!.text, `[download ${sourceUrl}]`);
+    assert.match(page.lines[4]!.text, /^\[\/files\/[0-9A-HJKMNP-TV-Z]{26}\/example\.png\]$/);
+  } finally {
+    await storage.close();
+    rmSync(root, { recursive: true });
+  }
+});
+
+void test('改行を含む行の画像 URL を書き換えても元の行境界と後続行を保つ', async () => {
+  const { storage } = makeStorage();
+  const root = mkdtempSync(join(tmpdir(), 'knot-import-files-'));
+  const sourceUrl = 'https://scrapbox.io/files/multiline#.png';
+  try {
+    await importCosense(storage, {
+      name: 'source',
+      pages: [{ title: 'Page', lines: ['Page', `before\n[${sourceUrl}]`, 'after'] }],
+    }, {
+      projectName: 'sandbox',
+      attachments: {
+        filesDir: join(root, 'files'),
+        fetchFn: async () => new Response(PNG, { headers: { 'content-type': 'image/png' } }),
+        maxBytes: 1024,
+        timeoutMs: 10_000,
+      },
+    });
+
+    const project = await storage.getProject('sandbox');
+    assert.ok(project);
+    const page = await storage.getPageByTitle(project.id, 'page');
+    assert.ok(page);
+    assert.equal(page.lines.length, 3);
+    assert.match(page.lines[1]!.text, /^before\n\[\/files\/[0-9A-HJKMNP-TV-Z]{26}\/multiline\.png\]$/);
+    assert.equal(page.lines[2]!.text, 'after');
+  } finally {
+    await storage.close();
+    rmSync(root, { recursive: true });
+  }
+});
+
+void test('長い Unicode ファイル名をコードポイント境界で切り詰める', async () => {
+  const { storage } = makeStorage();
+  const root = mkdtempSync(join(tmpdir(), 'knot-import-files-'));
+  const basename = `${'a'.repeat(199)}😀`;
+  const sourceUrl = `https://scrapbox.io/files/${encodeURIComponent(basename)}#.png`;
+  try {
+    await importCosense(storage, {
+      name: 'source',
+      pages: [{ title: 'Page', lines: ['Page', `[${sourceUrl}]`] }],
+    }, {
+      projectName: 'sandbox',
+      attachments: {
+        filesDir: join(root, 'files'),
+        fetchFn: async () => new Response(PNG, { headers: { 'content-type': 'image/png' } }),
+        maxBytes: 1024,
+        timeoutMs: 10_000,
+      },
+    });
+
+    const project = await storage.getProject('sandbox');
+    assert.ok(project);
+    const attachments = await storage.listAttachments(project.id);
+    assert.equal(attachments.length, 1);
+    assert.doesNotThrow(() => encodeURIComponent(attachments[0]!.filename));
+    assert.equal(Array.from(attachments[0]!.filename).length, 204);
+    const page = await storage.getPageByTitle(project.id, 'page');
+    assert.ok(page);
+    assert.match(page.lines[1]!.text, /^\[\/files\/[0-9A-HJKMNP-TV-Z]{26}\//);
   } finally {
     await storage.close();
     rmSync(root, { recursive: true });
@@ -211,6 +280,129 @@ void test('既存の同一内容添付を画像用の MIME type とファイル�
     const page = await storage.getPageByTitle(project.id, 'page');
     assert.ok(page);
     assert.equal(page.lines[1]!.text, `[/files/${attachments[0]!.id}/canonical.png]`);
+  } finally {
+    await storage.close();
+    rmSync(root, { recursive: true });
+  }
+});
+
+void test('同一 SHA-256 の作成競合後も画像用の MIME type とファイル名へ整合する', async () => {
+  const { storage } = makeStorage();
+  const root = mkdtempSync(join(tmpdir(), 'knot-import-files-'));
+  const filesDir = join(root, 'files');
+  const createAttachment = storage.createAttachment.bind(storage);
+  storage.createAttachment = async (attachment) => {
+    await createAttachment({
+      ...attachment,
+      id: '01K742SG0009ED8TWDRA2BHH36',
+      filename: 'blob',
+      contentType: 'application/octet-stream',
+    });
+    await createAttachment(attachment);
+  };
+  try {
+    const sourceUrl = 'https://scrapbox.io/files/raced#.png';
+    const summary = await importCosense(storage, {
+      name: 'source',
+      pages: [{ title: 'Page', lines: ['Page', `[${sourceUrl}]`] }],
+    }, {
+      projectName: 'sandbox',
+      attachments: {
+        filesDir,
+        fetchFn: async () => new Response(PNG, { headers: { 'content-type': 'image/png' } }),
+        maxBytes: 1024,
+        timeoutMs: 10_000,
+      },
+    });
+
+    assert.deepEqual(summary.attachments, { created: 0, reused: 1, failed: 0 });
+    const project = await storage.getProject('sandbox');
+    assert.ok(project);
+    const attachments = await storage.listAttachments(project.id);
+    assert.equal(attachments.length, 1);
+    assert.equal(attachments[0]!.filename, 'raced.png');
+    assert.equal(attachments[0]!.contentType, 'image/png');
+    const page = await storage.getPageByTitle(project.id, 'page');
+    assert.ok(page);
+    assert.equal(page.lines[1]!.text, `[/files/${attachments[0]!.id}/raced.png]`);
+  } finally {
+    await storage.close();
+    rmSync(root, { recursive: true });
+  }
+});
+
+void test('取得中に同名ページが作成されて skip しても未参照添付を残さない', async () => {
+  const { storage } = makeStorage();
+  const root = mkdtempSync(join(tmpdir(), 'knot-import-files-'));
+  const filesDir = join(root, 'files');
+  const sourceUrl = 'https://scrapbox.io/files/race-page#.png';
+  let resumeFetch: (() => void) | undefined;
+  let notifyFetch: (() => void) | undefined;
+  const fetching = new Promise<void>((resolve) => {
+    notifyFetch = resolve;
+  });
+  const fetchFn: typeof fetch = async () => {
+    notifyFetch?.();
+    await new Promise<void>((resolve) => {
+      resumeFetch = resolve;
+    });
+    return new Response(PNG, { headers: { 'content-type': 'image/png' } });
+  };
+  try {
+    const importing = importCosense(storage, {
+      name: 'source',
+      pages: [{ title: 'Page', lines: ['Page', `[${sourceUrl}]`] }],
+    }, {
+      projectName: 'sandbox',
+      attachments: { filesDir, fetchFn, maxBytes: 1024, timeoutMs: 10_000 },
+    });
+    await fetching;
+    await importCosense(storage, {
+      name: 'source',
+      pages: [{ title: 'Page', lines: ['Page', 'winner'] }],
+    }, { projectName: 'sandbox' });
+    resumeFetch?.();
+
+    const summary = await importing;
+    assert.deepEqual(summary.attachments, { created: 0, reused: 0, failed: 0 });
+    assert.equal(summary.skipped, 1);
+    const project = await storage.getProject('sandbox');
+    assert.ok(project);
+    assert.deepEqual(await storage.listAttachments(project.id), []);
+    const page = await storage.getPageByTitle(project.id, 'page');
+    assert.ok(page);
+    assert.equal(page.lines[1]!.text, 'winner');
+  } finally {
+    resumeFetch?.();
+    await storage.close();
+    rmSync(root, { recursive: true });
+  }
+});
+
+void test('補償削除は別ページが参照している添付を残す', async () => {
+  const { storage } = makeStorage();
+  const root = mkdtempSync(join(tmpdir(), 'knot-import-files-'));
+  const filesDir = join(root, 'files');
+  const project = await storage.ensureProject('sandbox', 1_760_000_000);
+  try {
+    const stored = await storeAttachment({
+      storage,
+      filesDir,
+      projectId: project.id,
+      filename: 'used.png',
+      contentType: 'image/png',
+      bytes: PNG,
+      userId: 'u',
+      now: 1_760_000_000,
+    });
+    await importCosense(storage, {
+      name: 'source',
+      pages: [{ title: 'Page', lines: ['Page', `[/files/${stored.attachment.id}/used.png]`] }],
+    }, { projectName: 'sandbox' });
+
+    assert.equal(await removeAttachmentIfUnreferenced(storage, filesDir, stored.attachment.id), false);
+    assert.equal((await storage.listAttachments(project.id)).length, 1);
+    assert.equal(existsSync(join(filesDir, stored.attachment.id)), true);
   } finally {
     await storage.close();
     rmSync(root, { recursive: true });

@@ -40,6 +40,7 @@ export type AttachmentImportContext = {
   now: number;
   options: AttachmentImportOptions;
   cache: Map<string, CachedAttachment>;
+  pageCreatedAttachmentIds: Set<string>;
   summary: AttachmentImportSummary;
 };
 
@@ -60,11 +61,7 @@ function collectUrlOccurrences(lines: ImportLine[]): UrlOccurrence[] {
   const source = lines.map((line) => line.text).join('\n');
   const occurrences: UrlOccurrence[] = [];
   const visit = (node: SyntaxNode): void => {
-    const url = node.type === 'image' || node.type === 'strongImage'
-      ? node.src
-      : node.type === 'link' && node.pathType === 'absolute'
-        ? node.href
-        : undefined;
+    const url = node.type === 'image' || node.type === 'strongImage' ? node.src : undefined;
     if (url !== undefined && isCosenseFileUrl(url) && node.raw.includes(url)) {
       occurrences.push({ sourceUrl: url, from: node.range.from, to: node.range.to, raw: node.raw });
     }
@@ -169,7 +166,7 @@ function attachmentFilename(sourceUrl: string, type: ImageType): string {
   filename = Array.from(
     filename,
     (character) => character.charCodeAt(0) < 0x20 || character === '/' || character === '\\' ? '_' : character,
-  ).join('').slice(0, 200) || 'image';
+  ).slice(0, 200).join('') || 'image';
   const { extension } = IMAGE_TYPES[type];
   const hasImageExtension = /\.(?:png|jpe?g|gif|webp)$/i.test(filename);
   return hasImageExtension ? filename : `${filename}${extension}`;
@@ -199,15 +196,16 @@ async function importOne(sourceUrl: string, context: AttachmentImportContext): P
     now: context.now,
     replaceGenericMetadata: true,
   });
-  if (stored.created) context.summary.created++;
-  else context.summary.reused++;
+  if (stored.created) {
+    context.summary.created++;
+    context.pageCreatedAttachmentIds.add(stored.attachment.id);
+  } else context.summary.reused++;
   const result = { localUrl: attachmentUrl(stored.attachment) };
   context.cache.set(sourceUrl, result);
   return result;
 }
 
 export async function importAttachments(lines: ImportLine[], context: AttachmentImportContext): Promise<ImportLine[]> {
-  const source = lines.map((line) => line.text).join('\n');
   const occurrences = collectUrlOccurrences(lines);
   const replacements = new Map<string, string>();
   for (const sourceUrl of new Set(occurrences.map((occurrence) => occurrence.sourceUrl))) {
@@ -215,15 +213,21 @@ export async function importAttachments(lines: ImportLine[], context: Attachment
     if (localUrl !== null) replacements.set(sourceUrl, localUrl);
   }
   if (replacements.size === 0) return lines;
-  let rewritten = source;
-  for (const occurrence of occurrences.toSorted((left, right) => right.from - left.from)) {
-    const localUrl = replacements.get(occurrence.sourceUrl);
-    if (localUrl === undefined) continue;
-    const replacement = occurrence.raw.replace(occurrence.sourceUrl, localUrl);
-    rewritten = rewritten.slice(0, occurrence.from) + replacement + rewritten.slice(occurrence.to);
-  }
-  const rewrittenLines = rewritten.split('\n');
-  return lines.map((line, index) => rewrittenLines[index] === line.text
-    ? line
-    : { ...line, text: rewrittenLines[index] ?? line.text });
+  let lineFrom = 0;
+  return lines.map((line) => {
+    const lineTo = lineFrom + line.text.length;
+    let text = line.text;
+    for (const occurrence of occurrences
+      .filter(({ from, to }) => from >= lineFrom && to <= lineTo)
+      .toSorted((left, right) => right.from - left.from)) {
+      const localUrl = replacements.get(occurrence.sourceUrl);
+      if (localUrl === undefined) continue;
+      const replacement = occurrence.raw.replace(occurrence.sourceUrl, localUrl);
+      const from = occurrence.from - lineFrom;
+      const to = occurrence.to - lineFrom;
+      text = text.slice(0, from) + replacement + text.slice(to);
+    }
+    lineFrom = lineTo + 1;
+    return text === line.text ? line : { ...line, text };
+  });
 }
