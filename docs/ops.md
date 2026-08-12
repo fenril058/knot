@@ -48,7 +48,8 @@ knot serve --data <dir> [--port <n>] [--hostname <s>]
 CLI と import API は、本文中の `https://scrapbox.io/files/…` 画像を取得してデータディレクトリの `files/` に保存します。
 本文 URL は `/files/<id>/<filename>` に書き換わり、同じ SHA-256 の添付はプロジェクト内の既存レコードを再利用します。
 
-取得は 10 秒で打ち切り、リダイレクトを拒否します。
+取得は 10 秒で打ち切ります。
+Cosense の添付配信に使われる `storage.googleapis.com/scrapbox-file-distribute/` への 1 回のリダイレクトだけを許可し、それ以外のリダイレクトは拒否します。
 `maxUploadBytes` を超える応答、対応外の MIME type、MIME type とマジックバイトが一致しない応答も保存しません。
 取得に失敗した URL は本文にそのまま残り、import 応答の `attachments.failed` に件数が入ります。
 認証が必要な private プロジェクトの添付取得には対応していません。

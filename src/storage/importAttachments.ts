@@ -4,6 +4,8 @@ import { attachmentUrl, storeAttachment } from './attachmentFiles.ts';
 import type { ImportLine, Storage } from './types.ts';
 
 const COSENSE_FILES_ORIGIN = 'https://scrapbox.io';
+const COSENSE_FILES_REDIRECT_ORIGIN = 'https://storage.googleapis.com';
+const COSENSE_FILES_REDIRECT_PATH = '/scrapbox-file-distribute/';
 export const ATTACHMENT_IMPORT_TIMEOUT_MS = 10_000;
 
 const IMAGE_TYPES = {
@@ -29,6 +31,7 @@ export type AttachmentImportOptions = {
 export type AttachmentImportSummary = { created: number; reused: number; failed: number };
 
 type CachedAttachment = { localUrl: string } | { localUrl: null };
+type UrlOccurrence = { sourceUrl: string; from: number; to: number; raw: string };
 
 export type AttachmentImportContext = {
   storage: Storage;
@@ -53,23 +56,25 @@ function isCosenseFileUrl(value: string): boolean {
   }
 }
 
-function collectUrls(lines: ImportLine[]): string[] {
+function collectUrlOccurrences(lines: ImportLine[]): UrlOccurrence[] {
   const source = lines.map((line) => line.text).join('\n');
-  const urls = new Set<string>();
+  const occurrences: UrlOccurrence[] = [];
   const visit = (node: SyntaxNode): void => {
     const url = node.type === 'image' || node.type === 'strongImage'
       ? node.src
       : node.type === 'link' && node.pathType === 'absolute'
         ? node.href
         : undefined;
-    if (url !== undefined && isCosenseFileUrl(url)) urls.add(url);
+    if (url !== undefined && isCosenseFileUrl(url) && node.raw.includes(url)) {
+      occurrences.push({ sourceUrl: url, from: node.range.from, to: node.range.to, raw: node.raw });
+    }
     if ('nodes' in node) for (const child of node.nodes) visit(child);
   };
   for (const block of parsePageSyntax(source, { hasTitle: true })) {
     if (block.type === 'line') for (const node of block.nodes) visit(node);
     if (block.type === 'table') for (const row of block.cells) for (const cell of row) for (const node of cell) visit(node);
   }
-  return [...urls];
+  return occurrences;
 }
 
 function responseImageType(response: Response): ImageType | undefined {
@@ -88,7 +93,10 @@ function responseImageType(response: Response): ImageType | undefined {
 
 async function readLimited(response: Response, maxBytes: number): Promise<Uint8Array> {
   const declared = Number(response.headers.get('content-length') ?? '0');
-  if (Number.isFinite(declared) && declared > maxBytes) throw new Error('attachment exceeds size limit');
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await response.body?.cancel();
+    throw new Error('attachment exceeds size limit');
+  }
   if (response.body === null) return new Uint8Array();
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -116,6 +124,40 @@ async function readLimited(response: Response, maxBytes: number): Promise<Uint8A
   return bytes;
 }
 
+async function rejectResponse(response: Response, message: string): Promise<never> {
+  await response.body?.cancel();
+  throw new Error(message);
+}
+
+function isAllowedRedirect(url: URL): boolean {
+  return url.origin === COSENSE_FILES_REDIRECT_ORIGIN
+    && url.username === ''
+    && url.password === ''
+    && url.pathname.startsWith(COSENSE_FILES_REDIRECT_PATH);
+}
+
+async function fetchImage(sourceUrl: string, context: AttachmentImportContext): Promise<{
+  type: ImageType;
+  bytes: Uint8Array;
+}> {
+  const signal = AbortSignal.timeout(context.options.timeoutMs);
+  let response = await context.options.fetchFn(sourceUrl, { redirect: 'manual', signal });
+  if ([301, 302, 303, 307, 308].includes(response.status)) {
+    const location = response.headers.get('location');
+    await response.body?.cancel();
+    if (location === null) throw new Error('attachment redirect has no location');
+    const redirected = new URL(location, sourceUrl);
+    if (!isAllowedRedirect(redirected)) throw new Error('attachment redirect destination is not allowed');
+    response = await context.options.fetchFn(redirected, { redirect: 'error', signal });
+  }
+  if (!response.ok) return rejectResponse(response, `attachment fetch failed: ${response.status}`);
+  const type = responseImageType(response);
+  if (type === undefined) return rejectResponse(response, 'unsupported attachment content type');
+  const bytes = await readLimited(response, context.options.maxBytes);
+  if (!IMAGE_TYPES[type].matches(bytes)) throw new Error('attachment content does not match content type');
+  return { type, bytes };
+}
+
 function attachmentFilename(sourceUrl: string, type: ImageType): string {
   const url = new URL(sourceUrl);
   let filename: string;
@@ -136,49 +178,52 @@ function attachmentFilename(sourceUrl: string, type: ImageType): string {
 async function importOne(sourceUrl: string, context: AttachmentImportContext): Promise<CachedAttachment> {
   const cached = context.cache.get(sourceUrl);
   if (cached !== undefined) return cached;
+  let fetched: { type: ImageType; bytes: Uint8Array };
   try {
-    const response = await context.options.fetchFn(sourceUrl, {
-      redirect: 'error',
-      signal: AbortSignal.timeout(context.options.timeoutMs),
-    });
-    if (!response.ok) throw new Error(`attachment fetch failed: ${response.status}`);
-    const type = responseImageType(response);
-    if (type === undefined) throw new Error('unsupported attachment content type');
-    const bytes = await readLimited(response, context.options.maxBytes);
-    if (!IMAGE_TYPES[type].matches(bytes)) throw new Error('attachment content does not match content type');
-    const stored = await storeAttachment({
-      storage: context.storage,
-      filesDir: context.options.filesDir,
-      projectId: context.projectId,
-      filename: attachmentFilename(sourceUrl, type),
-      contentType: type,
-      bytes,
-      userId: context.userId,
-      now: context.now,
-    });
-    if (stored.created) context.summary.created++;
-    else context.summary.reused++;
-    const result = { localUrl: attachmentUrl(stored.attachment) };
-    context.cache.set(sourceUrl, result);
-    return result;
+    fetched = await fetchImage(sourceUrl, context);
   } catch {
     context.summary.failed++;
     const result = { localUrl: null };
     context.cache.set(sourceUrl, result);
     return result;
   }
+  const filename = attachmentFilename(sourceUrl, fetched.type);
+  const stored = await storeAttachment({
+    storage: context.storage,
+    filesDir: context.options.filesDir,
+    projectId: context.projectId,
+    filename,
+    contentType: fetched.type,
+    bytes: fetched.bytes,
+    userId: context.userId,
+    now: context.now,
+    replaceGenericMetadata: true,
+  });
+  if (stored.created) context.summary.created++;
+  else context.summary.reused++;
+  const result = { localUrl: attachmentUrl(stored.attachment) };
+  context.cache.set(sourceUrl, result);
+  return result;
 }
 
 export async function importAttachments(lines: ImportLine[], context: AttachmentImportContext): Promise<ImportLine[]> {
+  const source = lines.map((line) => line.text).join('\n');
+  const occurrences = collectUrlOccurrences(lines);
   const replacements = new Map<string, string>();
-  for (const sourceUrl of collectUrls(lines)) {
+  for (const sourceUrl of new Set(occurrences.map((occurrence) => occurrence.sourceUrl))) {
     const { localUrl } = await importOne(sourceUrl, context);
     if (localUrl !== null) replacements.set(sourceUrl, localUrl);
   }
   if (replacements.size === 0) return lines;
-  return lines.map((line) => {
-    let text = line.text;
-    for (const [sourceUrl, localUrl] of replacements) text = text.replaceAll(sourceUrl, localUrl);
-    return text === line.text ? line : { ...line, text };
-  });
+  let rewritten = source;
+  for (const occurrence of occurrences.toSorted((left, right) => right.from - left.from)) {
+    const localUrl = replacements.get(occurrence.sourceUrl);
+    if (localUrl === undefined) continue;
+    const replacement = occurrence.raw.replace(occurrence.sourceUrl, localUrl);
+    rewritten = rewritten.slice(0, occurrence.from) + replacement + rewritten.slice(occurrence.to);
+  }
+  const rewrittenLines = rewritten.split('\n');
+  return lines.map((line, index) => rewrittenLines[index] === line.text
+    ? line
+    : { ...line, text: rewrittenLines[index] ?? line.text });
 }

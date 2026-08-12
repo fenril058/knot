@@ -13,6 +13,7 @@ export type StoreAttachmentInput = {
   bytes: Uint8Array;
   userId: string;
   now: number;
+  replaceGenericMetadata?: boolean;
 };
 
 export type StoreAttachmentResult = { attachment: Attachment; created: boolean };
@@ -47,6 +48,17 @@ export async function storeAttachment(input: StoreAttachmentInput): Promise<Stor
   const existing = await input.storage.findAttachmentBySha256(input.projectId, sha256);
   if (existing !== null) {
     await ensureFile(join(input.filesDir, existing.id), input.bytes, sha256);
+    if (
+      input.replaceGenericMetadata === true
+      && existing.contentType === 'application/octet-stream'
+      && (existing.filename !== input.filename || existing.contentType !== input.contentType)
+    ) {
+      await input.storage.updateAttachmentMetadata(existing.id, input.filename, input.contentType);
+      return {
+        attachment: { ...existing, filename: input.filename, contentType: input.contentType },
+        created: false,
+      };
+    }
     return { attachment: existing, created: false };
   }
 

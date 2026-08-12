@@ -5,6 +5,7 @@ import { extractRefs, rewritePageLinks } from '../core/links.ts';
 import { titleLc } from '../core/title.ts';
 import { ulid } from '../core/id.ts';
 import { opsHash } from './hash.ts';
+import { validateImportLines } from './importValidation.ts';
 import {
   BadCommitError,
   StorageError,
@@ -346,6 +347,10 @@ export class SqliteStorage implements Storage {
         attachment.userId,
         attachment.created,
       );
+  }
+
+  async updateAttachmentMetadata(id: string, filename: string, contentType: string): Promise<void> {
+    this.#db.prepare('UPDATE attachments SET filename = ?, content_type = ? WHERE id = ?').run(filename, contentType, id);
   }
 
   #attachmentRowToAttachment(row: AttachmentRow): Attachment {
@@ -822,12 +827,7 @@ export class SqliteStorage implements Storage {
   async importPage(input: ImportPageInput): Promise<ImportPageResult> {
     return this.#tx(() => {
       const { projectId, page, lines, userId, now, onConflict } = input;
-      if (lines.length === 0) throw new StorageError(`page "${page.title}" has no lines`);
-      const seen = new Set<string>();
-      for (const line of lines) {
-        if (seen.has(line.id)) throw new StorageError(`duplicate line id in page "${page.title}": ${line.id}`);
-        seen.add(line.id);
-      }
+      validateImportLines(page.title, lines);
       const lcValue = titleLc(page.title);
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       const existing = this.#db

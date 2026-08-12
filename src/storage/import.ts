@@ -1,11 +1,13 @@
 import { normalizeLines, parseExportFile } from '../core/cosense.ts';
 import { ulid } from '../core/id.ts';
+import { titleLc } from '../core/title.ts';
 import {
   importAttachments,
   type AttachmentImportContext,
   type AttachmentImportOptions,
   type AttachmentImportSummary,
 } from './importAttachments.ts';
+import { validateImportLines } from './importValidation.ts';
 import type { ImportLine, Storage } from './types.ts';
 
 export const IMPORTER_USER_NAME = 'knot-import';
@@ -70,6 +72,11 @@ export async function importCosense(storage: Storage, data: unknown, options: Im
       updated: line.updated ?? now,
       userId: line.userId !== null ? (effectiveUserId.get(line.userId) ?? line.userId) : importerId,
     }));
+    validateImportLines(page.title, lines);
+    if (onConflict === 'skip' && await storage.getPageByTitle(project.id, titleLc(page.title)) !== null) {
+      summary.skipped++;
+      continue;
+    }
     if (attachmentContext !== undefined) lines = await importAttachments(lines, attachmentContext);
     const result = await storage.importPage({
       projectId: project.id,
