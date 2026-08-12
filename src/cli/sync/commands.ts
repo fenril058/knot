@@ -1,5 +1,18 @@
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import {
+  closeSync,
+  constants,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { parseArgs } from 'node:util';
 import { titleLc } from '../../core/title.ts';
 import { CliError } from '../commands.ts';
@@ -23,7 +36,8 @@ import {
 } from './state.ts';
 
 export type SyncResult = { output: string; exitCode: 0 | 1 | 2 };
-export type SyncDeps = { fetchFn?: typeof fetch; env?: NodeJS.ProcessEnv };
+type SyncFileWriter = (fd: number, contents: string) => void;
+export type SyncDeps = { fetchFn?: typeof fetch; env?: NodeJS.ProcessEnv; writePullRenameFile?: SyncFileWriter };
 
 const SYNC_USAGE = `usage:
   knot sync init <dir> --url <base-url> --project <name>
@@ -45,15 +59,103 @@ function is401(e: unknown): e is SyncHttpError {
   return e instanceof SyncHttpError && e.status === 401;
 }
 
-// 書き込み先が symlink かどうかを無条件の lstat で判定する。
-// existsSync は symlink を辿るため、ダングリング symlink（リンク先が存在しない）では
-// false を返してガードを素通りさせてしまう。lstat は辿らないので symlink 自体を検出できる。
-// ENOENT（何も無い）は false = 通常の新規書き込み可、とする。
-function isSymlinkAt(path: string): boolean {
+function hasErrorCode(error: unknown, code: string): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === code;
+}
+
+function pathSegmentsWithin(root: string, target: string): string[] | undefined {
+  const path = relative(resolve(root), resolve(target));
+  if (path === '') return [];
+  if (path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path)) return undefined;
+  return path.split(sep);
+}
+
+// root 自体は、利用者が symlink 経由で同期ディレクトリを指定する場合があるため検査対象外にする。
+// その配下は各 path component を lstat し、末端だけでなく祖先の symlink も拒否する。
+function hasSymlinkWithin(root: string, target: string): boolean {
+  const segments = pathSegmentsWithin(root, target);
+  if (segments === undefined) return true;
+  let current = resolve(root);
+  for (const segment of segments) {
+    current = join(current, segment);
+    try {
+      if (lstatSync(current).isSymbolicLink()) return true;
+    } catch (error) {
+      if (hasErrorCode(error, 'ENOENT')) return false;
+      throw error;
+    }
+  }
+  return false;
+}
+
+// recursive mkdir は既存の祖先 symlink を辿るため、各階層を検査してから個別に作る。
+function ensureDirectoryWithoutSymlinks(root: string, target: string): boolean {
+  const segments = pathSegmentsWithin(root, target);
+  if (segments === undefined) return false;
+  let current = resolve(root);
+  for (const segment of segments) {
+    current = join(current, segment);
+    try {
+      const stat = lstatSync(current);
+      if (stat.isSymbolicLink() || !stat.isDirectory()) return false;
+      continue;
+    } catch (error) {
+      if (!hasErrorCode(error, 'ENOENT')) throw error;
+    }
+    try {
+      mkdirSync(current);
+    } catch (error) {
+      // lstat と mkdir の間に作られた場合は、直後の lstat で種類を検査する。
+      if (!hasErrorCode(error, 'EEXIST')) throw error;
+    }
+    const stat = lstatSync(current);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) return false;
+  }
+  return true;
+}
+
+// O_NOFOLLOW 付きで末端を開き、lstat と write の間に末端を差し替える競合も拒否する。
+function writeWithoutSymlinks(root: string, target: string, contents: string): boolean {
+  if (hasSymlinkWithin(root, target)) return false;
+  let fd: number;
   try {
-    return lstatSync(path).isSymbolicLink();
-  } catch {
-    return false;
+    fd = openSync(target, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW, 0o666);
+  } catch (error) {
+    if (hasErrorCode(error, 'ELOOP')) return false;
+    throw error;
+  }
+  try {
+    writeFileSync(fd, contents);
+  } finally {
+    closeSync(fd);
+  }
+  return true;
+}
+
+function writeAtomicallyWithoutSymlinks(
+  root: string, target: string, contents: string, writeSyncFile: SyncFileWriter = writeFileSync,
+): boolean {
+  if (hasSymlinkWithin(root, target)) return false;
+  const tmp = `${target}.tmp-${randomUUID()}`;
+  let fd: number | undefined;
+  try {
+    fd = openSync(
+      tmp,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+      0o666,
+    );
+    writeSyncFile(fd, contents);
+    const completedFd = fd;
+    fd = undefined;
+    closeSync(completedFd);
+    renameSync(tmp, target);
+    return true;
+  } catch (error) {
+    if (hasErrorCode(error, 'ELOOP')) return false;
+    throw error;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+    rmSync(tmp, { force: true });
   }
 }
 
@@ -247,6 +349,7 @@ type PullContext = {
   state: SyncState;
   local: Map<string, LocalFile>;
   remoteById: Map<string, PageEntry>;
+  writePullRenameFile?: SyncFileWriter;
 };
 
 function samePageState(left: PageState, right: PageState): boolean {
@@ -281,7 +384,8 @@ function recoverPendingPullRename(dir: string, state: SyncState): string | undef
     return undefined;
   }
 
-  if (pending.from.filename !== pending.to.filename
+  if (currentIsFrom
+    && pending.from.filename !== pending.to.filename
     && localContentHash(join(dir, pending.from.filename)) === pending.from.contentHash) {
     rmSync(join(dir, pending.from.filename), { force: true });
   }
@@ -312,11 +416,13 @@ function pullConflict(ctx: PullContext, pageId: string, detail: RemotePage): Pag
   }
   if (!isSafePathSegment(pageId)) return warn(`skipped (invalid page id): ${filename}`);
   const cdir = join(ctx.dir, '.knot', 'conflicts', pageId);
-  mkdirSync(cdir, { recursive: true });
+  if (!ensureDirectoryWithoutSymlinks(ctx.dir, cdir)) {
+    return warn(`skipped (refusing to write through symlink): ${filename}`);
+  }
   const remotePath = join(cdir, 'remote.txt');
-  // symlink を辿って隔離ディレクトリ外へ書き込まない
-  if (isSymlinkAt(remotePath)) return warn(`skipped (refusing to write through symlink): ${filename}`);
-  writeFileSync(remotePath, `${detail.text}\n`);
+  if (!writeWithoutSymlinks(ctx.dir, remotePath, `${detail.text}\n`)) {
+    return warn(`skipped (refusing to write through symlink): ${filename}`);
+  }
   return warn(`conflict: ${filename} (remote copy in .knot/conflicts/${pageId}/)`);
 }
 
@@ -335,12 +441,13 @@ function pullWrite(ctx: PullContext, pageId: string, detail: RemotePage): PageOu
   // ファイル操作より先に記録し、どの段階で停止しても次回 pull で同じ新ファイルを追跡し直せるようにする。
   if (pending !== undefined) savePendingPullRename(ctx.dir, pending);
   const targetPath = join(ctx.dir, filename);
-  // symlink を辿って同期ディレクトリ外へ書き込まない
-  if (isSymlinkAt(targetPath)) {
+  const written = pending === undefined
+    ? writeWithoutSymlinks(ctx.dir, targetPath, `${detail.text}\n`)
+    : writeAtomicallyWithoutSymlinks(ctx.dir, targetPath, `${detail.text}\n`, ctx.writePullRenameFile);
+  if (!written) {
     if (pending !== undefined) clearPendingPullRename(ctx.dir);
     return warn(`skipped (refusing to write through symlink): ${filename}`);
   }
-  writeFileSync(targetPath, `${detail.text}\n`);
   if (prev !== undefined && prev.filename !== filename) rmSync(join(ctx.dir, prev.filename), { force: true });
   ctx.state.pages[pageId] = next;
   saveState(ctx.dir, ctx.state);
@@ -385,11 +492,14 @@ async function runPull(values: SyncValues, deps: SyncDeps): Promise<SyncResult> 
   const dir = values.dir ?? '.';
   const { client } = openClient(dir, deps);
   const state = loadState(dir);
-  const recovered = recoverPendingPullRename(dir, state);
-  const local = readLocalFiles(dir);
   const remote = await listRemote(client);
   if (!Array.isArray(remote)) return remote;
-  const ctx: PullContext = { dir, client, state, local, remoteById: new Map(remote.map((p) => [p.id, p])) };
+  const recovered = recoverPendingPullRename(dir, state);
+  const local = readLocalFiles(dir);
+  const ctx: PullContext = {
+    dir, client, state, local, remoteById: new Map(remote.map((p) => [p.id, p])),
+    writePullRenameFile: deps.writePullRenameFile,
+  };
   const localHashes = new Map([...local].map(([name, f]) => [name, f.contentHash]));
   const result = await foldOutcomes(planPull({ state, remote, localHashes }), (a) => applyPullAction(ctx, a));
   if (recovered === undefined || result.exitCode === 2) return result;

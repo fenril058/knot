@@ -53,6 +53,10 @@ curl -b /tmp/knot-cookies -X POST -H 'X-Knot-Client: cli' \
 ```
 
 Cosense のエクスポート JSON がある場合は、curl の代わりに `knot import --data ./data --project notes <file.json>` でプロジェクトごと作成できる。
+本文中の `https://scrapbox.io/files/…` 画像は取得して `data/files/` に保存し、本文を knot の `/files/…` URL に書き換える。
+画像取得は 10 秒で打ち切り、`maxUploadBytes` を超える応答と画像以外の応答を拒否する。
+Cosense の添付配信に使われる `storage.googleapis.com/scrapbox-file-distribute/` への 1 回のリダイレクトだけを許可し、それ以外のリダイレクトは拒否する。
+取得に失敗した URL は外部 URL のまま残り、コマンド出力の `attachments` に失敗数が表示される。
 
 あとは http://127.0.0.1:3000/notes を開くと、一覧の「新規作成」ボタンや `/notes/<タイトル>/edit` への直接アクセスでページを書ける。
 

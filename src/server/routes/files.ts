@@ -1,8 +1,7 @@
-import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Context, Hono } from 'hono';
-import { ulid } from '../../core/id.ts';
+import { attachmentUrl, storeAttachment } from '../../storage/attachmentFiles.ts';
 import type { Attachment } from '../../storage/types.ts';
 import type { AppDeps } from '../app.ts';
 import { jsonError, type ApiEnv } from '../http.ts';
@@ -47,7 +46,7 @@ function attachmentToJson(attachment: Pick<Attachment, 'id' | 'filename' | 'cont
     contentType: attachment.contentType,
     size: attachment.size,
     sha256: attachment.sha256,
-    url: `/files/${attachment.id}/${encodeURIComponent(attachment.filename)}`,
+    url: attachmentUrl(attachment),
   };
 }
 
@@ -83,35 +82,17 @@ export function registerFileRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
       return jsonError(c, 400, 'bad_request', { message: `content does not match ${contentType}` });
     }
 
-    const sha256 = createHash('sha256').update(bytes).digest('hex');
-    const existing = await storage.findAttachmentBySha256(project.id, sha256);
-    if (existing) return c.json(attachmentToJson(existing));
-
-    const attachment: Attachment = {
-      id: ulid(now() * 1000),
+    const stored = await storeAttachment({
+      storage,
+      filesDir,
       projectId: project.id,
       filename: file.name,
       contentType,
-      size: bytes.length,
-      sha256,
+      bytes,
       userId: c.get('userId'),
-      created: now(),
-    };
-    await mkdir(filesDir, { recursive: true });
-    const finalPath = join(filesDir, attachment.id);
-    const tmpPath = `${finalPath}.tmp`;
-    try {
-      await writeFile(tmpPath, bytes);
-      await rename(tmpPath, finalPath);
-      await storage.createAttachment(attachment);
-    } catch (error) {
-      await rm(tmpPath, { force: true });
-      await rm(finalPath, { force: true });
-      const raced = await storage.findAttachmentBySha256(project.id, sha256);
-      if (raced) return c.json(attachmentToJson(raced));
-      throw error;
-    }
-    return c.json(attachmentToJson(attachment));
+      now: now(),
+    });
+    return c.json(attachmentToJson(stored.attachment));
   });
 
   const serveFile = async (c: Context<ApiEnv>): Promise<Response> => {
