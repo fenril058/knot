@@ -1,5 +1,18 @@
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import {
+  closeSync,
+  constants,
+  existsSync,
+  linkSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { parseArgs } from 'node:util';
 import { titleLc } from '../../core/title.ts';
 import { CliError } from '../commands.ts';
@@ -11,10 +24,24 @@ import {
 import { loadSyncConfig, normalizeBaseUrl, resolveToken, writeSyncConfig } from './config.ts';
 import { planPull, planPush, type PullAction, type PushAction } from './decisions.ts';
 import { titleToFilename } from './filenames.ts';
-import { loadState, saveState, type SyncState } from './state.ts';
+import {
+  clearPendingPullRename,
+  loadPendingPullRename,
+  loadState,
+  savePendingPullRename,
+  saveState,
+  type PageState,
+  type PendingPullRename,
+  type SyncState,
+} from './state.ts';
 
 export type SyncResult = { output: string; exitCode: 0 | 1 | 2 };
-export type SyncDeps = { fetchFn?: typeof fetch; env?: NodeJS.ProcessEnv };
+type FileDescriptorWriter = (fd: number, contents: string) => void;
+export type SyncDeps = {
+  fetchFn?: typeof fetch;
+  env?: NodeJS.ProcessEnv;
+  writePullRenameContents?: FileDescriptorWriter;
+};
 
 const SYNC_USAGE = `usage:
   knot sync init <dir> --url <base-url> --project <name>
@@ -36,15 +63,109 @@ function is401(e: unknown): e is SyncHttpError {
   return e instanceof SyncHttpError && e.status === 401;
 }
 
-// 書き込み先が symlink かどうかを無条件の lstat で判定する。
-// existsSync は symlink を辿るため、ダングリング symlink（リンク先が存在しない）では
-// false を返してガードを素通りさせてしまう。lstat は辿らないので symlink 自体を検出できる。
-// ENOENT（何も無い）は false = 通常の新規書き込み可、とする。
-function isSymlinkAt(path: string): boolean {
+function hasErrorCode(error: unknown, code: string): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === code;
+}
+
+function pathSegmentsWithin(root: string, target: string): string[] | undefined {
+  const path = relative(resolve(root), resolve(target));
+  if (path === '') return [];
+  if (path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path)) return undefined;
+  return path.split(sep);
+}
+
+// root 自体は、利用者が symlink 経由で同期ディレクトリを指定する場合があるため検査対象外にする。
+// その配下は各 path component を lstat し、末端だけでなく祖先の symlink も拒否する。
+function hasSymlinkWithin(root: string, target: string): boolean {
+  const segments = pathSegmentsWithin(root, target);
+  if (segments === undefined) return true;
+  let current = resolve(root);
+  for (const segment of segments) {
+    current = join(current, segment);
+    try {
+      if (lstatSync(current).isSymbolicLink()) return true;
+    } catch (error) {
+      if (hasErrorCode(error, 'ENOENT')) return false;
+      throw error;
+    }
+  }
+  return false;
+}
+
+// recursive mkdir は既存の祖先 symlink を辿るため、各階層を検査してから個別に作る。
+function ensureDirectoryWithoutSymlinks(root: string, target: string): boolean {
+  const segments = pathSegmentsWithin(root, target);
+  if (segments === undefined) return false;
+  let current = resolve(root);
+  for (const segment of segments) {
+    current = join(current, segment);
+    try {
+      const stat = lstatSync(current);
+      if (stat.isSymbolicLink() || !stat.isDirectory()) return false;
+      continue;
+    } catch (error) {
+      if (!hasErrorCode(error, 'ENOENT')) throw error;
+    }
+    try {
+      mkdirSync(current);
+    } catch (error) {
+      // lstat と mkdir の間に作られた場合は、直後の lstat で種類を検査する。
+      if (!hasErrorCode(error, 'EEXIST')) throw error;
+    }
+    const stat = lstatSync(current);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) return false;
+  }
+  return true;
+}
+
+// O_NOFOLLOW 付きで末端を開き、lstat と write の間に末端を差し替える競合も拒否する。
+function writeWithoutSymlinks(root: string, target: string, contents: string): boolean {
+  if (hasSymlinkWithin(root, target)) return false;
+  let fd: number;
   try {
-    return lstatSync(path).isSymbolicLink();
-  } catch {
-    return false;
+    fd = openSync(target, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW, 0o666);
+  } catch (error) {
+    if (hasErrorCode(error, 'ELOOP')) return false;
+    throw error;
+  }
+  try {
+    writeFileSync(fd, contents);
+  } finally {
+    closeSync(fd);
+  }
+  return true;
+}
+
+function writeAtomicallyWithoutSymlinks(
+  root: string, target: string, contents: string,
+  writeContents: FileDescriptorWriter = writeFileSync,
+): boolean | 'exists' {
+  if (hasSymlinkWithin(root, target)) return false;
+  const tmp = join(dirname(target), '.knot', `pull-rename-${randomUUID()}.tmp`);
+  let fd: number | undefined;
+  try {
+    fd = openSync(
+      tmp,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+      0o666,
+    );
+    writeContents(fd, contents);
+    const completedFd = fd;
+    fd = undefined;
+    closeSync(completedFd);
+    try {
+      linkSync(tmp, target);
+    } catch (error) {
+      if (hasErrorCode(error, 'EEXIST')) return 'exists';
+      throw error;
+    }
+    return true;
+  } catch (error) {
+    if (hasErrorCode(error, 'ELOOP')) return false;
+    throw error;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+    rmSync(tmp, { force: true });
   }
 }
 
@@ -238,7 +359,55 @@ type PullContext = {
   state: SyncState;
   local: Map<string, LocalFile>;
   remoteById: Map<string, PageEntry>;
+  writePullRenameContents?: FileDescriptorWriter;
 };
+
+function samePageState(left: PageState, right: PageState): boolean {
+  return left.title === right.title
+    && left.filename === right.filename
+    && left.version === right.version
+    && left.contentHash === right.contentHash;
+}
+
+function localContentHash(path: string): string | undefined {
+  try {
+    const stat = lstatSync(path);
+    if (!stat.isFile() || stat.isSymbolicLink()) return undefined;
+    return contentHash(canonicalizeText(readFileSync(path, 'utf8')));
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') return undefined;
+    throw error;
+  }
+}
+
+function recoverPendingPullRename(dir: string, state: SyncState): string | undefined {
+  const pending = loadPendingPullRename(dir);
+  if (pending === undefined) return undefined;
+  const current = state.pages[pending.pageId];
+  const currentIsFrom = current !== undefined && samePageState(current, pending.from);
+  const currentIsTo = current !== undefined && samePageState(current, pending.to);
+  const targetClaimedByAnotherPage = Object.entries(state.pages).some(
+    ([pageId, page]) => pageId !== pending.pageId && page.filename === pending.to.filename,
+  );
+  if (!isSafePathSegment(pending.from.filename)
+    || !isSafePathSegment(pending.to.filename)
+    || (!currentIsFrom && !currentIsTo)
+    || targetClaimedByAnotherPage
+    || localContentHash(join(dir, pending.to.filename)) !== pending.to.contentHash) {
+    clearPendingPullRename(dir);
+    return undefined;
+  }
+
+  if (currentIsFrom
+    && pending.from.filename !== pending.to.filename
+    && localContentHash(join(dir, pending.from.filename)) === pending.from.contentHash) {
+    rmSync(join(dir, pending.from.filename), { force: true });
+  }
+  state.pages[pending.pageId] = pending.to;
+  saveState(dir, state);
+  clearPendingPullRename(dir);
+  return `reconciled: ${pending.to.filename}`;
+}
 
 function pullDeleteLocal(ctx: PullContext, pageId: string): PageOutcome {
   const st = ctx.state.pages[pageId]!;
@@ -261,11 +430,13 @@ function pullConflict(ctx: PullContext, pageId: string, detail: RemotePage): Pag
   }
   if (!isSafePathSegment(pageId)) return warn(`skipped (invalid page id): ${filename}`);
   const cdir = join(ctx.dir, '.knot', 'conflicts', pageId);
-  mkdirSync(cdir, { recursive: true });
+  if (!ensureDirectoryWithoutSymlinks(ctx.dir, cdir)) {
+    return warn(`skipped (refusing to write through symlink): ${filename}`);
+  }
   const remotePath = join(cdir, 'remote.txt');
-  // symlink を辿って隔離ディレクトリ外へ書き込まない
-  if (isSymlinkAt(remotePath)) return warn(`skipped (refusing to write through symlink): ${filename}`);
-  writeFileSync(remotePath, `${detail.text}\n`);
+  if (!writeWithoutSymlinks(ctx.dir, remotePath, `${detail.text}\n`)) {
+    return warn(`skipped (refusing to write through symlink): ${filename}`);
+  }
   return warn(`conflict: ${filename} (remote copy in .knot/conflicts/${pageId}/)`);
 }
 
@@ -275,15 +446,30 @@ function pullWrite(ctx: PullContext, pageId: string, detail: RemotePage): PageOu
   const filename = prev !== undefined && titleLc(prev.title) === titleLc(detail.title)
     ? prev.filename
     : chooseFilename(ctx.dir, ctx.state, pageId, detail.title);
-  const targetPath = join(ctx.dir, filename);
-  // symlink を辿って同期ディレクトリ外へ書き込まない
-  if (isSymlinkAt(targetPath)) return warn(`skipped (refusing to write through symlink): ${filename}`);
-  writeFileSync(targetPath, `${detail.text}\n`);
-  if (prev !== undefined && prev.filename !== filename) rmSync(join(ctx.dir, prev.filename), { force: true });
-  ctx.state.pages[pageId] = {
+  const next: PageState = {
     title: detail.title, filename, version: detail.version, contentHash: contentHash(detail.text),
   };
+  const pending: PendingPullRename | undefined = prev !== undefined && prev.filename !== filename
+    ? { pageId, from: prev, to: next }
+    : undefined;
+  // ファイル操作より先に記録し、どの段階で停止しても次回 pull で同じ新ファイルを追跡し直せるようにする。
+  if (pending !== undefined) savePendingPullRename(ctx.dir, pending);
+  const targetPath = join(ctx.dir, filename);
+  const written = pending === undefined
+    ? writeWithoutSymlinks(ctx.dir, targetPath, `${detail.text}\n`)
+    : writeAtomicallyWithoutSymlinks(ctx.dir, targetPath, `${detail.text}\n`, ctx.writePullRenameContents);
+  if (written === 'exists') {
+    clearPendingPullRename(ctx.dir);
+    return warn(`skipped (filename appeared during pull): ${filename}`);
+  }
+  if (!written) {
+    if (pending !== undefined) clearPendingPullRename(ctx.dir);
+    return warn(`skipped (refusing to write through symlink): ${filename}`);
+  }
+  if (prev !== undefined && prev.filename !== filename) rmSync(join(ctx.dir, prev.filename), { force: true });
+  ctx.state.pages[pageId] = next;
   saveState(ctx.dir, ctx.state);
+  if (pending !== undefined) clearPendingPullRename(ctx.dir);
   return ok(`pulled: ${filename}`);
 }
 
@@ -324,12 +510,18 @@ async function runPull(values: SyncValues, deps: SyncDeps): Promise<SyncResult> 
   const dir = values.dir ?? '.';
   const { client } = openClient(dir, deps);
   const state = loadState(dir);
-  const local = readLocalFiles(dir);
   const remote = await listRemote(client);
   if (!Array.isArray(remote)) return remote;
-  const ctx: PullContext = { dir, client, state, local, remoteById: new Map(remote.map((p) => [p.id, p])) };
+  const recovered = recoverPendingPullRename(dir, state);
+  const local = readLocalFiles(dir);
+  const ctx: PullContext = {
+    dir, client, state, local, remoteById: new Map(remote.map((p) => [p.id, p])),
+    writePullRenameContents: deps.writePullRenameContents,
+  };
   const localHashes = new Map([...local].map(([name, f]) => [name, f.contentHash]));
-  return await foldOutcomes(planPull({ state, remote, localHashes }), (a) => applyPullAction(ctx, a));
+  const result = await foldOutcomes(planPull({ state, remote, localHashes }), (a) => applyPullAction(ctx, a));
+  if (recovered === undefined || result.exitCode === 2) return result;
+  return { ...result, output: result.output === 'up to date' ? recovered : `${recovered}\n${result.output}` };
 }
 
 type PushContext = {

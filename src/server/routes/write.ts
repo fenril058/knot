@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import type { Hono } from 'hono';
 import type { Context } from 'hono';
 import { ulid } from '../../core/id.ts';
@@ -8,6 +9,7 @@ import { titleLc } from '../../core/title.ts';
 import { InvalidExportError } from '../../core/cosense.ts';
 import { exportCosense } from '../../storage/export.ts';
 import { importCosense } from '../../storage/import.ts';
+import { ATTACHMENT_IMPORT_TIMEOUT_MS } from '../../storage/importAttachments.ts';
 import { BadCommitError, StorageError, type CommitResult } from '../../storage/types.ts';
 import type { AppDeps } from '../app.ts';
 import { jsonError, pageToJson, resolvePage, resolveProject, safeDecode, type ApiEnv } from '../http.ts';
@@ -64,7 +66,15 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     }
     try {
       const summary = await importCosense(storage, data, {
-        projectName: c.req.param('project'), onConflict, now: now(),
+        projectName: c.req.param('project'),
+        onConflict,
+        now: now(),
+        attachments: {
+          filesDir: join(deps.config.dataDir, 'files'),
+          fetchFn: deps.fetchFn ?? fetch,
+          maxBytes: deps.config.maxUploadBytes,
+          timeoutMs: ATTACHMENT_IMPORT_TIMEOUT_MS,
+        },
       });
       return c.json(summary);
     } catch (e) {

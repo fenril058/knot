@@ -1,5 +1,15 @@
+import { randomUUID } from 'node:crypto';
 import { normalizeLines, parseExportFile } from '../core/cosense.ts';
 import { ulid } from '../core/id.ts';
+import { titleLc } from '../core/title.ts';
+import {
+  importAttachments,
+  type AttachmentImportContext,
+  type AttachmentImportOptions,
+  type AttachmentImportSummary,
+} from './importAttachments.ts';
+import { releaseAttachmentClaims } from './attachmentFiles.ts';
+import { validateImportLines } from './importValidation.ts';
 import type { ImportLine, Storage } from './types.ts';
 
 export const IMPORTER_USER_NAME = 'knot-import';
@@ -8,9 +18,16 @@ export type ImportOptions = {
   projectName: string;
   onConflict?: 'skip' | 'overwrite';
   now?: number;
+  attachments?: AttachmentImportOptions;
 };
 
-export type ImportSummary = { created: number; overwritten: number; skipped: number; users: number };
+export type ImportSummary = {
+  created: number;
+  overwritten: number;
+  skipped: number;
+  users: number;
+  attachments?: AttachmentImportSummary;
+};
 
 export async function importCosense(storage: Storage, data: unknown, options: ImportOptions): Promise<ImportSummary> {
   const exp = parseExportFile(data);
@@ -36,28 +53,66 @@ export async function importCosense(storage: Storage, data: unknown, options: Im
   );
 
   const summary: ImportSummary = { created: 0, overwritten: 0, skipped: 0, users: users.length };
+  let attachmentContext: AttachmentImportContext | undefined;
+  if (options.attachments !== undefined) {
+    summary.attachments = { created: 0, reused: 0, failed: 0 };
+    attachmentContext = {
+      storage,
+      projectId: project.id,
+      userId: importerId,
+      now,
+      options: options.attachments,
+      cache: new Map(),
+      claimOwner: randomUUID(),
+      summary: summary.attachments,
+    };
+  }
   for (const page of exp.pages) {
-    const lines: ImportLine[] = normalizeLines(page).map((line) => ({
+    let lines: ImportLine[] = normalizeLines(page).map((line) => ({
       id: line.id ?? ulid(now * 1000),
       text: line.text,
       created: line.created ?? now,
       updated: line.updated ?? now,
       userId: line.userId !== null ? (effectiveUserId.get(line.userId) ?? line.userId) : importerId,
     }));
-    const result = await storage.importPage({
-      projectId: project.id,
-      page: {
-        id: page.id ?? ulid(now * 1000),
-        title: page.title,
-        created: page.created ?? now,
-        updated: page.updated ?? now,
-      },
-      lines,
-      userId: importerId,
-      now,
-      onConflict,
-    });
+    validateImportLines(page.title, lines);
+    if (onConflict === 'skip' && await storage.getPageByTitle(project.id, titleLc(page.title)) !== null) {
+      summary.skipped++;
+      continue;
+    }
+    const attachmentSummaryBeforePage = summary.attachments === undefined ? undefined : { ...summary.attachments };
+    if (attachmentContext !== undefined) attachmentContext.claimOwner = randomUUID();
+    let result;
+    try {
+      if (attachmentContext !== undefined) lines = await importAttachments(lines, attachmentContext);
+      result = await storage.importPage({
+        projectId: project.id,
+        page: {
+          id: page.id ?? ulid(now * 1000),
+          title: page.title,
+          created: page.created ?? now,
+          updated: page.updated ?? now,
+        },
+        lines,
+        userId: importerId,
+        now,
+        onConflict,
+        attachmentClaimOwner: attachmentContext?.claimOwner,
+      });
+    } catch (error) {
+      if (attachmentContext !== undefined) await cleanupPageAttachments(attachmentContext);
+      throw error;
+    }
+    if (result.kind === 'skipped' && attachmentContext !== undefined) {
+      await cleanupPageAttachments(attachmentContext);
+      if (attachmentSummaryBeforePage !== undefined) Object.assign(summary.attachments!, attachmentSummaryBeforePage);
+    }
     summary[result.kind]++;
   }
   return summary;
+}
+
+async function cleanupPageAttachments(context: AttachmentImportContext): Promise<void> {
+  await releaseAttachmentClaims(context.storage, context.options.filesDir, context.claimOwner);
+  context.cache.clear();
 }

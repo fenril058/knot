@@ -18,11 +18,14 @@ export type TestServer = {
   request(path: string, init?: RequestInit, cookie?: string): Promise<Response>;
 };
 
-export async function makeServer(overrides?: Partial<ServerConfig>): Promise<TestServer> {
+export async function makeServer(
+  overrides?: Partial<ServerConfig>,
+  deps?: { fetchFn?: typeof fetch },
+): Promise<TestServer> {
   const storage: Storage = new SqliteStorage(openDatabase(':memory:'));
   const clock = { t: 1_700_000_000, now: (): number => clock.t };
   const config = { ...defaultConfig(overrides?.dataDir ?? '/nonexistent'), secureCookie: false, ...overrides };
-  const app = createApp({ storage, config, now: clock.now });
+  const app = createApp({ storage, config, now: clock.now, fetchFn: deps?.fetchFn });
 
   const addUser = async (name: string, password: string, isAdmin = false): Promise<string> => {
     const result = await storage.addUser(
