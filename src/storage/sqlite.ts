@@ -40,6 +40,7 @@ import {
 } from './types.ts';
 
 const PROJECT_NAME_RE = /^[a-z0-9-]+$/;
+const MAX_PROJECT_NAME_LENGTH = 64;
 const RESERVED_PROJECT_NAMES = new Set(['api', 'login', 'files', 'assets']);
 
 type UserRow = {
@@ -124,6 +125,9 @@ export class SqliteStorage implements Storage {
     return this.#tx(() => {
       const existing = this.#getProjectRow(name);
       if (existing) return existing;
+      if (name.length > MAX_PROJECT_NAME_LENGTH) {
+        throw new StorageError(`invalid project name: ${name}`);
+      }
       const id = ulid(now * 1000);
       this.#db
         .prepare('INSERT INTO projects (id, name, display_name, created, updated) VALUES (?, ?, ?, ?, ?)')
