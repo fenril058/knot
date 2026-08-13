@@ -298,9 +298,9 @@ sudo chown -R 1000:1000 /srv/knot
 knot は次の周辺ツールと操作を受け入れテストで確認しています。
 互換性はレスポンスの全フィールドを網羅することを保証せず、受け入れテストが参照する範囲を保証します。
 
-### scrapbox-cosense-mcp 0.7.x
+### scrapbox-cosense-mcp 0.10.x
 
-`scrapbox-cosense-mcp@0.7.x` では `list_pages`、`get_page`、`search_pages` の動作を確認しています。
+`scrapbox-cosense-mcp@0.10.x` では `list_pages`、`get_page`、`search_pages` の動作を確認しています。
 接続先は `API_DOMAIN` にスキームを付けずに指定し、ブラウザの `connect.sid` Cookie の値を `COSENSE_SID` に設定します。
 対象プロジェクトは `COSENSE_PROJECT_NAME` に設定します。
 
