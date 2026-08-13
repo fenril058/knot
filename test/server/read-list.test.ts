@@ -64,7 +64,7 @@ void test('skip / limit / sort パラメータ', async () => {
   const alphaId = (await s.storage.getPageByTitle(projectId, 'alpha'))!.id;
   const betaId = (await s.storage.getPageByTitle(projectId, 'beta'))!.id;
   await s.storage.recordVisit('u1', alphaId, s.clock.t + 10, 1);
-  await s.storage.recordVisit('u1', alphaId, s.clock.t + 20, 1);
+  await s.storage.recordVisit('u1', alphaId, s.clock.t + 40, 1);
   await s.storage.recordVisit('u1', betaId, s.clock.t + 30, 1);
   const res = await s.request('/api/pages/proj?skip=1&limit=1&sort=title', {}, cookie);
   const body = await res.json();
@@ -74,7 +74,8 @@ void test('skip / limit / sort パラメータ', async () => {
   const byViews = await (await s.request('/api/pages/proj?sort=views', {}, cookie)).json();
   assert.deepEqual(byViews.pages.map((p: { title: string }) => p.title), ['Alpha', 'Beta']);
   const byAccessed = await (await s.request('/api/pages/proj?sort=accessed', {}, cookie)).json();
-  assert.deepEqual(byAccessed.pages.map((p: { title: string }) => p.title), ['Beta', 'Alpha']);
+  // updated 降順は Beta → Alpha なので、旧フォールバックではこの期待値を満たさない。
+  assert.deepEqual(byAccessed.pages.map((p: { title: string }) => p.title), ['Alpha', 'Beta']);
   // 不正値は 400
   assert.equal((await s.request('/api/pages/proj?skip=abc', {}, cookie)).status, 400);
   assert.equal((await s.request('/api/pages/proj?sort=bogus', {}, cookie)).status, 400);

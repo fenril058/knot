@@ -453,22 +453,50 @@ export class SqliteStorage implements Storage {
       accessed: 'accessed DESC, p.updated DESC, p.id',
     };
     const orderByClause = opts.pinnedFirst ? `p.pinned DESC, ${orderBy[opts.sort]}` : orderBy[opts.sort];
+    const visitSort = opts.sort === 'views' || opts.sort === 'accessed';
     const count = (
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       this.#db.prepare('SELECT COUNT(*) AS n FROM pages WHERE project_id = ? AND deleted = 0').get(projectId) as { n: number }
     ).n;
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-    const rows = this.#db
-      .prepare(
-        `SELECT p.*, (
+    const rowsSql = visitSort
+      ? `SELECT p.*, (
            SELECT COUNT(*) FROM links l WHERE l.project_id = p.project_id AND l.target_title_lc = p.title_lc
          ) AS linked,
          COALESCE((SELECT SUM(pv.views) FROM page_visits pv WHERE pv.page_id = p.id), 0) AS views,
          COALESCE((SELECT MAX(pv.visited) FROM page_visits pv WHERE pv.page_id = p.id), 0) AS accessed
          FROM pages p WHERE p.project_id = ? AND p.deleted = 0
          ORDER BY ${orderByClause}
-         LIMIT ? OFFSET ?`,
-      )
+         LIMIT ? OFFSET ?`
+      : opts.sort === 'linked'
+        ? `WITH selected AS MATERIALIZED (
+             SELECT p.id, p.pinned, p.updated, (
+               SELECT COUNT(*) FROM links l WHERE l.project_id = p.project_id AND l.target_title_lc = p.title_lc
+             ) AS linked
+             FROM pages p WHERE p.project_id = ? AND p.deleted = 0
+             ORDER BY ${orderByClause}
+             LIMIT ? OFFSET ?
+           )
+           SELECT p.*, selected.linked,
+             COALESCE((SELECT SUM(pv.views) FROM page_visits pv WHERE pv.page_id = p.id), 0) AS views,
+             COALESCE((SELECT MAX(pv.visited) FROM page_visits pv WHERE pv.page_id = p.id), 0) AS accessed
+           FROM selected JOIN pages p ON p.id = selected.id
+           ORDER BY ${opts.pinnedFirst ? 'selected.pinned DESC, ' : ''}selected.linked DESC, selected.updated DESC, selected.id`
+        : `WITH selected AS MATERIALIZED (
+           SELECT p.id
+           FROM pages p WHERE p.project_id = ? AND p.deleted = 0
+           ORDER BY ${orderByClause}
+           LIMIT ? OFFSET ?
+         )
+         SELECT p.*, (
+             SELECT COUNT(*) FROM links l WHERE l.project_id = p.project_id AND l.target_title_lc = p.title_lc
+           ) AS linked,
+           COALESCE((SELECT SUM(pv.views) FROM page_visits pv WHERE pv.page_id = p.id), 0) AS views,
+           COALESCE((SELECT MAX(pv.visited) FROM page_visits pv WHERE pv.page_id = p.id), 0) AS accessed
+         FROM selected JOIN pages p ON p.id = selected.id
+         ORDER BY ${orderByClause}`;
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+    const rows = this.#db
+      .prepare(rowsSql)
       .all(projectId, opts.limit, opts.skip) as (PageRow & PageVisitMetrics & { linked: number })[];
     const descriptions = this.#db.prepare(
       "SELECT text FROM lines WHERE page_id = ? AND ord > 0 AND text <> '' ORDER BY ord LIMIT 5",
