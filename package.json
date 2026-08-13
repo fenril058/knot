@@ -23,21 +23,21 @@
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/commands": "^6.10.4",
     "@codemirror/state": "^6.7.1",
-    "@codemirror/view": "^6.43.6",
-    "@hono/node-server": "^2.0.8",
+    "@codemirror/view": "^6.43.8",
+    "@hono/node-server": "^2.1.0",
     "@progfay/scrapbox-parser": "10.1.1",
-    "hono": "^4.12.30"
+    "hono": "^4.13.1"
   },
   "devDependencies": {
-    "@helpfeel/cosense-cli": "^1.10.0",
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "@playwright/test": "^1.61.1",
-    "@types/node": "^26.1.1",
-    "knip": "^6.29.0",
-    "oxlint": "^1.74.0",
+    "@helpfeel/cosense-cli": "^1.10.1",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^26.2.0",
+    "knip": "^6.32.0",
+    "oxlint": "^1.77.0",
     "oxlint-tsgolint": "^7.0.2001",
-    "rolldown": "^1.2.0",
-    "scrapbox-cosense-mcp": "^0.7.3",
+    "rolldown": "^1.2.3",
+    "scrapbox-cosense-mcp": "^0.9.0",
     "typescript": "^7.0.2"
   }
 }
