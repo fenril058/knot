@@ -55,6 +55,17 @@ void test('複数の短い検索語にも AND と除外を適用する', async (
   await storage.close();
 });
 
+void test('重複する検索語でも結果のページと行は重複しない', async () => {
+  const { storage, project } = await setup();
+  const hits = await storage.search(project.id, {
+    words: ['設計', '設計'],
+    excludes: ['不一致', '不一致'],
+  });
+  assert.deepEqual(hits.map((hit) => hit.pageId), ['pg1']);
+  assert.deepEqual(hits[0]!.lines, ['knot 設計書', '検索の設計を書く']);
+  await storage.close();
+});
+
 void test('LIKE のメタ文字はリテラルとして扱う', async () => {
   const { storage, project } = await setup();
   const underscore = await storage.search(project.id, parseSearchQuery('_'));

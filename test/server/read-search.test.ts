@@ -34,6 +34,49 @@ void test('existsExactTitleMatch はタイトル lc 一致で true', async () =>
   assert.equal(body.existsExactTitleMatch, true);
 });
 
+void test('existsExactTitleMatch は引用フレーズと同じタイトルで true', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'Exact Phrase', ['Exact Phrase'], s.clock.t);
+
+  const res = await s.request('/api/pages/proj/search/query?q=%22Exact%20Phrase%22', {}, cookie);
+
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).existsExactTitleMatch, true);
+});
+
+void test('search/query は検索語数とクエリ長の上限を検査する', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  await s.storage.ensureProject('proj', s.clock.t);
+
+  const maximumTerms = Array.from({ length: 32 }, (_, index) => `w${index}`).join(' ');
+  const tooManyTerms = `${maximumTerms} overflow`;
+  assert.equal((await s.request(
+    `/api/pages/proj/search/query?q=${encodeURIComponent(maximumTerms)}`,
+    {},
+    cookie,
+  )).status, 200);
+  assert.equal((await s.request(
+    `/api/pages/proj/search/query?q=${encodeURIComponent(tooManyTerms)}`,
+    {},
+    cookie,
+  )).status, 400);
+
+  const maximumLength = 'x'.repeat(1_000);
+  assert.equal((await s.request(
+    `/api/pages/proj/search/query?q=${maximumLength}`,
+    {},
+    cookie,
+  )).status, 200);
+  assert.equal((await s.request(
+    `/api/pages/proj/search/query?q=${maximumLength}x`,
+    {},
+    cookie,
+  )).status, 400);
+});
+
 void test('search/query は空白区切りを AND、先頭 - を除外、引用符内をフレーズとして扱う', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
@@ -65,6 +108,35 @@ void test('search/query は空白区切りを AND、先頭 - を除外、引用�
   const phraseBody = await phraseResponse.json();
   assert.deepEqual(phraseBody.query, { words: ['alpha beta'], excludes: ['gamma'] });
   assert.deepEqual(phraseBody.pages.map((page: { title: string }) => page.title), ['Together']);
+});
+
+void test('search/query は語中の引用符を検索語に保持する', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'Literal Quote', ['alpha"beta'], s.clock.t);
+
+  const response = await s.request('/api/pages/proj/search/query?q=alpha%22beta', {}, cookie);
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.deepEqual(body.query, { words: ['alpha"beta'], excludes: [] });
+  assert.deepEqual(body.pages.map((page: { title: string }) => page.title), ['Literal Quote']);
+});
+
+void test('search/query は空の引用フレーズを必須語として扱い 0 件を返す', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'Alpha', ['alpha'], s.clock.t);
+
+  const response = await s.request('/api/pages/proj/search/query?q=alpha%20%22%22', {}, cookie);
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.deepEqual(body.query, { words: ['alpha', ''], excludes: [] });
+  assert.equal(body.count, 0);
+  assert.deepEqual(body.pages, []);
 });
 
 void test('/api/code はコードブロックを返す', async () => {

@@ -3,20 +3,45 @@ export type SearchQuery = { words: string[]; excludes: string[] };
 const WHITESPACE_RE = /\s/u;
 
 function tokenizeSearchQuery(source: string): string[] {
+  // 構文文字の判定には書記素ではなく code point 単位の走査で足りる。
+  // oxlint-disable-next-line typescript/no-misused-spread
+  const characters = [...source];
   const tokens: string[] = [];
-  let token = '';
-  let quoted = false;
-  for (const character of source) {
-    if (character === '"') {
-      quoted = !quoted;
-    } else if (!quoted && WHITESPACE_RE.test(character)) {
-      if (token !== '') tokens.push(token);
-      token = '';
-    } else {
-      token += character;
+  let index = 0;
+  while (index < characters.length) {
+    const character = characters[index]!;
+    if (WHITESPACE_RE.test(character)) {
+      index += 1;
+      continue;
     }
+
+    const excludedPhrase = character === '-' && characters[index + 1] === '"';
+    if (character === '"' || excludedPhrase) {
+      const quoteIndex = index + (excludedPhrase ? 1 : 0);
+      const closingQuote = characters.indexOf('"', quoteIndex + 1);
+      if (closingQuote !== -1) {
+        const phrase = characters.slice(quoteIndex + 1, closingQuote).join('');
+        const nextCharacter = characters[closingQuote + 1];
+        if (phrase !== '' || nextCharacter === undefined || WHITESPACE_RE.test(nextCharacter)) {
+          tokens.push(`${excludedPhrase ? '-' : ''}${phrase}`);
+          index = closingQuote + 1;
+          continue;
+        }
+      }
+    }
+
+    let token = '';
+    while (index < characters.length && !WHITESPACE_RE.test(characters[index]!)) {
+      token += characters[index]!;
+      index += 1;
+    }
+    const excluded = token.startsWith('-');
+    let body = excluded ? token.slice(1) : token;
+    if (body.startsWith('"')) body = body.slice(1);
+    if (body.endsWith('"')) body = body.slice(0, -1);
+    token = `${excluded ? '-' : ''}${body}`;
+    tokens.push(token);
   }
-  if (token !== '') tokens.push(token);
   return tokens;
 }
 

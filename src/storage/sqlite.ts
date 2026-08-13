@@ -885,18 +885,29 @@ export class SqliteStorage implements Storage {
   }
 
   async search(projectId: string, query: SearchQuery): Promise<SearchHit[]> {
-    const firstWord = query.words[0];
+    if (query.words.includes('')) return [];
+    const words = [...new Set(query.words)];
+    const excludes = [...new Set(query.excludes)];
+    const pagesByTerm = new Map<string, { id: string; title: string; image: string | null }[]>();
+    const searchTerm = (term: string) => {
+      const cached = pagesByTerm.get(term);
+      if (cached !== undefined) return cached;
+      const pages = this.#searchTerm(projectId, term);
+      pagesByTerm.set(term, pages);
+      return pages;
+    };
+    const firstWord = words[0];
     if (firstWord === undefined) return [];
-    const pages = this.#searchTerm(projectId, firstWord);
-    const requiredPageIds = query.words.slice(1).map((word) =>
-      new Set(this.#searchTerm(projectId, word).map((page) => page.id)));
-    const excludedPageIds = new Set(query.excludes.flatMap((word) =>
-      this.#searchTerm(projectId, word).map((page) => page.id)));
+    const pages = searchTerm(firstWord);
+    const requiredPageIds = words.slice(1).map((word) =>
+      new Set(searchTerm(word).map((page) => page.id)));
+    const excludedPageIds = new Set(excludes.flatMap((word) =>
+      searchTerm(word).map((page) => page.id)));
     const filtered = pages.filter((page) =>
       requiredPageIds.every((ids) => ids.has(page.id)) && !excludedPageIds.has(page.id));
-    const likePatterns = query.words.map((word) => `%${escapeLike(word)}%`);
+    const likePatterns = words.map((word) => `%${escapeLike(word)}%`);
     const matchedLines = this.#db.prepare(
-      `SELECT text FROM lines WHERE page_id = ? AND (${query.words.map(() => "text LIKE ? ESCAPE '\\'").join(' OR ')})
+      `SELECT text FROM lines WHERE page_id = ? AND (${words.map(() => "text LIKE ? ESCAPE '\\'").join(' OR ')})
        ORDER BY ord`,
     );
     return filtered.map((p) => ({
