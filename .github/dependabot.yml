@@ -11,6 +11,8 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+    cooldown:
+      default-days: 7
 
     open-pull-requests-limit: 5
 
@@ -18,34 +20,45 @@ updates:
       npm-minor-patch:
         patterns:
           - "*"
+        exclude-patterns:
+          - "@playwright/test"
         update-types:
           - "minor"
           - "patch"
-
-    labels:
-      - "dependencies"
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
+    cooldown:
+      default-days: 7
 
     groups:
-      github-actions:
+      github-actions-minor-patch:
         patterns:
           - "*"
-
-    labels:
-      - "dependencies"
-      - "github-actions"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
+    cooldown:
+      default-days: 7
 
-    labels:
-      - "dependencies"
-      - "docker"
+    ignore:
+      - dependency-name: "node"
+        update-types:
+          - "version-update:semver-major"
+
+  - package-ecosystem: "nix"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    cooldown:
+      default-days: 7

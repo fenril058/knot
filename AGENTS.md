@@ -1,7 +1,7 @@
 # knot
 
 Cosense (Scrapbox) 互換のセルフホスト wiki。
-Node.js >= 24 の type stripping で動くのでサーバ側のビルドは無い。
+Node.js >= 26 の type stripping で動くのでサーバ側のビルドは無い。
 概要と起動手順は `README.md`、運用は `docs/ops.md`。
 
 ## 実行環境

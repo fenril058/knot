@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
     branches: [main]
 
@@ -20,8 +21,11 @@ jobs:
           persist-credentials: false
       - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
       - run: nix develop .#workflow --command actionlint -color .github/workflows/*.yml
-      - run: nix develop .#workflow --command zizmor .github/workflows/*.yml
+      - run: nix develop .#workflow --command zizmor --strict-collection .
       - run: nix develop .#workflow --command ghalint run
+      - run: nix develop .#workflow --command pinact run --check --verify-comment
+        env:
+          PINACT_GITHUB_TOKEN: ${{ github.token }}
 
   test:
     runs-on: ubuntu-latest
@@ -34,7 +38,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24
+          node-version: 26
           cache: npm
       - run: npm ci
       - run: npm run typecheck
@@ -52,13 +56,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npx playwright install --with-deps --only-shell chromium
-      - run: npm run test:e2e
+      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - run: nix develop . --command node -e 'if (process.versions.node.split(".")[0] !== "26") process.exit(1)'
+      - run: nix develop . --command npm run test:e2e
 
   docker:
     runs-on: ubuntu-latest
