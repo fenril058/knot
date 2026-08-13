@@ -36,6 +36,12 @@
             inherit nodejs;
           };
 
+          # Volta は管理下の CLI に NODE_PATH を注入するが、linkNodeModulesHook は
+          # NODE_PATH 全体をリンク先ディレクトリとして扱うため、実行前に除去する。
+          preShellHook = ''
+            unset NODE_PATH
+          '';
+
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
           PLAYWRIGHT_BROWSERS_PATH = "${playwrightBrowsers}";
         };
