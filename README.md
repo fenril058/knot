@@ -1,7 +1,7 @@
 # knot
 
 Cosense (Scrapbox) 互換のセルフホスト wiki。
-サーバは Node.js >= 24 の type stripping で動き、ビルドは不要。
+サーバは Node.js >= 26 の type stripping で動き、ビルドは不要。
 クライアント（エディタ・検索・ページ操作メニュー）だけを Rolldown で `public/build/` へバンドルする。
 
 ## 開発

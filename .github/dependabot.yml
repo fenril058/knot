@@ -18,12 +18,11 @@ updates:
       npm-minor-patch:
         patterns:
           - "*"
+        exclude-patterns:
+          - "@playwright/test"
         update-types:
           - "minor"
           - "patch"
-
-    labels:
-      - "dependencies"
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -35,10 +34,9 @@ updates:
       github-actions:
         patterns:
           - "*"
-
-    labels:
-      - "dependencies"
-      - "github-actions"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "docker"
     directory: "/"
@@ -46,6 +44,13 @@ updates:
       interval: "weekly"
       day: "monday"
 
-    labels:
-      - "dependencies"
-      - "docker"
+    ignore:
+      - dependency-name: "node"
+        update-types:
+          - "version-update:semver-major"
+
+  - package-ecosystem: "nix"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"

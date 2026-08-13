@@ -11,7 +11,7 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         inherit (pkgs) importNpmLock;
-        nodejs = pkgs.nodejs_24;
+        nodejs = pkgs.nodejs_26;
         playwrightBrowsers = pkgs.playwright-driver.browsers.override {
           withFirefox = false;
           withWebkit = false;
@@ -44,6 +44,7 @@
           packages = with pkgs; [
             actionlint
             ghalint
+            pinact
             zizmor
           ];
         };
