@@ -2,6 +2,7 @@ import { defaultKeymap, history as historyExtension, historyKeymap } from '@code
 import { keymap, EditorView } from '@codemirror/view';
 import { applyOps } from '../../core/apply.ts';
 import { titleLc, pageHref } from '../../core/title.ts';
+import type { KnownPage } from '../../render/presentation.ts';
 import { fetchPage, postCommit, uploadFile } from './api.ts';
 import { titleAutocompletion } from './cm/complete.ts';
 import { syntaxHighlighting } from './cm/decorations.ts';
@@ -48,8 +49,25 @@ function stringArrayData(value: string | undefined, name: string): string[] {
   return parsed;
 }
 
+function knownPagesData(value: string | undefined): KnownPage[] {
+  if (value === undefined) throw new Error('known pages are missing');
+  const parsed: unknown = JSON.parse(value);
+  if (
+    !Array.isArray(parsed)
+    || !parsed.every((entry: unknown) => {
+      if (typeof entry !== 'object' || entry === null) return false;
+      if (!('title' in entry) || !('image' in entry)) return false;
+      return typeof entry.title === 'string' && (entry.image === null || typeof entry.image === 'string');
+    })
+  ) {
+    throw new Error('known pages must contain a title and optional image');
+  }
+  return parsed;
+}
+
 const allowedImageHosts = stringArrayData(data.allowedImageHosts, 'allowed image hosts');
 const allowedMediaHosts = stringArrayData(data.allowedMediaHosts, 'allowed media hosts');
+const knownPages = knownPagesData(data.knownPages);
 
 function unixTime(): number {
   return Math.floor(Date.now() / 1000);
@@ -248,7 +266,7 @@ async function start(): Promise<void> {
     extensions: [
       EditorView.cspNonce.of(cspNonce),
       historyExtension(),
-      lineWysiwyg({ project, allowedImageHosts, allowedMediaHosts }),
+      lineWysiwyg({ project, allowedImageHosts, allowedMediaHosts, knownPages }),
       keymap.of([...editorKeymap(userName), ...defaultKeymap, ...historyKeymap]),
       pasteHandlers({
         uploadFile: (file) => uploadFile(project, file),

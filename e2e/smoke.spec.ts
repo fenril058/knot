@@ -116,7 +116,7 @@ test('選択行だけ原文にし、それ以外の行を整形表示する', as
   expect(created.ok()).toBe(true);
 
   await page.goto('/e2e/line-wysiwyg');
-  await expect(page.locator('.page-body .line-indent')).toHaveCount(2);
+  await expect(page.locator('.page-body .line-indent-prefix')).toHaveCount(1);
   await page.locator('#edit-page-button').click();
 
   const formatted = page.locator('.cm-wysiwyg-line[data-line-number="2"]');
@@ -143,6 +143,80 @@ test('選択行だけ原文にし、それ以外の行を整形表示する', as
   await expect(page.locator('.cm-wysiwyg-line[data-line-number="3"]')).toHaveCount(0);
   await page.keyboard.press('Control+C');
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('[linked] [* bold]');
+});
+
+test('編集表示はSSRと同じリンク解決とブロック再分類を行う', async ({ page }) => {
+  const login = await page.request.post('/api/knot/session', {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: { name: 'e2e', password: 'e2e-password' },
+  });
+  expect(login.ok()).toBe(true);
+
+  const target = await page.request.post('/api/knot/pages/e2e/Canonical_Target/commits', {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: {
+      commitId: 'line-wysiwyg-parity-target',
+      baseVersion: 0,
+      ops: [
+        { type: 'insert', id: 'parity-target-title', after: '_head', text: 'Canonical Target' },
+        {
+          type: 'insert',
+          id: 'parity-target-image',
+          after: 'parity-target-title',
+          text: 'https://i.gyazo.com/example.png',
+        },
+      ],
+    },
+  });
+  expect(target.ok()).toBe(true);
+
+  const source = await page.request.post('/api/knot/pages/e2e/line-wysiwyg-parity/commits', {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: {
+      commitId: 'line-wysiwyg-parity-source',
+      baseVersion: 0,
+      ops: [
+        { type: 'insert', id: 'parity-title', after: '_head', text: 'line-wysiwyg-parity' },
+        {
+          type: 'insert',
+          id: 'parity-links',
+          after: 'parity-title',
+          text: '[canonical_target] [Missing] [Canonical Target.icon]',
+        },
+        {
+          type: 'insert',
+          id: 'parity-quote',
+          after: 'parity-links',
+          text: '[" https://i.gyazo.com/quoted.png [relative.png]]',
+        },
+        { type: 'insert', id: 'parity-table', after: 'parity-quote', text: 'table:t' },
+        { type: 'insert', id: 'parity-row', after: 'parity-table', text: ' a\tb' },
+      ],
+    },
+  });
+  expect(source.ok()).toBe(true);
+
+  await page.goto('/e2e/line-wysiwyg-parity');
+  await expect(page.locator('.page-body a[href="/e2e/Canonical_Target"]')).toHaveCount(2);
+  await expect(page.locator('.page-body .empty-link')).toHaveText('Missing');
+  await expect(page.locator('.page-body .icon-img')).toHaveAttribute('src', 'https://i.gyazo.com/example.png');
+  await expect(page.locator('.page-body')).not.toContainText('relative.png');
+
+  await page.locator('#edit-page-button').click();
+  const links = page.locator('.cm-wysiwyg-line[data-line-number="2"]');
+  await expect(links.locator('a[href="/e2e/Canonical_Target"]')).toHaveCount(2);
+  await expect(links.locator('.empty-link')).toHaveText('Missing');
+  await expect(links.locator('.icon-img')).toHaveAttribute('src', 'https://i.gyazo.com/example.png');
+  await expect(page.locator('.cm-wysiwyg-line[data-line-number="3"]')).not.toContainText('relative.png');
+
+  const tableRow = page.locator('.cm-wysiwyg-line[data-line-number="5"]');
+  await expect(tableRow.locator('table')).toHaveCount(1);
+  await expect(tableRow.locator('.line-indent-prefix')).toHaveCount(0);
+  await page.locator('.cm-wysiwyg-line[data-line-number="4"] .table-header').click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await page.keyboard.type('plainxx');
+  await expect(tableRow.locator('table')).toHaveCount(0);
 });
 
 test('JavaScript 無効でもログイン済み利用者は SSR 本文とリンクを読める', async ({ browser, baseURL }) => {

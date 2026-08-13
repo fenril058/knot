@@ -53,14 +53,15 @@ export function registerPageRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
       allowedImageHosts: deps.config.allowedImageHosts,
       allowedMediaHosts: deps.config.allowedMediaHosts,
     };
+    const titles = await deps.storage.listKnownPages(project.id);
+    const knownPagesList = titles.map(({ title, image }) => ({ title, image }));
     if (page === null) {
       c.status(404);
-      return c.html(pageNotFoundPage(project, rawTitle, user?.name ?? '', styleNonce, renderConfig));
+      return c.html(pageNotFoundPage(project, rawTitle, user?.name ?? '', styleNonce, renderConfig, knownPagesList));
     }
 
     const previousVisit = await deps.storage.getVisit(userId, page.id);
     const related = await deps.storage.getRelatedPages(project.id, page.id, page.titleLc);
-    const titles = await deps.storage.listKnownPages(project.id);
     const knownPages = new Map(titles.map((entry) => [entry.titleLc, { title: entry.title, image: entry.image }]));
     const rendered = renderLines(page.lines, knownPages, project.name, renderConfig);
     const isCrossSite = c.req.header('Sec-Fetch-Site')?.toLowerCase() === 'cross-site';
@@ -69,7 +70,17 @@ export function registerPageRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
       await deps.storage.recordVisit(userId, page.id, now(), page.version);
     }
     return c.html(
-      pageViewPage(project, page, rendered, previousVisit, related, user?.name ?? '', styleNonce, renderConfig),
+      pageViewPage(
+        project,
+        page,
+        rendered,
+        previousVisit,
+        related,
+        user?.name ?? '',
+        styleNonce,
+        renderConfig,
+        knownPagesList,
+      ),
     );
   });
 }
