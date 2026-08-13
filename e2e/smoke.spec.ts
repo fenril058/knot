@@ -183,6 +183,11 @@ test('カードのリンク領域が同じ行の高さまで広がる', async ({
     data: { name: 'e2e', password: 'e2e-password' },
   });
   expect(login.ok()).toBe(true);
+  const projectName = 'card-layout';
+  const project = await page.request.post(`/api/knot/projects/${projectName}`, {
+    headers: { 'X-Knot-Client': 'e2e' },
+  });
+  expect(project.ok()).toBe(true);
 
   for (const [title, lines] of [
     ['short-card', ['短い説明']],
@@ -194,17 +199,23 @@ test('カードのリンク領域が同じ行の高さまで広がる', async ({
       after: index === 0 ? '_head' : `${title}-${index - 1}`,
       text,
     }));
-    const created = await page.request.post(`/api/knot/pages/e2e/${title}/commits`, {
+    const created = await page.request.post(`/api/knot/pages/${projectName}/${title}/commits`, {
       headers: { 'X-Knot-Client': 'e2e' },
       data: { commitId: `${title}-commit`, baseVersion: 0, ops },
     });
     expect(created.ok()).toBe(true);
   }
 
-  await page.goto('/e2e');
+  await page.goto(`/${projectName}`);
+
+  const shortItem = page.locator(`.card[href="/${projectName}/short-card"]`).locator('..');
+  const longItem = page.locator(`.card[href="/${projectName}/long-card"]`).locator('..');
+  await expect(shortItem).toBeVisible();
+  await expect(longItem).toBeVisible();
+  expect((await shortItem.boundingBox())?.y).toBe((await longItem.boundingBox())?.y);
 
   for (const title of ['short-card', 'long-card']) {
-    const card = page.locator(`.card[href="/e2e/${title}"]`);
+    const card = page.locator(`.card[href="/${projectName}/${title}"]`);
     const item = card.locator('..');
     await expect(card).toBeVisible();
     await expect.poll(async () => (await card.boundingBox())?.height).toBe((await item.boundingBox())?.height);

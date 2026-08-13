@@ -39,9 +39,10 @@ void test('1-hop と 2-hop の関連ページを一覧と同じカードで表�
 
   assert.match(body, /<section class="related-pages"><h2>関連ページ<\/h2><ul class="card-grid" role="list">/);
   assert.match(body, /<li><a class="card" href="\/proj\/Beta">/);
+  assert.match(body, /href="\/proj\/Beta">[\s\S]*?<h3>Beta<\/h3>/);
   assert.match(
     body,
-    /<img class="card-image" src="\/files\/01ABC\/beta\.png" alt="" width="320" height="100" loading="lazy">/,
+    /<img class="card-image" src="\/files\/01ABC\/beta\.png" alt="" width="320" height="100" loading="eager">/,
   );
   assert.match(body, /Beta Link の説明/);
   assert.match(body, /<section class="related-pages"><h2>2-hop リンク<\/h2><ul class="card-grid" role="list">/);

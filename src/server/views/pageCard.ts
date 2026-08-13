@@ -11,19 +11,29 @@ type CardPage = {
   pinned?: number;
 };
 
+type PageCardOptions = {
+  headingLevel: 2 | 3;
+  imageLoading: 'eager' | 'lazy';
+};
+
+export function canDisplayCardImage(image: string | null, allowedImageHosts: string[]): image is string {
+  return image !== null && (isAttachmentUrl(image) || isAllowedImageUrl(image, allowedImageHosts));
+}
+
 export function pageCardListItem(
   projectName: string,
   page: CardPage,
   allowedImageHosts: string[],
-  imageLoading: 'eager' | 'lazy',
+  options: PageCardOptions,
 ): Html {
   const href = pageHref(projectName, page.title);
   const className = page.pinned ? 'card pinned' : 'card';
+  const heading = options.headingLevel === 2 ? html`<h2>${page.title}</h2>` : html`<h3>${page.title}</h3>`;
   return html`<li><a class="${className}" href="${href}">
-${page.image !== null && (isAttachmentUrl(page.image) || isAllowedImageUrl(page.image, allowedImageHosts))
-    ? html`<img class="card-image" src="${page.image}" alt="" width="320" height="100" loading="${imageLoading}">`
+${canDisplayCardImage(page.image, allowedImageHosts)
+    ? html`<img class="card-image" src="${page.image}" alt="" width="320" height="100" loading="${options.imageLoading}">`
     : ''}
-<h3>${page.title}</h3>
+${heading}
 ${page.descriptions.map((description) => html`<p>${plainLineText(description)}</p>`)}
 </a></li>`;
 }

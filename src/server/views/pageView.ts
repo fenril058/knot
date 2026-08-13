@@ -3,7 +3,7 @@ import type { Line } from '../../core/ops.ts';
 import type { RenderConfig, RenderedLine } from '../../render/render.ts';
 import type { PageSnapshot, Project, RelatedPage, RelatedPages, Visit } from '../../storage/types.ts';
 import { layout, type Html } from './layout.ts';
-import { pageCardListItem } from './pageCard.ts';
+import { canDisplayCardImage, pageCardListItem } from './pageCard.ts';
 
 const TELOMERE_AGE_BUCKETS = [86400, 7 * 86400];
 
@@ -29,10 +29,19 @@ ${nestIndentedLine(rendered.html, rendered.indent)}
 </div>`;
 }
 
-function relatedSection(title: string, pages: RelatedPage[], projectName: string, allowedImageHosts: string[]): Html {
+function relatedSection(
+  title: string,
+  pages: RelatedPage[],
+  projectName: string,
+  allowedImageHosts: string[],
+  eagerImagePageId: string | null,
+): Html {
   if (pages.length === 0) return html``;
   return html`<section class="related-pages"><h2>${title}</h2><ul class="card-grid" role="list">${pages.map((page) =>
-    pageCardListItem(projectName, page, allowedImageHosts, 'lazy'),
+    pageCardListItem(projectName, page, allowedImageHosts, {
+      headingLevel: 3,
+      imageLoading: page.id === eagerImagePageId ? 'eager' : 'lazy',
+    }),
   )}</ul></section>`;
 }
 
@@ -46,6 +55,9 @@ export function pageViewPage(
   styleNonce: string,
   renderConfig: RenderConfig,
 ): Html {
+  const eagerImagePageId = [...related.links1hop, ...related.links2hop].find((relatedPage) =>
+    canDisplayCardImage(relatedPage.image, renderConfig.allowedImageHosts),
+  )?.id ?? null;
   return layout(page.title, html`
 <nav class="page-nav"><a href="/${encodeURIComponent(project.name)}">${project.displayName}</a></nav>
 <main>
@@ -93,8 +105,8 @@ ${related.hasBackLinks ? html`<p class="backlinks-badge">逆リンクまたは�
   data-allowed-image-hosts="${JSON.stringify(renderConfig.allowedImageHosts)}"
   data-allowed-media-hosts="${JSON.stringify(renderConfig.allowedMediaHosts)}"
 >${rendered.map((line, index) => lineRow(page, page.lines[index]!, line, previousVisit))}</div>
-${relatedSection('関連ページ', related.links1hop, project.name, renderConfig.allowedImageHosts)}
-${relatedSection('2-hop リンク', related.links2hop, project.name, renderConfig.allowedImageHosts)}
+${relatedSection('関連ページ', related.links1hop, project.name, renderConfig.allowedImageHosts, eagerImagePageId)}
+${relatedSection('2-hop リンク', related.links2hop, project.name, renderConfig.allowedImageHosts, eagerImagePageId)}
 </main>
 <script src="/assets/line-ui.js" defer></script>
 <script type="module" src="/assets/build/page-menu.js"></script>

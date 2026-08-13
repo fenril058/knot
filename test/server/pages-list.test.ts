@@ -20,6 +20,7 @@ void test('GET /:project: ピン留めが先頭、以降は更新順、カード
   assert.ok(oldIndex >= 0 && newIndex > oldIndex);
   assert.match(body, /first line/);
   assert.match(body, /<ul class="card-grid" role="list">/);
+  assert.match(body, /href="\/proj\/Old">[\s\S]*?<h2>Old<\/h2>/);
 });
 
 void test('プロジェクトトップにプロジェクト一覧へ戻る導線がある', async () => {

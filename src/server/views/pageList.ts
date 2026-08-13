@@ -25,7 +25,7 @@ export function pageListPage(
 <div id="search-results" hidden></div>
 </div>
 <ul class="card-grid" role="list">${result.pages.map((page) =>
-    pageCardListItem(project.name, page, allowedImageHosts, 'eager'),
+    pageCardListItem(project.name, page, allowedImageHosts, { headingLevel: 2, imageLoading: 'eager' }),
   )}</ul>
 ${nextSkip < result.count
     ? html`<a href="/${encodeURIComponent(project.name)}?skip=${nextSkip}&limit=${limit}">もっと見る</a>`
