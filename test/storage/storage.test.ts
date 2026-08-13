@@ -20,13 +20,37 @@ void test('不正・予約語のプロジェクト名を拒否する', async () 
   await storage.close();
 });
 
-void test('プロジェクト名は64文字まで受理し、65文字以上を拒否する', async () => {
+void test('新規プロジェクト名は64文字を受理し、65文字を拒否する', async () => {
   const { storage } = makeStorage();
   const accepted = 'a'.repeat(64);
   const rejected = 'a'.repeat(65);
 
   assert.equal((await storage.ensureProject(accepted, 1)).name, accepted);
   await assert.rejects(storage.ensureProject(rejected, 1), StorageError);
+  await storage.close();
+});
+
+void test('既存の65文字のプロジェクトは引き続き ensure できる', async () => {
+  const { db, storage } = makeStorage();
+  const name = 'a'.repeat(65);
+  db.prepare(
+    'INSERT INTO projects (id, name, display_name, created, updated) VALUES (?, ?, ?, ?, ?)',
+  ).run('legacy-project', name, name, 1, 1);
+
+  assert.equal((await storage.ensureProject(name, 2)).id, 'legacy-project');
+  await storage.close();
+});
+
+void test('既存行でも不正文字と予約語のプロジェクト名を拒否する', async () => {
+  const { db, storage } = makeStorage();
+  const insert = db.prepare(
+    'INSERT INTO projects (id, name, display_name, created, updated) VALUES (?, ?, ?, ?, ?)',
+  );
+  insert.run('legacy-invalid', 'Bad Name', 'Bad Name', 1, 1);
+  insert.run('legacy-reserved', 'api', 'api', 1, 1);
+
+  await assert.rejects(storage.ensureProject('Bad Name', 2), StorageError);
+  await assert.rejects(storage.ensureProject('api', 2), StorageError);
   await storage.close();
 });
 

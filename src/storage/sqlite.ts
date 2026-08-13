@@ -119,12 +119,15 @@ export class SqliteStorage implements Storage {
   }
 
   async ensureProject(name: string, now: number): Promise<Project> {
-    if (!PROJECT_NAME_RE.test(name) || name.length > MAX_PROJECT_NAME_LENGTH || RESERVED_PROJECT_NAMES.has(name)) {
+    if (!PROJECT_NAME_RE.test(name) || RESERVED_PROJECT_NAMES.has(name)) {
       throw new StorageError(`invalid project name: ${name}`);
     }
     return this.#tx(() => {
       const existing = this.#getProjectRow(name);
       if (existing) return existing;
+      if (name.length > MAX_PROJECT_NAME_LENGTH) {
+        throw new StorageError(`invalid project name: ${name}`);
+      }
       const id = ulid(now * 1000);
       this.#db
         .prepare('INSERT INTO projects (id, name, display_name, created, updated) VALUES (?, ?, ?, ?, ?)')
