@@ -1,9 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDatabase } from '../../src/storage/db.ts';
+import { SqliteStorage } from '../../src/storage/sqlite.ts';
 
 void test('マイグレーションで全テーブルが作られ user_version が進む', () => {
   const db = openDatabase(':memory:');
@@ -18,7 +20,7 @@ void test('マイグレーションで全テーブルが作られ user_version �
   for (const t of expected) assert.ok(names.includes(t), `${t} がない`);
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const v = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
-  assert.equal(v, 5);
+  assert.equal(v, 6);
   db.close();
 });
 
@@ -29,8 +31,39 @@ void test('再オープンしても適用済みマイグレーションを二重
   const db = openDatabase(path);
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const v = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
-  assert.equal(v, 5);
+  assert.equal(v, 6);
   db.close();
+});
+
+void test('v5 の既存訪問行は v6 で1回の閲覧として移行し、次の訪問を加算する', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'knot-db-v5-'));
+  const path = join(dir, 'knot.db');
+  const oldDb = new DatabaseSync(path);
+  oldDb.exec(`
+    CREATE TABLE page_visits (
+      user_id TEXT NOT NULL,
+      page_id TEXT NOT NULL,
+      visited INTEGER NOT NULL,
+      last_seen_version INTEGER NOT NULL,
+      PRIMARY KEY (user_id, page_id)
+    );
+    INSERT INTO page_visits (user_id, page_id, visited, last_seen_version)
+      VALUES ('u1', 'p1', 100, 2);
+    PRAGMA user_version = 5;
+  `);
+  oldDb.close();
+
+  const db = openDatabase(path);
+  const storage = new SqliteStorage(db);
+  assert.deepEqual(await storage.getPageVisitMetrics('p1'), { views: 1, accessed: 100 });
+  assert.deepEqual(await storage.getVisit('u1', 'p1'), { visited: 100, lastSeenVersion: 2 });
+
+  await storage.recordVisit('u1', 'p1', 110, 3);
+  assert.deepEqual(await storage.getPageVisitMetrics('p1'), { views: 2, accessed: 110 });
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  const version = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+  assert.equal(version, 6);
+  await storage.close();
 });
 
 void test('FTS5 trigram が動く（3 文字はヒット、2 文字は 0 件）', () => {

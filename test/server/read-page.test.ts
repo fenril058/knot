@@ -9,8 +9,11 @@ void test('GET /api/pages/:project/:title が lines / links / relatedPages を�
   const cookie = await s.login('alice', 'pw12345678');
   const project = await s.storage.ensureProject('proj', s.clock.t);
   await s.storage.upsertDisplayUser({ id: 'u', name: 'editor', displayName: 'Editor' }, s.clock.t);
-  await seedPage(s.storage, project.id, 'Home', ['see [Sub Page] and [Red]'], s.clock.t);
-  await seedPage(s.storage, project.id, 'Sub Page', ['back to [Home]'], s.clock.t + 1);
+  const homeId = await seedPage(s.storage, project.id, 'Home', ['see [Sub Page] and [Red]'], s.clock.t);
+  const subPageId = await seedPage(s.storage, project.id, 'Sub Page', ['back to [Home]'], s.clock.t + 1);
+  await s.storage.recordVisit('u1', homeId, s.clock.t + 10, 1);
+  await s.storage.recordVisit('u1', homeId, s.clock.t + 20, 1);
+  await s.storage.recordVisit('u2', subPageId, s.clock.t + 15, 1);
   const res = await s.request('/api/pages/proj/Home', {}, cookie);
   assert.equal(res.status, 200);
   const body = await res.json();
@@ -26,6 +29,9 @@ void test('GET /api/pages/:project/:title が lines / links / relatedPages を�
   assert.deepEqual(body.relatedPages.links1hop.map((p: { title: string }) => p.title), ['Sub Page']);
   assert.equal(body.relatedPages.hasBackLinksOrIcons, true);
   assert.equal(body.linked, 1); // Sub Page からの被リンク
+  assert.equal(body.views, 2);
+  assert.equal(body.accessed, s.clock.t + 20);
+  assert.equal(body.relatedPages.links1hop[0].accessed, s.clock.t + 15);
   assert.equal((await s.request('/api/pages/proj/None', {}, cookie)).status, 404);
 });
 

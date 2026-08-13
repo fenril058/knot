@@ -37,4 +37,15 @@ void test('recordVisit: 遅れて完了した古い訪問で記録を巻き戻�
   await storage.recordVisit('u1', pageId, now + 10, 3);
   await storage.recordVisit('u1', pageId, now, 1);
   assert.deepEqual(await storage.getVisit('u1', pageId), { visited: now + 10, lastSeenVersion: 3 });
+  assert.deepEqual(await storage.getPageVisitMetrics(pageId), { views: 2, accessed: now + 10 });
+});
+
+void test('getPageVisitMetrics: 未訪問ページは 0 を返し、全ユーザーの閲覧を集計する', async () => {
+  const { storage } = makeStorage();
+  const project = await storage.ensureProject('proj', now);
+  const pageId = await seedPage(storage, project.id, 'A', ['x'], now);
+  assert.deepEqual(await storage.getPageVisitMetrics(pageId), { views: 0, accessed: 0 });
+  await storage.recordVisit('u1', pageId, now + 10, 1);
+  await storage.recordVisit('u2', pageId, now + 20, 1);
+  assert.deepEqual(await storage.getPageVisitMetrics(pageId), { views: 2, accessed: now + 20 });
 });

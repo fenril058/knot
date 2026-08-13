@@ -28,7 +28,12 @@ void test('GET /api/pages/:project が Cosense 形状で返す', async () => {
   const s = await makeServer();
   await s.addUser('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
-  await seedProject(s);
+  const projectId = await seedProject(s);
+  const alphaId = (await s.storage.getPageByTitle(projectId, 'alpha'))!.id;
+  const accessed = s.clock.t + 100;
+  await s.storage.recordVisit('u1', alphaId, accessed - 10, 1);
+  await s.storage.recordVisit('u1', alphaId, accessed, 1);
+  await s.storage.recordVisit('u2', alphaId, accessed - 5, 1);
   const res = await s.request('/api/pages/proj', {}, cookie);
   assert.equal(res.status, 200);
   const body = await res.json();
@@ -40,9 +45,12 @@ void test('GET /api/pages/:project が Cosense 形状で返す', async () => {
   const alpha = body.pages[1];
   assert.equal(alpha.image, 'https://i.gyazo.com/abc.png');
   assert.deepEqual(alpha.descriptions, ['first line', 'https://i.gyazo.com/abc.png']);
-  assert.equal(alpha.views, 0);
+  assert.equal(alpha.views, 3);
   assert.equal(alpha.linked, 1);
-  assert.equal(alpha.accessed, alpha.updated);
+  assert.equal(alpha.accessed, accessed);
+  const beta = body.pages[0];
+  assert.equal(beta.views, 0);
+  assert.equal(beta.accessed, 0);
   // knot 拡張: 同期 CLI が差分検出に使う version
   assert.equal(typeof alpha.version, 'number');
   assert.ok(alpha.version >= 1);
@@ -52,14 +60,22 @@ void test('skip / limit / sort パラメータ', async () => {
   const s = await makeServer();
   await s.addUser('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
-  await seedProject(s);
+  const projectId = await seedProject(s);
+  const alphaId = (await s.storage.getPageByTitle(projectId, 'alpha'))!.id;
+  const betaId = (await s.storage.getPageByTitle(projectId, 'beta'))!.id;
+  await s.storage.recordVisit('u1', alphaId, s.clock.t + 10, 1);
+  await s.storage.recordVisit('u1', alphaId, s.clock.t + 40, 1);
+  await s.storage.recordVisit('u1', betaId, s.clock.t + 30, 1);
   const res = await s.request('/api/pages/proj?skip=1&limit=1&sort=title', {}, cookie);
   const body = await res.json();
   assert.equal(body.skip, 1);
   assert.equal(body.limit, 1);
   assert.deepEqual(body.pages.map((p: { title: string }) => p.title), ['Beta']);
-  // 未追跡 sort は updated にフォールバック
-  assert.equal((await s.request('/api/pages/proj?sort=accessed', {}, cookie)).status, 200);
+  const byViews = await (await s.request('/api/pages/proj?sort=views', {}, cookie)).json();
+  assert.deepEqual(byViews.pages.map((p: { title: string }) => p.title), ['Alpha', 'Beta']);
+  const byAccessed = await (await s.request('/api/pages/proj?sort=accessed', {}, cookie)).json();
+  // updated 降順は Beta → Alpha なので、旧フォールバックではこの期待値を満たさない。
+  assert.deepEqual(byAccessed.pages.map((p: { title: string }) => p.title), ['Alpha', 'Beta']);
   // 不正値は 400
   assert.equal((await s.request('/api/pages/proj?skip=abc', {}, cookie)).status, 400);
   assert.equal((await s.request('/api/pages/proj?sort=bogus', {}, cookie)).status, 400);
