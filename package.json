@@ -31,7 +31,7 @@
   "devDependencies": {
     "@helpfeel/cosense-cli": "^1.10.1",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@playwright/test": "^1.61.1",
+    "@playwright/test": "^1.62.1",
     "@types/node": "^26.2.0",
     "knip": "^6.32.0",
     "oxlint": "^1.77.0",
