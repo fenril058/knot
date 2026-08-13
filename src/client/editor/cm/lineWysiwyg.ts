@@ -1,4 +1,4 @@
-import { RangeSetBuilder, type EditorState, type Extension } from '@codemirror/state';
+import { EditorState, RangeSetBuilder, type Extension } from '@codemirror/state';
 import {
   Decoration,
   EditorView,
@@ -8,14 +8,21 @@ import {
   type DecorationSet,
   type ViewUpdate,
 } from '@codemirror/view';
-import { classifyUrl, isAttachmentUrl, isHostAllowed } from '../../../core/media.ts';
-import { parsePageSyntax, type SyntaxBlock, type SyntaxNode } from '../../../core/syntax.ts';
-import { pageHref } from '../../../core/title.ts';
+import { parsePageSyntax, type SyntaxNode } from '../../../core/syntax.ts';
+import { pageHref, titleLc } from '../../../core/title.ts';
+import {
+  knownPageMap,
+  presentationLines,
+  type KnownPage,
+  type PresentedLine,
+  type PresentedNode,
+} from '../../../render/presentation.ts';
 
 export type LineWysiwygConfig = {
   project: string;
   allowedImageHosts: string[];
   allowedMediaHosts: string[];
+  knownPages: KnownPage[];
 };
 
 export function editingLineNumbers(state: EditorState): Set<number> {
@@ -37,65 +44,10 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
-function hasUriScheme(value: string): boolean {
-  return /^[a-z][a-z\d+.-]*:/i.test(value);
-}
-
-function appendText(parent: ParentNode, text: string): void {
-  parent.append(document.createTextNode(text));
-}
-
-function externalAnchor(url: string, label: string): HTMLAnchorElement {
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.rel = 'noopener noreferrer';
-  anchor.textContent = label;
-  return anchor;
-}
-
-function mediaElement(url: string, label: string | undefined, config: LineWysiwygConfig): Node {
-  const isLocal = isAttachmentUrl(url);
-  if (!isLocal && !isHttpUrl(url)) return document.createTextNode(label === undefined ? url : `${label} (${url})`);
-  const hostname = isLocal ? '' : new URL(url).hostname;
-  const kind = classifyUrl(url);
-  if (kind === 'image' && (isLocal || isHostAllowed(hostname, config.allowedImageHosts))) {
-    const image = document.createElement('img');
-    image.src = url;
-    image.alt = '';
-    image.loading = 'lazy';
-    return image;
-  }
-  if (kind === 'video' && (isLocal || isHostAllowed(hostname, config.allowedMediaHosts))) {
-    const video = document.createElement('video');
-    video.controls = true;
-    const source = document.createElement('source');
-    source.src = url;
-    video.append(source);
-    return video;
-  }
-  if (kind === 'audio' && (isLocal || isHostAllowed(hostname, config.allowedMediaHosts))) {
-    const audio = document.createElement('audio');
-    audio.controls = true;
-    const source = document.createElement('source');
-    source.src = url;
-    audio.append(source);
-    return audio;
-  }
-  return externalAnchor(url, label ?? url);
-}
-
-function appendNodes(parent: ParentNode, nodes: readonly SyntaxNode[], config: LineWysiwygConfig): void {
-  for (const node of nodes) appendNode(parent, node, config);
-}
-
-function appendNode(parent: ParentNode, node: SyntaxNode, config: LineWysiwygConfig): void {
+function appendNode(parent: ParentNode, node: PresentedNode): void {
   switch (node.type) {
-    case 'plain':
-    case 'blank':
-      appendText(parent, node.text);
-      return;
-    case 'helpfeel':
-      appendText(parent, node.text);
+    case 'text':
+      parent.append(document.createTextNode(node.text));
       return;
     case 'code': {
       const code = document.createElement('code');
@@ -103,184 +55,48 @@ function appendNode(parent: ParentNode, node: SyntaxNode, config: LineWysiwygCon
       parent.append(code);
       return;
     }
-    case 'commandLine': {
-      const code = document.createElement('code');
-      code.textContent = node.symbol + node.text;
-      parent.append(code);
+    case 'container': {
+      const tag = node.kind === 'quote' ? 'q' : node.kind;
+      const container = document.createElement(tag);
+      if (node.kind === 'quote') container.className = 'cm-wysiwyg-quote';
+      if (node.className !== undefined) container.className = node.className;
+      for (const child of node.children) appendNode(container, child);
+      parent.append(container);
       return;
     }
-    case 'formula': {
-      const code = document.createElement('code');
-      code.textContent = node.formula;
-      parent.append(code);
-      return;
-    }
-    case 'strong': {
-      const strong = document.createElement('strong');
-      appendNodes(strong, node.nodes, config);
-      parent.append(strong);
-      return;
-    }
-    case 'quote': {
-      const quote = document.createElement('span');
-      quote.className = 'cm-wysiwyg-quote';
-      appendNodes(quote, node.nodes, config);
-      parent.append(quote);
-      return;
-    }
-    case 'decoration': {
-      const tag = node.decos.includes('/') ? 'em'
-        : node.decos.includes('-') ? 'del'
-          : node.decos.some((deco) => deco.startsWith('*')) ? 'strong' : 'span';
-      const element = document.createElement(tag);
-      appendNodes(element, node.nodes, config);
-      parent.append(element);
-      return;
-    }
-    case 'numberList': {
-      const number = document.createElement('span');
-      number.className = 'num-list';
-      appendText(number, `${node.rawNumber}. `);
-      appendNodes(number, node.nodes, config);
-      parent.append(number);
-      return;
-    }
-    case 'hashTag': {
-      const anchor = document.createElement('a');
-      anchor.href = pageHref(config.project, node.href);
-      anchor.textContent = `#${node.href}`;
-      parent.append(anchor);
-      return;
-    }
-    case 'icon':
-    case 'strongIcon': {
-      if (node.pathType !== 'relative') {
-        appendText(parent, `[${node.path}]`);
-        return;
-      }
-      const anchor = document.createElement('a');
-      anchor.href = pageHref(config.project, node.path);
-      anchor.className = 'icon-link';
-      anchor.textContent = `[${node.path}]`;
-      parent.append(anchor);
-      return;
-    }
-    case 'image':
-    case 'strongImage':
-      parent.append(mediaElement(node.src, undefined, config));
-      return;
-    case 'googleMap':
-      appendText(parent, node.raw);
-      return;
     case 'link': {
-      if (node.pathType === 'relative') {
-        const target = node.href.split('#')[0]!;
-        const anchor = document.createElement('a');
-        anchor.href = pageHref(config.project, target);
-        anchor.textContent = node.content === '' ? target : node.content;
-        parent.append(anchor);
-        return;
-      }
-      if (isAttachmentUrl(node.href)) {
-        parent.append(mediaElement(node.href, node.content === '' ? undefined : node.content, config));
-        return;
-      }
-      if (isHttpUrl(node.href)) {
-        parent.append(mediaElement(node.href, node.content === '' ? node.href : node.content, config));
-        return;
-      }
-      appendText(parent, hasUriScheme(node.href) ? node.raw : node.content === '' ? node.href : `${node.content} (${node.href})`);
+      const anchor = document.createElement('a');
+      anchor.href = node.href;
+      if (node.className !== undefined) anchor.className = node.className;
+      if (node.external) anchor.rel = 'noopener noreferrer';
+      for (const child of node.children) appendNode(anchor, child);
+      parent.append(anchor);
+      return;
+    }
+    case 'image': {
+      const image = document.createElement('img');
+      image.src = node.src;
+      image.alt = node.alt;
+      if (node.className !== undefined) image.className = node.className;
+      if (node.lazy) image.loading = 'lazy';
+      parent.append(image);
+      return;
+    }
+    case 'video':
+    case 'audio': {
+      const media = document.createElement(node.type);
+      media.controls = true;
+      const source = document.createElement('source');
+      source.src = node.src;
+      media.append(source);
+      parent.append(media);
+      return;
     }
   }
 }
 
-type DisplayLine = {
-  number: number;
-  from: number;
-  to: number;
-  source: string;
-  indent: number;
-  render: (parent: HTMLElement) => void;
-};
-
-function displayLines(state: EditorState, config: LineWysiwygConfig): DisplayLine[] {
-  const source = state.doc.toString();
-  const blocks = parsePageSyntax(source, { hasTitle: true });
-  const result: DisplayLine[] = [];
-  for (const block of blocks) appendBlockLines(result, block, state, config);
-  return result;
-}
-
-function baseLine(state: EditorState, block: SyntaxBlock, offset: number): Omit<DisplayLine, 'render'> {
-  const range = block.lineRanges[offset];
-  if (range === undefined) throw new Error('syntax block line is missing');
-  const line = state.doc.lineAt(range.from);
-  return {
-    number: line.number,
-    from: range.from,
-    to: range.to,
-    source: state.sliceDoc(range.from, range.to),
-    indent: /^\s*/.exec(line.text)?.[0].length ?? 0,
-  };
-}
-
-function appendBlockLines(
-  result: DisplayLine[],
-  block: SyntaxBlock,
-  state: EditorState,
-  config: LineWysiwygConfig,
-): void {
-  if (block.type === 'title') {
-    result.push({ ...baseLine(state, block, 0), indent: 0, render: (parent) => {
-      const title = document.createElement('strong');
-      title.className = 'cm-wysiwyg-title';
-      title.textContent = block.text;
-      parent.append(title);
-    } });
-    return;
-  }
-  if (block.type === 'line') {
-    result.push({ ...baseLine(state, block, 0), indent: block.indent, render: (parent) => appendNodes(parent, block.nodes, config) });
-    return;
-  }
-  if (block.type === 'codeBlock') {
-    result.push({ ...baseLine(state, block, 0), render: (parent) => {
-      const header = document.createElement('span');
-      header.className = 'code-header';
-      header.textContent = block.fileName;
-      parent.append(header);
-    } });
-    const contents = block.content === '' ? [] : block.content.split('\n');
-    for (let offset = 1; offset < block.lineRanges.length; offset += 1) {
-      result.push({ ...baseLine(state, block, offset), render: (parent) => {
-        const code = document.createElement('code');
-        code.className = 'code-line';
-        code.textContent = contents[offset - 1] ?? '';
-        parent.append(code);
-      } });
-    }
-    return;
-  }
-  result.push({ ...baseLine(state, block, 0), render: (parent) => {
-    const header = document.createElement('span');
-    header.className = 'table-header';
-    header.textContent = block.fileName;
-    parent.append(header);
-  } });
-  for (let offset = 1; offset < block.lineRanges.length; offset += 1) {
-    const row = block.cells[offset - 1] ?? [];
-    result.push({ ...baseLine(state, block, offset), render: (parent) => {
-      const table = document.createElement('table');
-      const tr = document.createElement('tr');
-      for (const cell of row) {
-        const td = document.createElement('td');
-        appendNodes(td, cell, config);
-        tr.append(td);
-      }
-      table.append(tr);
-      parent.append(table);
-    } });
-  }
+function displayLines(state: EditorState, config: LineWysiwygConfig): PresentedLine[] {
+  return presentationLines(state.doc.toString(), knownPageMap(config.knownPages), config.project, config);
 }
 
 function linkNodeAt(nodes: readonly SyntaxNode[], position: number): SyntaxNode | null {
@@ -295,7 +111,11 @@ function linkNodeAt(nodes: readonly SyntaxNode[], position: number): SyntaxNode 
   return null;
 }
 
-function linkHrefAt(state: EditorState, project: string): string | null {
+function linkHrefAt(
+  state: EditorState,
+  project: string,
+  knownPages: ReadonlyMap<string, KnownPage>,
+): string | null {
   const selection = state.selection.main;
   if (!selection.empty) return null;
   const position = selection.head;
@@ -306,18 +126,24 @@ function linkHrefAt(state: EditorState, project: string): string | null {
       : block.type === 'table'
         ? linkNodeAt(block.cells.flat(2), position)
         : null;
-    if (node?.type === 'hashTag') return pageHref(project, node.href);
+    if (node?.type === 'hashTag') {
+      const target = knownPages.get(titleLc(node.href))?.title ?? node.href;
+      return pageHref(project, target);
+    }
     if (node?.type === 'link' && node.pathType === 'relative') {
-      return pageHref(project, node.href.split('#')[0]!);
+      const rawTarget = node.href.split('#')[0]!;
+      const target = knownPages.get(titleLc(rawTarget))?.title ?? rawTarget;
+      return pageHref(project, target);
     }
     if (node?.type === 'link' && isHttpUrl(node.href)) return node.href;
   }
   return null;
 }
 
-function openLinkAtCursor(project: string): (view: EditorView) => boolean {
+function openLinkAtCursor(config: LineWysiwygConfig): (view: EditorView) => boolean {
+  const knownPages = knownPageMap(config.knownPages);
   return (view) => {
-    const href = linkHrefAt(view.state, project);
+    const href = linkHrefAt(view.state, config.project, knownPages);
     if (href === null) return false;
     window.location.assign(href);
     return true;
@@ -325,9 +151,9 @@ function openLinkAtCursor(project: string): (view: EditorView) => boolean {
 }
 
 class FormattedLineWidget extends WidgetType {
-  readonly line: DisplayLine;
+  readonly line: PresentedLine;
 
-  constructor(line: DisplayLine) {
+  constructor(line: PresentedLine) {
     super();
     this.line = line;
   }
@@ -338,22 +164,54 @@ class FormattedLineWidget extends WidgetType {
       && other.line.from === this.line.from
       && other.line.to === this.line.to
       && other.line.source === this.line.source
-      && other.line.indent === this.line.indent;
+      && other.line.indent === this.line.indent
+      && other.line.renderKey === this.line.renderKey;
   }
 
   toDOM(view: EditorView): HTMLElement {
     const root = document.createElement('span');
     root.className = 'cm-wysiwyg-line';
     root.dataset.lineNumber = String(this.line.number);
-    let content = root;
-    for (let depth = 0; depth < this.line.indent; depth += 1) {
-      const nested = document.createElement('span');
-      nested.className = 'cm-wysiwyg-indent';
-      content.append(nested);
-      content = nested;
+    if (this.line.indent > 0) {
+      const prefix = document.createElement('span');
+      prefix.className = 'line-indent-prefix cm-wysiwyg-indent-prefix';
+      prefix.ariaHidden = 'true';
+      prefix.textContent = '\u2003'.repeat(this.line.indent);
+      root.append(prefix);
     }
+    const content = document.createElement('span');
     if (this.line.indent > 0) content.classList.add('cm-wysiwyg-indent-content');
-    this.line.render(content);
+    if (this.line.role === 'title') {
+      const title = document.createElement('strong');
+      title.className = 'cm-wysiwyg-title';
+      title.textContent = this.line.text;
+      content.append(title);
+    } else if (this.line.role === 'line') {
+      for (const node of this.line.nodes) appendNode(content, node);
+    } else if (this.line.role === 'codeHeader' || this.line.role === 'tableHeader') {
+      const header = document.createElement('span');
+      header.className = this.line.role === 'codeHeader' ? 'code-header' : 'table-header';
+      header.textContent = this.line.text;
+      content.append(header);
+    } else if (this.line.role === 'codeLine') {
+      const code = document.createElement('code');
+      code.className = 'code-line';
+      code.textContent = this.line.text;
+      content.append(code);
+    } else if (this.line.role === 'tableRow') {
+      const table = document.createElement('table');
+      const tr = document.createElement('tr');
+      for (const cell of this.line.cells) {
+        const td = document.createElement('td');
+        for (const node of cell) appendNode(td, node);
+        tr.append(td);
+      }
+      table.append(tr);
+      content.append(table);
+    } else {
+      throw new Error('unknown presented line role');
+    }
+    root.append(content);
     root.addEventListener('mousedown', (event) => {
       const target = event.target;
       if (target instanceof Element && target.closest('a') !== null) return;
@@ -398,5 +256,9 @@ export function lineWysiwyg(config: LineWysiwygConfig): Extension {
   }, {
     decorations: (value) => value.decorations,
   });
-  return [plugin, keymap.of([{ key: 'Mod-Enter', run: openLinkAtCursor(config.project) }])];
+  return [
+    EditorState.allowMultipleSelections.of(true),
+    plugin,
+    keymap.of([{ key: 'Mod-Enter', run: openLinkAtCursor(config) }]),
+  ];
 }

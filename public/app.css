@@ -9,7 +9,7 @@ a { color: #2c6ea3; }
 .card.pinned { border-color: #f1c40f; }
 .card img.card-image { width: 100%; height: 100px; object-fit: cover; }
 .line-row { display: flex; align-items: flex-start; }
-.line-indent { min-width: 0; padding-inline-start: 1.25rem; }
+.line-indent-prefix, .cm-wysiwyg-indent-prefix { white-space: pre; letter-spacing: .25rem; flex-shrink: 0; }
 .line-indent-content, .cm-wysiwyg-indent-content { position: relative; }
 .line-indent-content::before, .cm-wysiwyg-indent-content::before {
   content: "•";
@@ -56,7 +56,7 @@ dialog form { display: grid; gap: 1rem; }
 .cm-sb-quote { color: #666; }
 .cm-wysiwyg-line { display: inline; min-height: 1.4em; }
 .cm-wysiwyg-title { font-size: 1.25em; }
-.cm-wysiwyg-indent { display: inline-block; padding-inline-start: 1.25rem; }
+.cm-wysiwyg-quote::before, .cm-wysiwyg-quote::after { content: none; }
 .cm-wysiwyg-line img { max-height: 12rem; max-width: 100%; vertical-align: middle; }
 .cm-wysiwyg-line video { max-width: 100%; }
 .cm-wysiwyg-line table { border-collapse: collapse; display: inline-table; }

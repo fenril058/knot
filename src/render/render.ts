@@ -1,154 +1,55 @@
 import { html, raw } from 'hono/html';
 import type { HtmlEscapedString } from 'hono/utils/html';
-import { classifyUrl, isAllowedImageUrl, isAttachmentUrl, isHostAllowed } from '../core/media.ts';
-import { parsePageSyntax, type SyntaxNode } from '../core/syntax.ts';
-import { pageHref, titleLc } from '../core/title.ts';
+import {
+  presentationLines,
+  type KnownPage,
+  type PresentedNode,
+  type RenderConfig,
+} from './presentation.ts';
 
-export type KnownPage = { title: string; image: string | null };
-export type RenderConfig = { allowedImageHosts: string[]; allowedMediaHosts: string[] };
+export type { KnownPage, RenderConfig } from './presentation.ts';
+
 export type RenderedLine = { lineId: string; indent: number; html: HtmlEscapedString | Promise<HtmlEscapedString> };
-
 type RenderedHtml = HtmlEscapedString | Promise<HtmlEscapedString>;
 
-function isHttpUrl(href: string): boolean {
-  try {
-    const url = new URL(href);
-    return url.protocol === 'http:' || url.protocol === 'https:';
-  } catch {
-    return false;
+// oxlint-disable-next-line typescript/consistent-return -- union を網羅する switch。末尾の return を書かず分岐漏れを型エラーにする
+function renderNode(node: PresentedNode): RenderedHtml {
+  switch (node.type) {
+    case 'text':
+      return html`${node.text}`;
+    case 'code':
+      return html`<code>${node.text}</code>`;
+    case 'container': {
+      const children = node.children.map(renderNode);
+      if (node.kind === 'strong') return html`<strong>${children}</strong>`;
+      if (node.kind === 'em') return html`<em>${children}</em>`;
+      if (node.kind === 'del') return html`<del>${children}</del>`;
+      if (node.kind === 'quote') return html`<blockquote>${children}</blockquote>`;
+      return node.className === undefined
+        ? html`<span>${children}</span>`
+        : html`<span class="${node.className}">${children}</span>`;
+    }
+    case 'link': {
+      const children = node.children.map(renderNode);
+      if (node.className !== undefined && node.external) {
+        return html`<a href="${node.href}" class="${node.className}" rel="noopener noreferrer">${children}</a>`;
+      }
+      if (node.className !== undefined) return html`<a href="${node.href}" class="${node.className}">${children}</a>`;
+      if (node.external) return html`<a href="${node.href}" rel="noopener noreferrer">${children}</a>`;
+      return html`<a href="${node.href}">${children}</a>`;
+    }
+    case 'image':
+      if (node.className !== undefined) {
+        return html`<img src="${node.src}" alt="${node.alt}" class="${node.className}">`;
+      }
+      return node.lazy
+        ? html`<img src="${node.src}" alt="${node.alt}" loading="lazy">`
+        : html`<img src="${node.src}" alt="${node.alt}">`;
+    case 'video':
+      return html`<video controls><source src="${node.src}"></video>`;
+    case 'audio':
+      return html`<audio controls><source src="${node.src}"></audio>`;
   }
-}
-
-function hasUriScheme(href: string): boolean {
-  return /^[a-z][a-z\d+.-]*:/i.test(href);
-}
-
-const renderExternalLink = (url: string, label: string | undefined): RenderedHtml =>
-  label === undefined
-    ? html`<a href="${url}" rel="noopener noreferrer">${url}</a>`
-    : html`<a href="${url}" rel="noopener noreferrer">${label}</a>`;
-
-function makeRenderer(knownPages: Map<string, KnownPage>, projectName: string, config: RenderConfig) {
-  // oxlint-disable-next-line typescript/consistent-return -- union を網羅する switch。末尾の return を書かないことで、分岐漏れを型エラーにしている
-  const renderMedia = (url: string, label: string | undefined): RenderedHtml => {
-    // サイト内の添付ファイルは同一オリジン配信（img-src/media-src 'self'）なので allowlist を通さない
-    if (isAttachmentUrl(url)) {
-      switch (classifyUrl(url)) {
-        case 'image':
-          return html`<img src="${url}" alt="" loading="lazy">`;
-        case 'video':
-          return html`<video controls><source src="${url}"></video>`;
-        case 'audio':
-          return html`<audio controls><source src="${url}"></audio>`;
-        case 'other':
-          return label === undefined ? html`<a href="${url}">${url}</a>` : html`<a href="${url}">${label}</a>`;
-      }
-    }
-    if (!isHttpUrl(url)) return label === undefined ? html`${url}` : html`${label} (${url})`;
-
-    const hostname = new URL(url).hostname;
-    switch (classifyUrl(url)) {
-      case 'image':
-        if (!isHostAllowed(hostname, config.allowedImageHosts)) return renderExternalLink(url, label);
-        return html`<img src="${url}" alt="" loading="lazy">`;
-      case 'video':
-        if (!isHostAllowed(hostname, config.allowedMediaHosts)) return renderExternalLink(url, label);
-        return html`<video controls><source src="${url}"></video>`;
-      case 'audio':
-        if (!isHostAllowed(hostname, config.allowedMediaHosts)) return renderExternalLink(url, label);
-        return html`<audio controls><source src="${url}"></audio>`;
-      case 'other':
-        return renderExternalLink(url, label);
-    }
-  };
-
-  // oxlint-disable-next-line typescript/consistent-return -- union を網羅する switch。末尾の return を書かないことで、分岐漏れを型エラーにしている
-  const renderNode = (node: SyntaxNode): RenderedHtml => {
-    switch (node.type) {
-      case 'plain':
-      case 'blank':
-        return html`${node.text}`;
-      case 'code':
-        return html`<code>${node.text}</code>`;
-      case 'formula':
-        return html`<code>${node.formula}</code>`;
-      case 'helpfeel':
-        return html`${node.text}`;
-      case 'strong':
-        return html`<strong>${node.nodes.map(renderNode)}</strong>`;
-      case 'quote':
-        return html`<blockquote>${node.nodes.map(renderNode)}</blockquote>`;
-      case 'decoration':
-        if (
-          node.decos.includes('"')
-          && node.nodes.some(
-            (child) => child.type === 'link' && child.pathType === 'absolute' && classifyUrl(child.href) === 'image',
-          )
-        ) {
-          return html`<span>${node.nodes
-            .filter(
-              (child) => child.type === 'link' && child.pathType === 'absolute' && classifyUrl(child.href) === 'image',
-            )
-            .map(renderNode)}</span>`;
-        }
-        if (node.decos.includes('/')) return html`<em>${node.nodes.map(renderNode)}</em>`;
-        if (node.decos.includes('-')) return html`<del>${node.nodes.map(renderNode)}</del>`;
-        if (node.decos.some((deco) => deco.startsWith('*'))) {
-          return html`<strong>${node.nodes.map(renderNode)}</strong>`;
-        }
-        return html`<span>${node.nodes.map(renderNode)}</span>`;
-      case 'numberList':
-        return html`<span class="num-list">${node.rawNumber}. ${node.nodes.map(renderNode)}</span>`;
-      case 'commandLine':
-        return html`<code>${node.symbol}${node.text}</code>`;
-      case 'hashTag': {
-        const entry = knownPages.get(titleLc(node.href));
-        const href = pageHref(projectName, entry?.title ?? node.href);
-        return entry
-          ? html`<a href="${href}">#${node.href}</a>`
-          : html`<a href="${href}" class="empty-link">#${node.href}</a>`;
-      }
-      case 'icon':
-      case 'strongIcon': {
-        if (node.pathType !== 'relative') return html`<span class="icon-link">[${node.path}]</span>`;
-        const entry = knownPages.get(titleLc(node.path));
-        const href = pageHref(projectName, entry?.title ?? node.path);
-        if (entry?.image && isAllowedImageUrl(entry.image, config.allowedImageHosts)) {
-          return html`<a href="${href}" class="icon-link"><img src="${entry.image}" alt="${node.path}" class="icon-img"></a>`;
-        }
-        return entry
-          ? html`<a href="${href}" class="icon-link">[${node.path}]</a>`
-          : html`<a href="${href}" class="icon-link empty-link">[${node.path}]</a>`;
-      }
-      case 'image':
-      case 'strongImage':
-        return renderMedia(node.src, undefined);
-      case 'googleMap':
-        return html`${node.raw}`;
-      case 'link': {
-        if (hasUriScheme(node.href) && !isHttpUrl(node.href)) return html`${node.raw}`;
-        if (node.pathType === 'relative') {
-          const target = node.href.split('#')[0]!;
-          const entry = knownPages.get(titleLc(target));
-          const label = node.content === '' ? target : node.content;
-          const href = pageHref(projectName, entry?.title ?? target);
-          return entry
-            ? html`<a href="${href}">${label}</a>`
-            : html`<a href="${href}" class="empty-link">${label}</a>`;
-        }
-        if (isHttpUrl(node.href)) {
-          return renderMedia(node.href, node.content === '' ? node.href : node.content);
-        }
-        if (isAttachmentUrl(node.href)) {
-          return renderMedia(node.href, node.content === '' ? undefined : node.content);
-        }
-        return node.content === '' ? html`${node.href}` : html`${node.content} (${node.href})`;
-      }
-    }
-  };
-
-  const renderTableCell = (nodes: SyntaxNode[]): RenderedHtml => html`<td>${nodes.map(renderNode)}</td>`;
-  return { renderNode, renderTableCell };
 }
 
 export function renderLines(
@@ -157,48 +58,19 @@ export function renderLines(
   projectName: string,
   config: RenderConfig,
 ): RenderedLine[] {
-  const { renderNode, renderTableCell } = makeRenderer(knownPages, projectName, config);
-  const result: RenderedLine[] = lines.map(({ id, text }) => ({
-    lineId: id,
-    indent: /^\s*/.exec(text)?.[0].length ?? 0,
-    html: raw(''),
-  }));
-  const blocks = parsePageSyntax(lines.map(({ text }) => text).join('\n'), { hasTitle: true });
-
-  let index = 0;
-  for (const block of blocks) {
-    if (block.type === 'title') {
-      index += 1;
-    } else if (block.type === 'line') {
-      result[index] = { ...result[index]!, html: html`<div>${block.nodes.map(renderNode)}</div>` };
-      index += 1;
-    } else if (block.type === 'codeBlock') {
-      const bodyLineCount = block.lineRanges.length - 1;
-      const contentLines = block.content === '' ? [] : block.content.split('\n');
-      result[index] = { ...result[index]!, html: html`<div class="code-header">${block.fileName}</div>` };
-      Array.from({ length: bodyLineCount }, (_, offset) => contentLines[offset] ?? '').forEach((content, offset) => {
-        const lineIndex = index + 1 + offset;
-        result[lineIndex] = {
-          ...result[lineIndex]!,
-          html: html`<div class="code-line">${content}</div>`,
-        };
-      });
-      index += 1 + bodyLineCount;
-    } else if (block.type === 'table') {
-      const bodyLineCount = block.lineRanges.length - 1;
-      result[index] = { ...result[index]!, html: html`<div class="table-header">${block.fileName}</div>` };
-      Array.from({ length: bodyLineCount }, (_, offset) => block.cells[offset] ?? []).forEach((row, offset) => {
-        const lineIndex = index + 1 + offset;
-        result[lineIndex] = {
-          ...result[lineIndex]!,
-          html: html`<div class="table-row"><table><tr>${row.map(renderTableCell)}</tr></table></div>`,
-        };
-      });
-      index += 1 + bodyLineCount;
-    } else {
-      block satisfies never;
-    }
-  }
-
-  return result;
+  const plans = presentationLines(lines.map(({ text }) => text).join('\n'), knownPages, projectName, config);
+  return plans.map((line, index) => {
+    let rendered: RenderedHtml;
+    if (line.role === 'title') rendered = raw('');
+    else if (line.role === 'line') rendered = html`<div>${line.nodes.map(renderNode)}</div>`;
+    else if (line.role === 'codeHeader') rendered = html`<div class="code-header">${line.text}</div>`;
+    else if (line.role === 'codeLine') rendered = html`<div class="code-line">${line.text}</div>`;
+    else if (line.role === 'tableHeader') rendered = html`<div class="table-header">${line.text}</div>`;
+    else if (line.role === 'tableRow') {
+      rendered = html`<div class="table-row"><table><tr>${line.cells.map(
+        (cell) => html`<td>${cell.map(renderNode)}</td>`,
+      )}</tr></table></div>`;
+    } else throw new Error('unknown presented line role');
+    return { lineId: lines[index]!.id, indent: line.indent, html: rendered };
+  });
 }

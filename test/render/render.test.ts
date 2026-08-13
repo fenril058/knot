@@ -91,6 +91,7 @@ void test('コードブロックは複数物理行を 1 ブロックとして消
   assert.equal(out.length, 5);
   assert.match(htmlOf(out[3]!), /&lt;script&gt;/);
   assert.deepEqual(out.map((o) => o.lineId), ['title', 'l1', 'l2', 'l3', 'l4']);
+  assert.deepEqual(out.slice(1, 4).map((line) => line.indent), [0, 0, 0]);
 });
 
 void test('コードブロックのヘッダ直後が非インデント行なら本体0行として扱う', () => {
@@ -147,6 +148,7 @@ void test('インデント付きコードブロックはヘッダより深い行
   assert.deepEqual(out.map((line) => line.lineId), ['title', 'l1', 'l2', 'l3']);
   assert.equal(htmlOf(out[2]!), '<div class="code-line">value</div>');
   assert.equal(htmlOf(out[3]!), '<div>after</div>');
+  assert.deepEqual(out.slice(1).map((line) => line.indent), [1, 1, 1]);
 });
 
 void test('テーブルも複数物理行を 1 ブロックとして消費する', () => {
@@ -159,6 +161,7 @@ void test('テーブルも複数物理行を 1 ブロックとして消費する
   const out = renderLines(lines, new Map(), 'proj', cfg);
   assert.equal(out.length, 4);
   assert.match(htmlOf(out[2]!), /<table>/);
+  assert.deepEqual(out.slice(1).map((line) => line.indent), [0, 0, 0]);
 });
 
 void test('テーブルの空白のみの本体行も物理行と対応させる', () => {

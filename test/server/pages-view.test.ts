@@ -18,7 +18,20 @@ void test('GET /:project/:title: レンダリング結果・空リンク・テ�
   assert.match(body, /Beta/);
   assert.match(body, /id="edit-page-button"[^>]*>編集<\/button>/);
   assert.match(body, /<nav class="page-nav"><a href="\/proj">proj<\/a><\/nav>/);
+  assert.match(body, /data-known-pages="[^"]*Beta[^"]*"/);
   void alphaId;
+});
+
+void test('深いインデントを深さ分のDOM要素へ展開しない', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'Deep', [`${' '.repeat(1000)}nested`], s.clock.t);
+
+  const body = await (await s.request('/proj/Deep', {}, cookie)).text();
+
+  assert.equal(body.match(/class="line-indent"/g)?.length ?? 0, 0);
+  assert.match(body, /class="line-indent-prefix"/);
 });
 
 void test('1-hop と 2-hop の関連ページを一覧と同じカードで表示する', async () => {
@@ -116,12 +129,14 @@ void test('ページ表示の knownPages は listKnownPages を使い listPageTi
 void test('存在しないページは 404 と新規作成の案内', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
-  await s.storage.ensureProject('proj', s.clock.t);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'Beta', ['x'], s.clock.t);
   const res = await s.request('/proj/Nope', {}, cookie);
   assert.equal(res.status, 404);
   const body = await res.text();
   assert.match(body, /Nope/);
   assert.match(body, /id="edit-page-button"[^>]*>このタイトルで新規作成する<\/button>/);
+  assert.match(body, /data-known-pages="[^"]*Beta[^"]*"/);
 });
 
 void test('GET /:project/:title: 存在しないプロジェクトは layout を使った HTML 404', async () => {

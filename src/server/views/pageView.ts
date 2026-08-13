@@ -1,6 +1,6 @@
 import { html } from 'hono/html';
 import type { Line } from '../../core/ops.ts';
-import type { RenderConfig, RenderedLine } from '../../render/render.ts';
+import type { KnownPage, RenderConfig, RenderedLine } from '../../render/render.ts';
 import type { PageSnapshot, Project, RelatedPage, RelatedPages, Visit } from '../../storage/types.ts';
 import { layout, type Html } from './layout.ts';
 import { canDisplayCardImage, pageCardListItem } from './pageCard.ts';
@@ -16,9 +16,7 @@ function ageClass(page: PageSnapshot, updated: number): string {
 
 function nestIndentedLine(content: Html, indent: number): Html {
   if (indent === 0) return content;
-  let nested = html`<div class="line-indent-content">${content}</div>`;
-  for (let depth = 0; depth < indent; depth += 1) nested = html`<div class="line-indent">${nested}</div>`;
-  return nested;
+  return html`<span class="line-indent-prefix" aria-hidden="true">${'\u2003'.repeat(indent)}</span><div class="line-indent-content">${content}</div>`;
 }
 
 function lineRow(page: PageSnapshot, line: Line, rendered: RenderedLine, previousVisit: Visit | null): Html {
@@ -54,6 +52,7 @@ export function pageViewPage(
   userName: string,
   styleNonce: string,
   renderConfig: RenderConfig,
+  knownPages: readonly KnownPage[],
 ): Html {
   const eagerImagePageId = [...related.links1hop, ...related.links2hop].find((relatedPage) =>
     canDisplayCardImage(relatedPage.image, renderConfig.allowedImageHosts),
@@ -104,6 +103,7 @@ ${related.hasBackLinks ? html`<p class="backlinks-badge">逆リンクまたは�
   data-csp-nonce="${styleNonce}"
   data-allowed-image-hosts="${JSON.stringify(renderConfig.allowedImageHosts)}"
   data-allowed-media-hosts="${JSON.stringify(renderConfig.allowedMediaHosts)}"
+  data-known-pages="${JSON.stringify(knownPages)}"
 >${rendered.map((line, index) => lineRow(page, page.lines[index]!, line, previousVisit))}</div>
 ${relatedSection('関連ページ', related.links1hop, project.name, renderConfig.allowedImageHosts, eagerImagePageId)}
 ${relatedSection('2-hop リンク', related.links2hop, project.name, renderConfig.allowedImageHosts, eagerImagePageId)}
@@ -120,6 +120,7 @@ export function pageNotFoundPage(
   userName: string,
   styleNonce: string,
   renderConfig: RenderConfig,
+  knownPages: readonly KnownPage[],
 ): Html {
   return layout('ページが見つかりません', html`
 <nav class="page-nav"><a href="/${encodeURIComponent(project.name)}">${project.displayName}</a></nav>
@@ -137,6 +138,7 @@ export function pageNotFoundPage(
   data-csp-nonce="${styleNonce}"
   data-allowed-image-hosts="${JSON.stringify(renderConfig.allowedImageHosts)}"
   data-allowed-media-hosts="${JSON.stringify(renderConfig.allowedMediaHosts)}"
+  data-known-pages="${JSON.stringify(knownPages)}"
 ><p>このページはまだ作成されていません。</p></div>
 </main>
 <script type="module" src="/assets/build/editor.js"></script>`,
