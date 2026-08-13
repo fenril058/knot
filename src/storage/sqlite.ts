@@ -4,6 +4,7 @@ import { applyOps } from '../core/apply.ts';
 import { extractRefs, rewritePageLinks } from '../core/links.ts';
 import { titleLc } from '../core/title.ts';
 import { ulid } from '../core/id.ts';
+import type { SearchQuery } from '../core/searchQuery.ts';
 import { opsHash } from './hash.ts';
 import { validateImportLines } from './importValidation.ts';
 import {
@@ -951,24 +952,46 @@ export class SqliteStorage implements Storage {
     lines.forEach((l, ord) => st.run(l.id, pageId, ord, l.text, l.created, l.updated, version, l.userId));
   }
 
-  async search(projectId: string, query: string): Promise<SearchHit[]> {
-    if (query === '') return [];
-    // 検索クエリの長さは code point 数で判定する（絵文字を分割するのは承知のうえ。
-    // 書記素単位が要るほどの精度は下限判定に不要）
-    const pages =
-      // oxlint-disable-next-line typescript/no-misused-spread
-      [...query].length >= 3 ? this.#searchFts(projectId, query) : this.#searchLike(projectId, query);
-    const likePattern = `%${escapeLike(query)}%`;
+  async search(projectId: string, query: SearchQuery): Promise<SearchHit[]> {
+    if (query.words.includes('')) return [];
+    const words = [...new Set(query.words)];
+    const excludes = [...new Set(query.excludes)];
+    const pagesByTerm = new Map<string, { id: string; title: string; image: string | null }[]>();
+    const searchTerm = (term: string) => {
+      const cached = pagesByTerm.get(term);
+      if (cached !== undefined) return cached;
+      const pages = this.#searchTerm(projectId, term);
+      pagesByTerm.set(term, pages);
+      return pages;
+    };
+    const firstWord = words[0];
+    if (firstWord === undefined) return [];
+    const pages = searchTerm(firstWord);
+    const requiredPageIds = words.slice(1).map((word) =>
+      new Set(searchTerm(word).map((page) => page.id)));
+    const excludedPageIds = new Set(excludes.flatMap((word) =>
+      searchTerm(word).map((page) => page.id)));
+    const filtered = pages.filter((page) =>
+      requiredPageIds.every((ids) => ids.has(page.id)) && !excludedPageIds.has(page.id));
+    const likePatterns = words.map((word) => `%${escapeLike(word)}%`);
     const matchedLines = this.#db.prepare(
-      `SELECT text FROM lines WHERE page_id = ? AND text LIKE ? ESCAPE '\\' ORDER BY ord`,
+      `SELECT text FROM lines WHERE page_id = ? AND (${words.map(() => "text LIKE ? ESCAPE '\\'").join(' OR ')})
+       ORDER BY ord`,
     );
-    return pages.map((p) => ({
+    return filtered.map((p) => ({
       pageId: p.id,
       title: p.title,
       image: p.image,
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-      lines: (matchedLines.all(p.id, likePattern) as { text: string }[]).map((r) => r.text),
+      lines: (matchedLines.all(p.id, ...likePatterns) as { text: string }[]).map((r) => r.text),
     }));
+  }
+
+  #searchTerm(projectId: string, query: string): { id: string; title: string; image: string | null }[] {
+    // 検索語の長さは code point 数で判定する（絵文字を分割するのは承知のうえ。
+    // 書記素単位が要るほどの精度は下限判定に不要）
+    // oxlint-disable-next-line typescript/no-misused-spread
+    return [...query].length >= 3 ? this.#searchFts(projectId, query) : this.#searchLike(projectId, query);
   }
 
   #searchFts(projectId: string, query: string): { id: string; title: string; image: string | null }[] {

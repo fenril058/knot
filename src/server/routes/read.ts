@@ -1,5 +1,6 @@
 import type { Context, Hono } from 'hono';
 import { parsePageSyntax } from '../../core/syntax.ts';
+import { parseSearchQuery } from '../../core/searchQuery.ts';
 import type { AppDeps } from '../app.ts';
 import { jsonError, resolvePage, resolveProject, safeDecode, type ApiEnv } from '../http.ts';
 import { titleLc } from '../../core/title.ts';
@@ -7,6 +8,8 @@ import type { PageSummary, PageSort, RelatedPage } from '../../storage/types.ts'
 
 const SORTS = new Set<string>(['updated', 'created', 'linked', 'title']);
 const FALLBACK_SORTS = new Set<string>(['accessed', 'views']);
+const MAX_SEARCH_QUERY_CODE_POINTS = 1_000;
+const MAX_SEARCH_TERMS = 32;
 
 function summaryToJson(p: PageSummary) {
   return {
@@ -124,20 +127,28 @@ export function registerReadRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     if (q === undefined || q.trim() === '') {
       return jsonError(c, 400, 'bad_request', { message: 'q required' });
     }
-    const hits = await storage.search(project.id, q);
-    const words = q.split(/\s+/).filter((word) => word !== '');
+    // oxlint-disable-next-line typescript/no-misused-spread
+    if ([...q].length > MAX_SEARCH_QUERY_CODE_POINTS) {
+      return jsonError(c, 400, 'bad_request', { message: 'q too long' });
+    }
+    const query = parseSearchQuery(q);
+    if (query.words.length + query.excludes.length > MAX_SEARCH_TERMS) {
+      return jsonError(c, 400, 'bad_request', { message: 'too many search terms' });
+    }
+    const hits = await storage.search(project.id, query);
+    const exactTitleQuery = query.excludes.length === 0 && query.words.length === 1 ? query.words[0]! : q;
     return c.json({
       projectName: project.name,
       searchQuery: q,
-      query: { words, excludes: [] },
+      query,
       limit: 100,
       count: hits.length,
-      existsExactTitleMatch: hits.some((hit) => titleLc(hit.title) === titleLc(q)),
+      existsExactTitleMatch: hits.some((hit) => titleLc(hit.title) === titleLc(exactTitleQuery)),
       pages: hits.slice(0, 100).map((hit) => ({
         id: hit.pageId,
         title: hit.title,
         image: hit.image,
-        words,
+        words: query.words,
         lines: hit.lines,
       })),
     });

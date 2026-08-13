@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { parseSearchQuery } from '../../src/core/searchQuery.ts';
 import { makeStorage } from '../helpers/storage.ts';
 import { importCosense, IMPORTER_USER_NAME } from '../../src/storage/import.ts';
 import { StorageError } from '../../src/storage/types.ts';
@@ -105,7 +106,7 @@ void test('インポートはコミットとして残り、導出データも更
   assert.deepEqual(links, ['リンク先']);
   const project = await storage.getProject('sandbox');
   assert.ok(project);
-  const hits = await storage.search(project.id, 'リンク先');
+  const hits = await storage.search(project.id, parseSearchQuery('リンク先'));
   assert.equal(hits.length, 1);
   await storage.close();
 });
