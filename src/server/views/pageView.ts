@@ -3,7 +3,7 @@ import type { Line } from '../../core/ops.ts';
 import type { RenderConfig, RenderedLine } from '../../render/render.ts';
 import type { PageSnapshot, Project, RelatedPage, RelatedPages, Visit } from '../../storage/types.ts';
 import { layout, type Html } from './layout.ts';
-import { pageCard } from './pageCard.ts';
+import { pageCardListItem } from './pageCard.ts';
 
 const TELOMERE_AGE_BUCKETS = [86400, 7 * 86400];
 
@@ -31,8 +31,8 @@ ${nestIndentedLine(rendered.html, rendered.indent)}
 
 function relatedSection(title: string, pages: RelatedPage[], projectName: string, allowedImageHosts: string[]): Html {
   if (pages.length === 0) return html``;
-  return html`<section class="related-pages"><h2>${title}</h2><ul class="card-grid">${pages.map((page) =>
-    pageCard(projectName, page, allowedImageHosts),
+  return html`<section class="related-pages"><h2>${title}</h2><ul class="card-grid" role="list">${pages.map((page) =>
+    pageCardListItem(projectName, page, allowedImageHosts, 'lazy'),
   )}</ul></section>`;
 }
 

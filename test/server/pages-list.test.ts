@@ -19,6 +19,7 @@ void test('GET /:project: ピン留めが先頭、以降は更新順、カード
   const newIndex = body.indexOf('New');
   assert.ok(oldIndex >= 0 && newIndex > oldIndex);
   assert.match(body, /first line/);
+  assert.match(body, /<ul class="card-grid" role="list">/);
 });
 
 void test('プロジェクトトップにプロジェクト一覧へ戻る導線がある', async () => {
@@ -39,7 +40,10 @@ void test('アップロード画像(/files/)はカードのサムネイルにな
 
   const body = await (await s.request('/proj', {}, cookie)).text();
 
-  assert.match(body, /<img class="card-image" src="\/files\/01ABC\/x\.png"/);
+  assert.match(
+    body,
+    /<img class="card-image" src="\/files\/01ABC\/x\.png" alt="" width="320" height="100" loading="eager">/,
+  );
 });
 
 void test('カードの冒頭行は記法を剥がした平文で出す', async () => {

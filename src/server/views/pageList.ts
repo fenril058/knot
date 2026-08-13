@@ -1,7 +1,7 @@
 import { html } from 'hono/html';
 import type { PageSummary, Project } from '../../storage/types.ts';
 import { layout, type Html } from './layout.ts';
-import { pageCard } from './pageCard.ts';
+import { pageCardListItem } from './pageCard.ts';
 
 export function pageListPage(
   project: Project,
@@ -24,7 +24,9 @@ export function pageListPage(
 <input id="search-box" type="search" placeholder="検索">
 <div id="search-results" hidden></div>
 </div>
-<ul class="card-grid">${result.pages.map((page) => pageCard(project.name, page, allowedImageHosts))}</ul>
+<ul class="card-grid" role="list">${result.pages.map((page) =>
+    pageCardListItem(project.name, page, allowedImageHosts, 'eager'),
+  )}</ul>
 ${nextSkip < result.count
     ? html`<a href="/${encodeURIComponent(project.name)}?skip=${nextSkip}&limit=${limit}">もっと見る</a>`
     : ''}
