@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,6 +33,28 @@ void test('import → export → reindex が通る', async () => {
   assert.match(again, /3 skipped/);
   const reindexed = await runReindex(dir, 'sandbox');
   assert.match(reindexed, /reindexed 3 pages/);
+});
+
+void test('runImport は Cosense 添付画像を files/ に保存して件数を報告する', async () => {
+  const dir = tmp();
+  await runInit(dir);
+  const source = join(dir, 'source.json');
+  const sourceUrl = 'https://scrapbox.io/files/cli-image#.png';
+  writeFileSync(source, JSON.stringify({
+    name: 'source',
+    pages: [{ title: 'Page', lines: ['Page', `[${sourceUrl}]`] }],
+  }));
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+
+  const result = await runImport(dir, 'sandbox', source, 'skip', {
+    fetchFn: async () => new Response(png, { headers: { 'content-type': 'image/png' } }),
+  });
+
+  assert.match(result, /attachments: 1 created, 0 reused, 0 failed/);
+  const json = await runExport(dir, 'sandbox', 'full', null);
+  const localUrl = /\/files\/([0-9A-HJKMNP-TV-Z]{26})\/cli-image\.png/.exec(json);
+  assert.ok(localUrl);
+  assert.ok(existsSync(join(dir, 'files', localUrl[1]!)));
 });
 
 void test('export --out はファイルに書き、reindex は未知プロジェクトを拒否する', async () => {

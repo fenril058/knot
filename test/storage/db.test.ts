@@ -15,12 +15,12 @@ void test('マイグレーションで全テーブルが作られ user_version �
   ).map((r) => r.name);
   const expected = [
     'projects', 'users', 'pages', 'lines', 'commits', 'title_history',
-    'page_visits', 'links', 'attachments', 'sessions', 'pages_fts', 'api_tokens',
+    'page_visits', 'links', 'attachments', 'sessions', 'pages_fts', 'api_tokens', 'attachment_claims',
   ];
   for (const t of expected) assert.ok(names.includes(t), `${t} がない`);
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const v = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
-  assert.equal(v, 5);
+  assert.equal(v, 6);
   db.close();
 });
 
@@ -31,12 +31,12 @@ void test('再オープンしても適用済みマイグレーションを二重
   const db = openDatabase(path);
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const v = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
-  assert.equal(v, 5);
+  assert.equal(v, 6);
   db.close();
 });
 
-void test('v4 の既存訪問行は v5 で1回の閲覧として移行し、次の訪問を加算する', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'knot-db-v4-'));
+void test('v5 の既存訪問行は v6 で1回の閲覧として移行し、次の訪問を加算する', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'knot-db-v5-'));
   const path = join(dir, 'knot.db');
   const oldDb = new DatabaseSync(path);
   oldDb.exec(`
@@ -49,7 +49,7 @@ void test('v4 の既存訪問行は v5 で1回の閲覧として移行し、次�
     );
     INSERT INTO page_visits (user_id, page_id, visited, last_seen_version)
       VALUES ('u1', 'p1', 100, 2);
-    PRAGMA user_version = 4;
+    PRAGMA user_version = 5;
   `);
   oldDb.close();
 
@@ -62,7 +62,7 @@ void test('v4 の既存訪問行は v5 で1回の閲覧として移行し、次�
   assert.deepEqual(await storage.getPageVisitMetrics('p1'), { views: 2, accessed: 110 });
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const version = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
-  assert.equal(version, 5);
+  assert.equal(version, 6);
   await storage.close();
 });
 

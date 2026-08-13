@@ -3,9 +3,11 @@ import { join } from 'node:path';
 import { ulid } from '../core/id.ts';
 import { hashPassword } from '../server/password.ts';
 import { generateApiToken } from '../server/apiToken.ts';
+import { loadConfig as loadServerConfig } from '../server/config.ts';
 import { openDatabase } from '../storage/db.ts';
 import { SqliteStorage } from '../storage/sqlite.ts';
 import { importCosense } from '../storage/import.ts';
+import { ATTACHMENT_IMPORT_TIMEOUT_MS } from '../storage/importAttachments.ts';
 import { exportCosense, type ExportFormat } from '../storage/export.ts';
 import { buildExportZip } from '../storage/exportZip.ts';
 
@@ -59,12 +61,26 @@ export async function runImport(
   projectName: string,
   file: string,
   onConflict: 'skip' | 'overwrite',
+  deps: { fetchFn?: typeof fetch } = {},
 ): Promise<string> {
   const data = JSON.parse(readFileSync(file, 'utf8')) as unknown;
+  const config = loadServerConfig(dataDir);
   const storage = openStorage(dataDir);
   try {
-    const s = await importCosense(storage, data, { projectName, onConflict });
-    return `imported: ${s.created} created, ${s.overwritten} overwritten, ${s.skipped} skipped, ${s.users} users`;
+    const s = await importCosense(storage, data, {
+      projectName,
+      onConflict,
+      attachments: {
+        filesDir: join(dataDir, 'files'),
+        fetchFn: deps.fetchFn ?? fetch,
+        maxBytes: config.maxUploadBytes,
+        timeoutMs: ATTACHMENT_IMPORT_TIMEOUT_MS,
+      },
+    });
+    const attachmentSummary = s.attachments === undefined
+      ? ''
+      : `, attachments: ${s.attachments.created} created, ${s.attachments.reused} reused, ${s.attachments.failed} failed`;
+    return `imported: ${s.created} created, ${s.overwritten} overwritten, ${s.skipped} skipped, ${s.users} users${attachmentSummary}`;
   } finally {
     await storage.close();
   }

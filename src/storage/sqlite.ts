@@ -4,7 +4,9 @@ import { applyOps } from '../core/apply.ts';
 import { extractRefs, rewritePageLinks } from '../core/links.ts';
 import { titleLc } from '../core/title.ts';
 import { ulid } from '../core/id.ts';
+import type { SearchQuery } from '../core/searchQuery.ts';
 import { opsHash } from './hash.ts';
+import { validateImportLines } from './importValidation.ts';
 import {
   BadCommitError,
   StorageError,
@@ -81,6 +83,7 @@ type AttachmentRow = {
   sha256: string;
   user_id: string;
   created: number;
+  provisional: number;
 };
 
 function escapeLike(s: string): string {
@@ -331,22 +334,59 @@ export class SqliteStorage implements Storage {
     this.#db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
   }
 
-  async createAttachment(attachment: Attachment): Promise<void> {
-    this.#db
-      .prepare(
-        `INSERT INTO attachments (id, project_id, filename, content_type, size, sha256, user_id, created)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        attachment.id,
-        attachment.projectId,
-        attachment.filename,
-        attachment.contentType,
-        attachment.size,
-        attachment.sha256,
-        attachment.userId,
-        attachment.created,
-      );
+  async createAttachment(attachment: Attachment, claimOwner?: string): Promise<void> {
+    this.#tx(() => {
+      this.#db
+        .prepare(
+          `INSERT INTO attachments
+           (id, project_id, filename, content_type, size, sha256, user_id, created, provisional)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          attachment.id,
+          attachment.projectId,
+          attachment.filename,
+          attachment.contentType,
+          attachment.size,
+          attachment.sha256,
+          attachment.userId,
+          attachment.created,
+          claimOwner === undefined ? 0 : 1,
+        );
+      if (claimOwner !== undefined) {
+        this.#db
+          .prepare('INSERT INTO attachment_claims (attachment_id, owner) VALUES (?, ?)')
+          .run(attachment.id, claimOwner);
+      }
+    });
+  }
+
+  async updateAttachmentMetadata(id: string, filename: string, contentType: string): Promise<void> {
+    this.#db.prepare('UPDATE attachments SET filename = ?, content_type = ? WHERE id = ?').run(filename, contentType, id);
+  }
+
+  async releaseAttachmentClaims(owner: string): Promise<string[]> {
+    return this.#tx(() => {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+      const claims = this.#db
+        .prepare('SELECT attachment_id FROM attachment_claims WHERE owner = ?')
+        .all(owner) as { attachment_id: string }[];
+      this.#db.prepare('DELETE FROM attachment_claims WHERE owner = ?').run(owner);
+      const removed: string[] = [];
+      const hasClaim = this.#db.prepare('SELECT 1 FROM attachment_claims WHERE attachment_id = ? LIMIT 1');
+      const hasReference = this.#db.prepare('SELECT 1 FROM lines WHERE instr(text, ?) > 0 LIMIT 1');
+      const remove = this.#db.prepare('DELETE FROM attachments WHERE id = ? AND provisional = 1');
+      for (const { attachment_id: id } of claims) {
+        if (hasClaim.get(id) !== undefined) continue;
+        if (hasReference.get(`/files/${id}`) !== undefined) continue;
+        if (remove.run(id).changes > 0) removed.push(id);
+      }
+      return removed;
+    });
+  }
+
+  async finalizeAttachmentClaims(owner: string): Promise<void> {
+    this.#tx(() => this.#finalizeAttachmentClaims(owner));
   }
 
   #attachmentRowToAttachment(row: AttachmentRow): Attachment {
@@ -365,23 +405,42 @@ export class SqliteStorage implements Storage {
   async listAttachments(projectId: string): Promise<Attachment[]> {
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const rows = this.#db
-      .prepare('SELECT * FROM attachments WHERE project_id = ? ORDER BY created ASC')
+      .prepare('SELECT * FROM attachments WHERE project_id = ? AND provisional = 0 ORDER BY created ASC')
       .all(projectId) as AttachmentRow[];
     return rows.map((row) => this.#attachmentRowToAttachment(row));
   }
 
   async getAttachment(id: string): Promise<Attachment | null> {
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-    const row = this.#db.prepare('SELECT * FROM attachments WHERE id = ?').get(id) as AttachmentRow | undefined;
+    const row = this.#db
+      .prepare('SELECT * FROM attachments WHERE id = ? AND provisional = 0')
+      .get(id) as AttachmentRow | undefined;
     return row ? this.#attachmentRowToAttachment(row) : null;
   }
 
-  async findAttachmentBySha256(projectId: string, sha256: string): Promise<Attachment | null> {
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-    const row = this.#db
-      .prepare('SELECT * FROM attachments WHERE project_id = ? AND sha256 = ?')
-      .get(projectId, sha256) as AttachmentRow | undefined;
-    return row ? this.#attachmentRowToAttachment(row) : null;
+  async reuseAttachmentBySha256(
+    projectId: string,
+    sha256: string,
+    claimOwner?: string,
+  ): Promise<Attachment | null> {
+    return this.#tx(() => {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+      const row = this.#db
+        .prepare('SELECT * FROM attachments WHERE project_id = ? AND sha256 = ?')
+        .get(projectId, sha256) as AttachmentRow | undefined;
+      if (row === undefined) return null;
+      if (row.provisional === 1) {
+        if (claimOwner === undefined) {
+          this.#db.prepare('UPDATE attachments SET provisional = 0 WHERE id = ?').run(row.id);
+          this.#db.prepare('DELETE FROM attachment_claims WHERE attachment_id = ?').run(row.id);
+        } else {
+          this.#db
+            .prepare('INSERT OR IGNORE INTO attachment_claims (attachment_id, owner) VALUES (?, ?)')
+            .run(row.id, claimOwner);
+        }
+      }
+      return this.#attachmentRowToAttachment(row);
+    });
   }
 
   #pageRowToMeta(r: PageRow): PageMeta {
@@ -874,12 +933,7 @@ export class SqliteStorage implements Storage {
   async importPage(input: ImportPageInput): Promise<ImportPageResult> {
     return this.#tx(() => {
       const { projectId, page, lines, userId, now, onConflict } = input;
-      if (lines.length === 0) throw new StorageError(`page "${page.title}" has no lines`);
-      const seen = new Set<string>();
-      for (const line of lines) {
-        if (seen.has(line.id)) throw new StorageError(`duplicate line id in page "${page.title}": ${line.id}`);
-        seen.add(line.id);
-      }
+      validateImportLines(page.title, lines);
       const lcValue = titleLc(page.title);
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       const existing = this.#db
@@ -908,6 +962,7 @@ export class SqliteStorage implements Storage {
           ...insertOps,
         ]);
         this.#updateDerived(projectId, existing.id, this.#getLines(existing.id), false);
+        if (input.attachmentClaimOwner !== undefined) this.#finalizeAttachmentClaims(input.attachmentClaimOwner);
         return { kind: 'overwritten' as const, pageId: existing.id };
       }
 
@@ -922,8 +977,22 @@ export class SqliteStorage implements Storage {
       this.#writeImportedLines(pageId, lines, 1);
       this.#insertCommit(ulid(now * 1000), pageId, 0, 1, userId, now, insertOps);
       this.#updateDerived(projectId, pageId, this.#getLines(pageId), false);
+      if (input.attachmentClaimOwner !== undefined) this.#finalizeAttachmentClaims(input.attachmentClaimOwner);
       return { kind: 'created' as const, pageId };
     });
+  }
+
+  #finalizeAttachmentClaims(owner: string): void {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+    const claims = this.#db
+      .prepare('SELECT attachment_id FROM attachment_claims WHERE owner = ?')
+      .all(owner) as { attachment_id: string }[];
+    const makePermanent = this.#db.prepare('UPDATE attachments SET provisional = 0 WHERE id = ?');
+    const clearClaims = this.#db.prepare('DELETE FROM attachment_claims WHERE attachment_id = ?');
+    for (const { attachment_id: id } of claims) {
+      makePermanent.run(id);
+      clearClaims.run(id);
+    }
   }
 
   #writeImportedLines(pageId: string, lines: ImportLine[], version: number): void {
@@ -935,24 +1004,46 @@ export class SqliteStorage implements Storage {
     lines.forEach((l, ord) => st.run(l.id, pageId, ord, l.text, l.created, l.updated, version, l.userId));
   }
 
-  async search(projectId: string, query: string): Promise<SearchHit[]> {
-    if (query === '') return [];
-    // 検索クエリの長さは code point 数で判定する（絵文字を分割するのは承知のうえ。
-    // 書記素単位が要るほどの精度は下限判定に不要）
-    const pages =
-      // oxlint-disable-next-line typescript/no-misused-spread
-      [...query].length >= 3 ? this.#searchFts(projectId, query) : this.#searchLike(projectId, query);
-    const likePattern = `%${escapeLike(query)}%`;
+  async search(projectId: string, query: SearchQuery): Promise<SearchHit[]> {
+    if (query.words.includes('')) return [];
+    const words = [...new Set(query.words)];
+    const excludes = [...new Set(query.excludes)];
+    const pagesByTerm = new Map<string, { id: string; title: string; image: string | null }[]>();
+    const searchTerm = (term: string) => {
+      const cached = pagesByTerm.get(term);
+      if (cached !== undefined) return cached;
+      const pages = this.#searchTerm(projectId, term);
+      pagesByTerm.set(term, pages);
+      return pages;
+    };
+    const firstWord = words[0];
+    if (firstWord === undefined) return [];
+    const pages = searchTerm(firstWord);
+    const requiredPageIds = words.slice(1).map((word) =>
+      new Set(searchTerm(word).map((page) => page.id)));
+    const excludedPageIds = new Set(excludes.flatMap((word) =>
+      searchTerm(word).map((page) => page.id)));
+    const filtered = pages.filter((page) =>
+      requiredPageIds.every((ids) => ids.has(page.id)) && !excludedPageIds.has(page.id));
+    const likePatterns = words.map((word) => `%${escapeLike(word)}%`);
     const matchedLines = this.#db.prepare(
-      `SELECT text FROM lines WHERE page_id = ? AND text LIKE ? ESCAPE '\\' ORDER BY ord`,
+      `SELECT text FROM lines WHERE page_id = ? AND (${words.map(() => "text LIKE ? ESCAPE '\\'").join(' OR ')})
+       ORDER BY ord`,
     );
-    return pages.map((p) => ({
+    return filtered.map((p) => ({
       pageId: p.id,
       title: p.title,
       image: p.image,
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-      lines: (matchedLines.all(p.id, likePattern) as { text: string }[]).map((r) => r.text),
+      lines: (matchedLines.all(p.id, ...likePatterns) as { text: string }[]).map((r) => r.text),
     }));
+  }
+
+  #searchTerm(projectId: string, query: string): { id: string; title: string; image: string | null }[] {
+    // 検索語の長さは code point 数で判定する（絵文字を分割するのは承知のうえ。
+    // 書記素単位が要るほどの精度は下限判定に不要）
+    // oxlint-disable-next-line typescript/no-misused-spread
+    return [...query].length >= 3 ? this.#searchFts(projectId, query) : this.#searchLike(projectId, query);
   }
 
   #searchFts(projectId: string, query: string): { id: string; title: string; image: string | null }[] {

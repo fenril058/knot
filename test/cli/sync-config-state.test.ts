@@ -1,10 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadSyncConfig, normalizeBaseUrl, resolveToken, writeSyncConfig } from '../../src/cli/sync/config.ts';
-import { loadState, saveState } from '../../src/cli/sync/state.ts';
+import {
+  clearPendingPullRename,
+  loadPendingPullRename,
+  loadState,
+  savePendingPullRename,
+  saveState,
+} from '../../src/cli/sync/state.ts';
 import { CliError } from '../../src/cli/commands.ts';
 
 function tmp(): string {
@@ -60,5 +66,24 @@ void test('state: 無ければ空、保存後は読み戻せる、tmp ファイ�
     saveState(dir, state);
     assert.deepEqual(loadState(dir), state);
     assert.deepEqual(readdirSync(join(dir, '.knot')).toSorted(), ['state.json']);
+  } finally { rmSync(dir, { recursive: true }); }
+});
+
+void test('pull のリネーム中断記録をアトミックに保存し、完了後に削除する', () => {
+  const dir = tmp();
+  try {
+    mkdirSync(join(dir, '.knot'), { recursive: true });
+    const pending = {
+      pageId: 'p1',
+      from: { title: 'Alpha', filename: 'Alpha.txt', version: 1, contentHash: 'sha256:old' },
+      to: { title: 'Alpha2', filename: 'Alpha2.txt', version: 2, contentHash: 'sha256:new' },
+    };
+    assert.equal(loadPendingPullRename(dir), undefined);
+    savePendingPullRename(dir, pending);
+    assert.deepEqual(loadPendingPullRename(dir), pending);
+    assert.deepEqual(readdirSync(join(dir, '.knot')).toSorted(), ['pending-pull-rename.json']);
+    clearPendingPullRename(dir);
+    assert.equal(loadPendingPullRename(dir), undefined);
+    assert.equal(existsSync(join(dir, '.knot', 'pending-pull-rename.json.tmp')), false);
   } finally { rmSync(dir, { recursive: true }); }
 });
