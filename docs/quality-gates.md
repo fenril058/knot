@@ -23,7 +23,9 @@ CI は、具体的な不具合または不要コードを検出できる検査�
 
 GitHub Actions の構文は `actionlint` で検査する。
 
-GitHub Actions のセキュリティ上の問題は `zizmor` で検査する。
+GitHub Actions と Dependabot 設定のセキュリティ上の問題は `zizmor` で検査する。
+
+GitHub Actions の action 参照は `pinact` で完全な commit SHA への固定と version コメントの一致を検査する。
 
 ## TypeScript と lint
 
