@@ -21,7 +21,7 @@ SameSite cookie と、クロスオリジンの単純なフォーム送信では�
 
 - 公開閲覧を追加する際は、認可だけでなくアップロード、レート制限、リソース消費の前提も再評価する。
 - ブラウザ以外の互換ツールには personal access token による API 認証を提供する。
-- 継続的に守る安全要件は `docs/security.md` に記録する。
+- 継続的に守る安全要件は `docs/security-requirements.md` に記録する。
 
 ## 参照
 

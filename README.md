@@ -96,7 +96,9 @@ direnv exec . node src/cli/main.ts sync status --dir ./wiki --remote
 
 運用ガイド: [docs/ops.md](docs/ops.md)
 
-開発時に維持する安全要件: [docs/security.md](docs/security.md)
+開発時に維持する安全要件: [docs/security-requirements.md](docs/security-requirements.md)
+
+脆弱性の報告方法: [SECURITY.md](SECURITY.md)
 
 ## 外部画像の許可ホスト
 
