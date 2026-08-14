@@ -1,4 +1,6 @@
-FROM node:26-slim AS build
+# digest は Dependabot が Node 26 系のまま追従更新する（major は dependabot.yml で ignore）。
+# マルチアーキテクチャを保つため manifest list の digest を指定する。
+FROM node:26-slim@sha256:4ebb5ace66f15a24c14c492e01a8beeed4fddf970a856109f5126e703e5fe503 AS build
 WORKDIR /app
 COPY package.json package-lock.json .npmrc rolldown.config.ts ./
 RUN npm ci
@@ -6,7 +8,7 @@ COPY src ./src
 COPY public ./public
 RUN npm run build:client && npm prune --omit=dev
 
-FROM node:26-slim
+FROM node:26-slim@sha256:4ebb5ace66f15a24c14c492e01a8beeed4fddf970a856109f5126e703e5fe503
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
