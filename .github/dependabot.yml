@@ -16,12 +16,16 @@ updates:
 
     open-pull-requests-limit: 5
 
+    # @playwright/test は flake.nix の playwright-driver.browsers と対で動く。
+    # 片方だけ上がるとブラウザのバージョンが合わず e2e が落ちるため、
+    # Dependabot には触らせず flake.lock の更新と一緒に手で上げる。
+    ignore:
+      - dependency-name: "@playwright/test"
+
     groups:
       npm-minor-patch:
         patterns:
           - "*"
-        exclude-patterns:
-          - "@playwright/test"
         update-types:
           - "minor"
           - "patch"
