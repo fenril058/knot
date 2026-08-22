@@ -89,6 +89,75 @@ void test('409 の3-way rebase は他者の変更を残して自分の変更だ�
   assert.deepEqual(merged.map(({ text }) => text), ['Title', 'mine changed', 'theirs changed']);
 });
 
+void test('同一行の異なる更新は自動再送せず、手元の内容を競合解消まで保持する', () => {
+  const base = [line('title', 'Title'), line('body', 'base')];
+  const sync = engine(base);
+  sync.bufferChanged(['Title', 'local']);
+  sync.flush();
+
+  const effects = sync.ackConflict({
+    version: 2,
+    title: 'Title',
+    lines: [base[0]!, line('body', 'latest', 2)],
+  });
+  const conflict = effect(effects, 'conflict');
+
+  assert.equal(effect(effects, 'send'), undefined);
+  assert.equal(sync.status, 'conflict');
+  assert.deepEqual(conflict?.texts, ['Title', 'local']);
+  assert.deepEqual(conflict?.conflicts, [{
+    lineId: 'body',
+    base: { kind: 'present', text: 'base' },
+    local: { kind: 'present', text: 'local' },
+    latest: { kind: 'present', text: 'latest' },
+  }]);
+  assert.deepEqual(sync.flush(), []);
+});
+
+void test('競合中の編集は自動保存せず、明示的な解消後に最新版へ送る', () => {
+  const base = [line('title', 'Title'), line('body', 'base')];
+  const sync = engine(base);
+  sync.bufferChanged(['Title', 'local']);
+  sync.flush();
+  sync.ackConflict({ version: 2, title: 'Title', lines: [base[0]!, line('body', 'latest', 2)] });
+
+  assert.deepEqual(sync.bufferChanged(['Title', 'resolved']), []);
+  assert.deepEqual(sync.flush(), []);
+
+  const resolved = sync.resolveConflict();
+  const send = effect(resolved, 'send');
+  assert.equal(send?.commit.baseVersion, 2);
+  assert.deepEqual(send?.commit.ops, [{ type: 'update', id: 'body', text: 'resolved' }]);
+  assert.equal(sync.status, 'saving');
+});
+
+void test('競合解消でサーバ上の内容を選んだ場合は再送せず pending を消す', () => {
+  const base = [line('title', 'Title'), line('body', 'base')];
+  const latest = [base[0]!, line('body', 'latest', 2)];
+  const sync = engine(base);
+  sync.bufferChanged(['Title', 'local']);
+  sync.flush();
+  sync.ackConflict({ version: 2, title: 'Title', lines: latest });
+
+  sync.bufferChanged(['Title', 'latest']);
+
+  assert.deepEqual(sync.resolveConflict(), [{ type: 'persist', record: null }]);
+  assert.equal(sync.status, 'saved');
+});
+
+void test('remote delete と local update の競合を手元側で解消すると元の行 ID で再送する', () => {
+  const base = [line('title', 'Title'), line('body', 'base')];
+  const sync = engine(base);
+  sync.bufferChanged(['Title', 'local']);
+  sync.flush();
+
+  const conflicts = sync.ackConflict({ version: 2, title: 'Title', lines: [base[0]!] });
+  assert.deepEqual(effect(conflicts, 'conflict')?.texts, ['Title', 'local']);
+
+  const send = effect(sync.resolveConflict(), 'send');
+  assert.deepEqual(send?.commit.ops, [{ type: 'insert', id: 'body', after: 'title', text: 'local' }]);
+});
+
 void test('409 で挿入アンカーが消えてもローカルの挿入内容を再送する', () => {
   const base = [line('title', 'Title'), line('anchor', 'anchor'), line('tail', 'tail')];
   const sync = engine(base);

@@ -94,6 +94,69 @@ test('400 で保存を拒否された後も追加入力して保存できる', a
   await expect(page.locator('.page-body')).toContainText('rejected text corrected');
 });
 
+test('同一行の並行編集は自動上書きせず、手元の内容を明示的に保存できる', async ({ page }) => {
+  const login = await page.request.post('/api/knot/session', {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: { name: 'e2e', password: 'e2e-password' },
+  });
+  expect(login.ok()).toBe(true);
+
+  const title = 'same-line-conflict';
+  const created = await page.request.post(`/api/knot/pages/e2e/${title}/commits`, {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: {
+      commitId: 'same-line-conflict-create',
+      baseVersion: 0,
+      ops: [
+        { type: 'insert', id: 'same-line-title', after: '_head', text: title },
+        { type: 'insert', id: 'same-line-body', after: 'same-line-title', text: 'base' },
+      ],
+    },
+  });
+  expect(created.ok()).toBe(true);
+
+  const other = await page.context().newPage();
+  await Promise.all([page.goto(`/e2e/${title}`), other.goto(`/e2e/${title}`)]);
+  await Promise.all([
+    page.locator('#edit-page-button').click(),
+    other.locator('#edit-page-button').click(),
+  ]);
+
+  const replaceDocument = async (target: typeof page, body: string): Promise<void> => {
+    const editor = target.locator('#editor-root .cm-content');
+    await editor.click();
+    await target.keyboard.press('Control+A');
+    await target.keyboard.insertText(`${title}\n${body}`);
+  };
+
+  await replaceDocument(page, 'server change');
+  await expect(page.locator('#save-status')).toHaveText('保存済み');
+
+  await replaceDocument(other, 'local change');
+  await expect(other.locator('#edit-conflict')).toBeVisible();
+  await expect(other.locator('#save-status')).toContainText('自動保存を停止しました');
+  await expect(other.locator('#edit-conflict')).toContainText('base');
+  await expect(other.locator('#edit-conflict')).toContainText('local change');
+  await expect(other.locator('#edit-conflict')).toContainText('server change');
+  await expect(other.locator('#editor-root .cm-content')).toContainText('local change');
+
+  const beforeResolution = await other.request.get(`/api/pages/e2e/${title}`);
+  expect((await beforeResolution.json()).lines[1].text).toBe('server change');
+
+  await other.reload();
+  await other.locator('#edit-page-button').click();
+  await expect(other.locator('#edit-conflict')).toBeVisible();
+  await expect(other.locator('#editor-root .cm-content')).toContainText('local change');
+
+  await other.locator('#resolve-edit-conflict').click();
+  await expect(other.locator('#save-status')).toHaveText('保存済み');
+  await expect(other.locator('#edit-conflict')).toBeHidden();
+
+  const resolved = await other.request.get(`/api/pages/e2e/${title}`);
+  expect((await resolved.json()).lines[1].text).toBe('local change');
+  await other.close();
+});
+
 test('選択行だけ原文にし、それ以外の行を整形表示する', async ({ page }) => {
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   const login = await page.request.post('/api/knot/session', {

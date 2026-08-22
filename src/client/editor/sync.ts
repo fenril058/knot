@@ -2,7 +2,7 @@ import { applyOps } from '../../core/apply.ts';
 import { alignLines, diffLines } from '../../core/diff.ts';
 import { ulid } from '../../core/id.ts';
 import { type Line, type LineOp } from '../../core/ops.ts';
-import { rebase } from '../../core/rebase.ts';
+import { rebase, type RebaseConflict } from '../../core/rebase.ts';
 
 export type Snapshot = { version: number; lines: Line[] };
 
@@ -17,10 +17,11 @@ export type PendingRecord = {
 export type SyncEffect =
   | { type: 'send'; commit: { commitId: string; baseVersion: number; ops: LineOp[] }; title: string }
   | { type: 'persist'; record: PendingRecord | null }
+  | { type: 'conflict'; conflicts: RebaseConflict[]; texts: string[] }
   | { type: 'schedule' };
 
 type Inflight = PendingRecord & { expectedLines: Line[] };
-type SyncStatus = 'saved' | 'saving' | 'dirty' | 'error';
+type SyncStatus = 'saved' | 'saving' | 'dirty' | 'conflict' | 'error';
 
 export class SyncEngine {
   readonly #userId: string;
@@ -30,6 +31,7 @@ export class SyncEngine {
   #confirmed: Snapshot;
   #buffer: string[];
   #inflight: Inflight | null = null;
+  #conflictCandidate: Line[] | null = null;
   #hasBufferChanged = false;
   #retryPending = false;
   #status: SyncStatus = 'saved';
@@ -80,11 +82,13 @@ export class SyncEngine {
   bufferChanged(texts: string[]): SyncEffect[] {
     this.#buffer = [...texts];
     this.#hasBufferChanged = true;
+    if (this.#status === 'conflict') return [];
     this.#status = 'dirty';
     return this.#inflight === null ? [{ type: 'schedule' }] : [];
   }
 
   flush(): SyncEffect[] {
+    if (this.#status === 'conflict') return [];
     if (this.#inflight !== null) {
       if (!this.#retryPending) return [];
       this.#retryPending = false;
@@ -126,22 +130,50 @@ export class SyncEngine {
     const local = localOps.length === 0
       ? this.#confirmed.lines
       : applyOps(this.#confirmed.lines, localOps, this.#context(this.#confirmed.version + 1));
-    const rebasedOps = rebase(this.#confirmed.lines, local, latest.lines);
+    const result = rebase(this.#confirmed.lines, local, latest.lines);
 
     this.#confirmed = { version: latest.version, lines: [...latest.lines] };
     this.#currentTitle = latest.title;
     this.#inflight = null;
     this.#retryPending = false;
 
-    if (rebasedOps.length === 0) {
+    if (result.kind === 'conflict') {
+      const candidate = applyOps(latest.lines, result.candidateOps, this.#context(latest.version + 1));
+      this.#conflictCandidate = candidate;
+      this.#buffer = candidate.map(({ text }) => text);
+      this.#status = 'conflict';
+      return [{ type: 'conflict', conflicts: result.conflicts, texts: [...this.#buffer] }];
+    }
+
+    this.#conflictCandidate = null;
+    if (result.ops.length === 0) {
       this.#buffer = latest.lines.map(({ text }) => text);
+      this.#hasBufferChanged = false;
       this.#status = 'saved';
       return [{ type: 'persist', record: null }];
     }
 
-    const effects = this.#startCommit(rebasedOps);
+    const effects = this.#startCommit(result.ops);
     this.#buffer = this.#inflightTexts();
     return effects;
+  }
+
+  resolveConflict(): SyncEffect[] {
+    if (this.#status !== 'conflict' || this.#conflictCandidate === null) return [];
+    const edits = diffLines(this.#conflictCandidate, this.#buffer, this.#makeId);
+    const resolvedLines = edits.length === 0
+      ? this.#conflictCandidate
+      : applyOps(this.#conflictCandidate, edits, this.#context(this.#confirmed.version + 1));
+    const result = rebase(this.#confirmed.lines, resolvedLines, this.#confirmed.lines);
+    if (result.kind === 'conflict') throw new Error('resolved lines unexpectedly conflict with latest lines');
+    const ops = result.ops;
+    this.#conflictCandidate = null;
+    if (ops.length === 0) {
+      this.#hasBufferChanged = false;
+      this.#status = 'saved';
+      return [{ type: 'persist', record: null }];
+    }
+    return this.#startCommit(ops);
   }
 
   ackFailure(): SyncEffect[] {
@@ -154,6 +186,7 @@ export class SyncEngine {
   ackBad(): SyncEffect[] {
     if (this.#inflight === null) return [];
     this.#inflight = null;
+    this.#conflictCandidate = null;
     this.#retryPending = false;
     this.#buffer = this.#confirmed.lines.map(({ text }) => text);
     this.#hasBufferChanged = false;

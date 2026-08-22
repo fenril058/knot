@@ -1,6 +1,7 @@
 import { defaultKeymap, history as historyExtension, historyKeymap } from '@codemirror/commands';
 import { keymap, EditorView } from '@codemirror/view';
 import { applyOps } from '../../core/apply.ts';
+import type { RebaseConflict, RebaseLineState } from '../../core/rebase.ts';
 import { titleLc, pageHref } from '../../core/title.ts';
 import type { KnownPage } from '../../render/presentation.ts';
 import { fetchPage, postCommit, uploadFile } from './api.ts';
@@ -25,10 +26,25 @@ const KEEPALIVE_BODY_LIMIT = 64 * 1024;
 const root = document.querySelector<HTMLElement>('#editor-root');
 const statusElement = document.querySelector<HTMLElement>('#save-status');
 const editButtonElement = document.querySelector<HTMLButtonElement>('#edit-page-button');
-if (root === null || statusElement === null || editButtonElement === null) throw new Error('editor root is missing');
+const conflictPanelElement = document.querySelector<HTMLElement>('#edit-conflict');
+const conflictListElement = document.querySelector<HTMLOListElement>('#edit-conflict-list');
+const resolveConflictButtonElement = document.querySelector<HTMLButtonElement>('#resolve-edit-conflict');
+if (
+  root === null
+  || statusElement === null
+  || editButtonElement === null
+  || conflictPanelElement === null
+  || conflictListElement === null
+  || resolveConflictButtonElement === null
+) {
+  throw new Error('editor root is missing');
+}
 const editorRoot = root;
 const saveStatus = statusElement;
 const editButton = editButtonElement;
+const conflictPanel = conflictPanelElement;
+const conflictList = conflictListElement;
+const resolveConflictButton = resolveConflictButtonElement;
 
 const data = editorRoot.dataset;
 if (data.project === undefined || data.title === undefined || data.userName === undefined || data.cspNonce === undefined) {
@@ -93,10 +109,56 @@ let statusMessage: string | undefined;
 let suppressChanges = false;
 
 function renderStatus(): void {
-  const labels = { saved: '保存済み', saving: '保存中', dirty: '未保存', error: 'エラー' } as const;
+  const labels = {
+    saved: '保存済み',
+    saving: '保存中',
+    dirty: '未保存',
+    conflict: '競合を解消してください',
+    error: 'エラー',
+  } as const;
   saveStatus.hidden = false;
   saveStatus.textContent = statusMessage ?? labels[engine.status];
   saveStatus.dataset.status = engine.status;
+}
+
+function conflictValue(label: string, value: RebaseLineState): HTMLDivElement {
+  const container = document.createElement('div');
+  const term = document.createElement('dt');
+  const description = document.createElement('dd');
+  term.textContent = label;
+  description.textContent = value.kind === 'present' ? value.text : '（削除）';
+  container.append(term, description);
+  return container;
+}
+
+function renderConflicts(conflicts: readonly RebaseConflict[]): void {
+  const items = conflicts.map((conflict, index) => {
+    const item = document.createElement('li');
+    item.className = 'edit-conflict-list-item';
+    const label = document.createElement('strong');
+    label.textContent = `競合した行 ${index + 1}`;
+    const values = document.createElement('dl');
+    values.className = 'edit-conflict-values';
+    values.append(
+      conflictValue('基準', conflict.base),
+      conflictValue('手元', conflict.local),
+      conflictValue('サーバ', conflict.latest),
+    );
+    item.append(label, values);
+    return item;
+  });
+  conflictList.replaceChildren(...items);
+  resolveConflictButton.disabled = false;
+  conflictPanel.hidden = false;
+  statusMessage = `${conflicts.length} 行の競合があるため、自動保存を停止しました`;
+  renderStatus();
+  conflictPanel.focus();
+}
+
+function clearConflictPanel(): void {
+  conflictPanel.hidden = true;
+  conflictList.replaceChildren();
+  resolveConflictButton.disabled = false;
 }
 
 function moveTitleIfNeeded(previousTitle: string): void {
@@ -127,6 +189,8 @@ function textsAfterConflict(
   page: { version: number; lines: Snapshot['lines'] },
   effects: readonly SyncEffect[],
 ): string[] {
+  const conflict = effects.find((effect) => effect.type === 'conflict');
+  if (conflict !== undefined) return conflict.texts;
   const send = effects.find((effect) => effect.type === 'send');
   if (send === undefined) return page.lines.map(({ text }) => text);
   return applyOps(page.lines, send.commit.ops, {
@@ -156,6 +220,11 @@ async function executeEffects(effects: readonly SyncEffect[], keepalive = false)
     if (effect.type === 'persist') {
       continue;
     }
+    if (effect.type === 'conflict') {
+      syncDocument(effect.texts);
+      renderConflicts(effect.conflicts);
+      continue;
+    }
 
     const bodySize = new TextEncoder().encode(JSON.stringify(effect.commit)).byteLength;
     if (keepalive && bodySize > KEEPALIVE_BODY_LIMIT) {
@@ -167,16 +236,16 @@ async function executeEffects(effects: readonly SyncEffect[], keepalive = false)
     const previousTitle = engine.currentTitle;
     if (result.kind === 'ok') {
       await executeEffects(engine.ackSuccess(result.version), keepalive);
+      clearConflictPanel();
       refreshGutter();
       moveTitleIfNeeded(previousTitle);
       statusMessage = undefined;
     } else if (result.kind === 'conflict') {
       const nextEffects = engine.ackConflict(result.page);
-      syncDocument(textsAfterConflict(result.page, nextEffects));
       await executeEffects(nextEffects, keepalive);
       refreshGutter();
       moveTitleIfNeeded(previousTitle);
-      statusMessage = undefined;
+      if (engine.status !== 'conflict') statusMessage = undefined;
     } else if (result.kind === 'network') {
       await executeEffects(engine.ackFailure(), keepalive);
     } else {
@@ -310,6 +379,15 @@ function flushOnExit(): void {
 function handleVisibilityChange(): void {
   if (document.visibilityState === 'hidden') flushOnExit();
 }
+
+resolveConflictButton.addEventListener('click', () => {
+  resolveConflictButton.disabled = true;
+  statusMessage = undefined;
+  const effects = engine.resolveConflict();
+  if (engine.status === 'saved') clearConflictPanel();
+  void executeEffects(effects);
+  renderStatus();
+});
 
 let starting = false;
 editButton.addEventListener('click', () => {
