@@ -107,6 +107,7 @@ ${related.hasBackLinks ? html`<p class="backlinks-badge">逆リンクまたは�
   id="editor-root"
   class="page-body"
   data-project="${project.name}"
+  data-page-id="${page.id}"
   data-title="${page.title}"
   data-user-name="${userName}"
   data-last-seen-version="${previousVisit?.lastSeenVersion ?? 0}"

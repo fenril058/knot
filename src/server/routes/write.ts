@@ -144,8 +144,9 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     if (!project) return jsonError(c, 404, 'not_found');
     const body = await readJson(c);
     if (!body) return jsonError(c, 400, 'bad_request', { message: 'invalid JSON' });
-    const { commitId, baseVersion, ops } = body;
+    const { pageId: requestedPageId, commitId, baseVersion, ops } = body;
     if (
+      (requestedPageId !== undefined && (typeof requestedPageId !== 'string' || requestedPageId === '')) ||
       typeof commitId !== 'string' || commitId === '' ||
       typeof baseVersion !== 'number' || !Number.isInteger(baseVersion) || baseVersion < 0 ||
       !Array.isArray(ops) || ops.length === 0 || !ops.every(isLineOp)
@@ -156,7 +157,13 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     const rawTitle = safeDecode(c.req.param('title'));
     if (rawTitle === null) return jsonError(c, 404, 'not_found');
     const urlTitleLc = titleLc(rawTitle);
-    const page = await storage.getPageByTitle(project.id, urlTitleLc);
+    const page = requestedPageId === undefined
+      ? await storage.getPageByTitle(project.id, urlTitleLc)
+      : await storage.getPageById(requestedPageId);
+    if (requestedPageId !== undefined && page === null) return jsonError(c, 404, 'not_found');
+    if (page !== null && page.projectId !== project.id) {
+      return jsonError(c, 404, 'not_found');
+    }
     let pageId: string;
     if (page) {
       pageId = page.id;
@@ -180,6 +187,7 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
         projectId: project.id, pageId, commitId, baseVersion, ops,
         userId: c.get('userId'), now: now(),
       });
+      if (result.kind === 'applied') return c.json({ version: result.version, pageId });
       return commitResultToResponse(c, result);
     } catch (e) {
       if (e instanceof BadCommitError) return jsonError(c, 400, 'bad_commit', { message: e.message });

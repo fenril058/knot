@@ -25,6 +25,7 @@ void test('既存ページの正規 URL は SSR 本文と直接編集用の要�
   assert.match(body, /id="editor-root"[^>]*class="page-body"/);
   assert.match(body, /line one/);
   assert.equal(dataAttribute(body, 'project'), 'proj');
+  assert.equal(dataAttribute(body, 'page-id').length, 26);
   assert.equal(dataAttribute(body, 'title'), 'Alpha');
   assert.equal(dataAttribute(body, 'user-name'), 'alice');
   assert.equal(dataAttribute(body, 'last-seen-version'), '0');

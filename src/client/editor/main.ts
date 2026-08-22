@@ -12,9 +12,10 @@ import { lineWysiwyg } from './cm/lineWysiwyg.ts';
 import { pasteHandlers } from './cm/paste.ts';
 import { refreshTelomereGutter, telomereGutter } from './cm/telomere.ts';
 import {
-  parsePendingRecord,
-  serializePendingRecord,
+  parseEditorRecord,
+  serializeEditorRecord,
   SyncEngine,
+  type EditorRecord,
   type PendingRecord,
   type Snapshot,
   type SyncEffect,
@@ -89,24 +90,58 @@ function unixTime(): number {
   return Math.floor(Date.now() / 1000);
 }
 
-function pendingKey(value: string): string {
+function pendingKey(value: string, pageId?: string): string {
+  return pageId === undefined
+    ? `knot:pending:${project}/title:${titleLc(value)}`
+    : `knot:pending:${project}/page:${pageId}`;
+}
+
+function legacyPendingKey(value: string): string {
   return `knot:pending:${project}/${titleLc(value)}`;
 }
 
-function readPending(key: string): PendingRecord | null {
-  const raw = localStorage.getItem(key);
-  if (raw === null) return null;
-  const record = parsePendingRecord(raw);
-  if (record === null) localStorage.removeItem(key);
-  return record;
+function readPending(key: string): EditorRecord | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === null) return null;
+    const record = parseEditorRecord(raw);
+    if (record === null) localStorage.removeItem(key);
+    return record;
+  } catch (error) {
+    console.error('failed to read the editor recovery record', error);
+    storageWarning = 'ブラウザに未保存内容を保存できません';
+    return null;
+  }
 }
 
-let storageKey = pendingKey(title);
+const initialPageId = data.pageId === '' ? undefined : data.pageId;
+let storageKey = pendingKey(title, initialPageId);
 let engine: SyncEngine;
 let view: EditorView;
 let timer: number | undefined;
 let statusMessage: string | undefined;
+let storageWarning: string | undefined;
 let suppressChanges = false;
+
+function readInitialPending(): EditorRecord | null {
+  const record = readPending(storageKey);
+  if (record !== null) return record;
+  const legacyKey = legacyPendingKey(title);
+  const legacyRecord = readPending(legacyKey);
+  if (legacyRecord === null) return null;
+  const migratedRecord: EditorRecord = legacyRecord.pageId === undefined && initialPageId !== undefined
+    ? { ...legacyRecord, pageId: initialPageId }
+    : legacyRecord;
+  try {
+    localStorage.setItem(storageKey, serializeEditorRecord(migratedRecord));
+    localStorage.removeItem(legacyKey);
+  } catch (error) {
+    console.error('failed to migrate the editor recovery record', error);
+    storageKey = legacyKey;
+    storageWarning = 'ブラウザに未保存内容を保存できません';
+  }
+  return migratedRecord;
+}
 
 function renderStatus(): void {
   const labels = {
@@ -117,7 +152,8 @@ function renderStatus(): void {
     error: 'エラー',
   } as const;
   saveStatus.hidden = false;
-  saveStatus.textContent = statusMessage ?? labels[engine.status];
+  const message = statusMessage ?? labels[engine.status];
+  saveStatus.textContent = storageWarning === undefined ? message : `${message}（${storageWarning}）`;
   saveStatus.dataset.status = engine.status;
 }
 
@@ -161,16 +197,25 @@ function clearConflictPanel(): void {
   resolveConflictButton.disabled = false;
 }
 
-function moveTitleIfNeeded(previousTitle: string): void {
-  if (engine.currentTitle === previousTitle) return;
+function syncEditorLocation(previousTitle: string): void {
   const oldKey = storageKey;
-  storageKey = pendingKey(engine.currentTitle);
-  const pending = localStorage.getItem(oldKey);
-  if (pending !== null) {
-    localStorage.setItem(storageKey, pending);
-    localStorage.removeItem(oldKey);
+  storageKey = pendingKey(engine.currentTitle, engine.pageId);
+  if (storageKey !== oldKey) {
+    try {
+      const pending = localStorage.getItem(oldKey);
+      if (pending !== null) {
+        localStorage.setItem(storageKey, pending);
+        localStorage.removeItem(oldKey);
+      }
+      storageWarning = undefined;
+    } catch (error) {
+      console.error('failed to move the editor recovery record', error);
+      storageWarning = 'ブラウザに未保存内容を保存できません';
+    }
   }
-  window.history.replaceState(null, '', pageHref(project, engine.currentTitle));
+  if (engine.currentTitle !== previousTitle) {
+    window.history.replaceState(null, '', pageHref(project, engine.currentTitle));
+  }
 }
 
 function syncDocument(lines: readonly string[]): void {
@@ -185,12 +230,12 @@ function refreshGutter(): void {
   view.dispatch({ effects: refreshTelomereGutter.of(undefined) });
 }
 
-function textsAfterConflict(
+function textsAfterEffects(
   page: { version: number; lines: Snapshot['lines'] },
   effects: readonly SyncEffect[],
 ): string[] {
-  const conflict = effects.find((effect) => effect.type === 'conflict');
-  if (conflict !== undefined) return conflict.texts;
+  const replacement = effects.find((effect) => effect.type === 'replace-document');
+  if (replacement !== undefined) return replacement.texts;
   const send = effects.find((effect) => effect.type === 'send');
   if (send === undefined) return page.lines.map(({ text }) => text);
   return applyOps(page.lines, send.commit.ops, {
@@ -202,10 +247,22 @@ function textsAfterConflict(
 
 async function executeEffects(effects: readonly SyncEffect[], keepalive = false): Promise<void> {
   // Persist before awaiting the network so pagehide can always recover the inflight commit.
+  let persistenceAttempted = false;
+  let persistenceFailed = false;
   for (const effect of effects) {
     if (effect.type !== 'persist') continue;
-    if (effect.record === null) localStorage.removeItem(storageKey);
-    else localStorage.setItem(storageKey, serializePendingRecord(effect.record));
+    persistenceAttempted = true;
+    try {
+      if (effect.record === null) localStorage.removeItem(storageKey);
+      else localStorage.setItem(storageKey, serializeEditorRecord(effect.record));
+    } catch (error) {
+      console.error('failed to persist the editor recovery record', error);
+      persistenceFailed = true;
+    }
+  }
+  if (persistenceAttempted) {
+    storageWarning = persistenceFailed ? 'ブラウザに未保存内容を保存できません' : undefined;
+    renderStatus();
   }
   for (const effect of effects) {
     if (effect.type === 'schedule') {
@@ -220,8 +277,11 @@ async function executeEffects(effects: readonly SyncEffect[], keepalive = false)
     if (effect.type === 'persist') {
       continue;
     }
-    if (effect.type === 'conflict') {
+    if (effect.type === 'replace-document') {
       syncDocument(effect.texts);
+      continue;
+    }
+    if (effect.type === 'present-conflict') {
       renderConflicts(effect.conflicts);
       continue;
     }
@@ -235,17 +295,19 @@ async function executeEffects(effects: readonly SyncEffect[], keepalive = false)
     const result = await postCommit(project, effect.title, effect.commit, { keepalive });
     const previousTitle = engine.currentTitle;
     if (result.kind === 'ok') {
-      await executeEffects(engine.ackSuccess(result.version), keepalive);
+      const nextEffects = engine.ackSuccess(result.version, result.pageId);
       clearConflictPanel();
       refreshGutter();
-      moveTitleIfNeeded(previousTitle);
+      syncEditorLocation(previousTitle);
       statusMessage = undefined;
+      await executeEffects(nextEffects, keepalive);
     } else if (result.kind === 'conflict') {
       const nextEffects = engine.ackConflict(result.page);
-      await executeEffects(nextEffects, keepalive);
+      clearConflictPanel();
       refreshGutter();
-      moveTitleIfNeeded(previousTitle);
-      if (engine.status !== 'conflict') statusMessage = undefined;
+      syncEditorLocation(previousTitle);
+      statusMessage = undefined;
+      await executeEffects(nextEffects, keepalive);
     } else if (result.kind === 'network') {
       await executeEffects(engine.ackFailure(), keepalive);
     } else {
@@ -262,67 +324,109 @@ async function executeEffects(effects: readonly SyncEffect[], keepalive = false)
 
 type Recovery = { engine: SyncEngine; effects: SyncEffect[]; texts: string[] };
 
-// 起動時再送がサーバに拒否されたとき、失われる内容をエディタに見せるための持ち越し。
-let rejectedPendingTexts: string[] | null = null;
-
 function expectedTexts(record: PendingRecord): string[] {
-  return applyOps(record.baseLines, record.ops, {
+  const committed = applyOps(record.baseLines, record.ops, {
     userId: userName,
     now: unixTime(),
     version: record.baseVersion + 1,
   }).map(({ text }) => text);
+  return record.draftTexts === undefined ? committed : record.draftTexts;
 }
 
-async function restorePending(record: PendingRecord): Promise<Recovery | null> {
-  const result = await postCommit(project, record.title, {
-    commitId: record.commitId,
-    baseVersion: record.baseVersion,
-    ops: record.ops,
-  });
-  if (result.kind === 'ok') {
-    localStorage.removeItem(storageKey);
-    return null;
+async function restorePending(record: EditorRecord): Promise<Recovery | null> {
+  const currentTitle = record.pageId !== undefined && record.pageId === initialPageId ? title : record.title;
+  if (record.kind === 'conflict-draft') {
+    const locatedRecord = { ...record, title: currentTitle };
+    const restored = new SyncEngine({
+      snapshot: record.latest,
+      title: currentTitle,
+      userId: userName,
+      isNew: false,
+      conflictDraft: locatedRecord,
+      now: unixTime,
+    });
+    return { engine: restored, effects: restored.restoredEffects(), texts: record.texts };
   }
-  if (result.kind === 'bad') {
-    // 拒否されたコミットは再送しない。ただし黙って捨てず、内容をバッファに残して警告を出す。
-    // record の削除はエディタが起動して内容が画面に載った後まで遅延する
-    // （この後の fetchPage が失敗した場合、リロードで再びこの経路に入れるように）。
-    rejectedPendingTexts = expectedTexts(record);
-    statusMessage = `前回の未保存の編集を自動反映できませんでした: ${result.message}`;
-    return null;
+  if (record.kind === 'unsaved-draft') {
+    const locatedRecord = { ...record, title: currentTitle };
+    const restored = new SyncEngine({
+      snapshot: record.confirmed,
+      title: currentTitle,
+      userId: userName,
+      isNew: false,
+      unsavedDraft: locatedRecord,
+      now: unixTime,
+    });
+    return { engine: restored, effects: restored.restoredEffects(), texts: record.texts };
   }
-  // 元の PendingRecord を inflight のまま復元する。network 時の再送が同じ commitId・同じ ops
-  // になり（冪等）、元のコミットが実は届いていた場合も重複適用にならない。
   const restored = new SyncEngine({
     snapshot: { version: record.baseVersion, lines: record.baseLines },
-    title: record.title,
+    title: currentTitle,
     userId: userName,
     isNew: record.baseVersion === 0,
     pending: record,
     now: unixTime,
   });
+  const result = await postCommit(project, record.title, {
+    ...(record.pageId === undefined ? {} : { pageId: record.pageId }),
+    commitId: record.commitId,
+    baseVersion: record.baseVersion,
+    ops: record.ops,
+  });
+  if (result.kind === 'ok') {
+    if (record.pageId !== undefined) {
+      try {
+        const latest = await fetchPage(project, title, record.pageId);
+        if (latest !== null && latest.snapshot.version > result.version) {
+          const effects = restored.ackConflict({
+            id: latest.id,
+            version: latest.snapshot.version,
+            title: latest.title,
+            lines: latest.snapshot.lines,
+          });
+          return { engine: restored, effects, texts: textsAfterEffects(latest.snapshot, effects) };
+        }
+      } catch (error) {
+        console.error('failed to check the latest page after recovering a commit', error);
+      }
+    }
+    return {
+      engine: restored,
+      effects: restored.ackSuccess(result.version, result.pageId),
+      texts: expectedTexts(record),
+    };
+  }
+  if (result.kind === 'bad') {
+    statusMessage = `前回の未保存の編集を自動反映できませんでした: ${result.message}`;
+    return { engine: restored, effects: restored.ackBad(), texts: expectedTexts(record) };
+  }
+  // 元の PendingRecord を inflight のまま復元する。network 時の再送が同じ commitId・同じ ops
+  // になり（冪等）、元のコミットが実は届いていた場合も重複適用にならない。
   const expected = expectedTexts(record);
   if (result.kind === 'network') {
     return { engine: restored, effects: restored.ackFailure(), texts: expected };
   }
   const effects = restored.ackConflict(result.page);
-  return { engine: restored, effects, texts: textsAfterConflict(result.page, effects) };
+  return { engine: restored, effects, texts: textsAfterEffects(result.page, effects) };
 }
 
 async function start(): Promise<void> {
-  const pending = readPending(storageKey);
+  const pending = readInitialPending();
   const recovery = pending === null ? null : await restorePending(pending);
-  const page = await fetchPage(project, title);
+  const page = recovery === null
+    ? await fetchPage(project, title, initialPageId)
+    : null;
 
   engine = recovery?.engine ?? new SyncEngine({
     snapshot: page?.snapshot ?? { version: 0, lines: [] },
     title: page?.title ?? title,
+    pageId: page?.id ?? initialPageId,
     userId: userName,
     isNew: page === null,
     now: unixTime,
   });
+  syncEditorLocation(title);
   const initialLines = recovery?.texts
-    ?? rejectedPendingTexts
     ?? (page === null ? [title] : page.snapshot.lines.map(({ text }) => text));
 
   editorRoot.replaceChildren();
@@ -362,8 +466,6 @@ async function start(): Promise<void> {
   });
   renderStatus();
   view.focus();
-  // 拒否された pending の内容が画面に載ったので、ここで初めて record を消してよい。
-  if (rejectedPendingTexts !== null) localStorage.removeItem(storageKey);
   if (recovery !== null) await executeEffects(recovery.effects);
   window.addEventListener('pagehide', flushOnExit);
   document.addEventListener('visibilitychange', handleVisibilityChange);

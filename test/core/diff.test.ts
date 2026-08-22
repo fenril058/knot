@@ -31,7 +31,7 @@ void test('alignLines: 純削除は残存行と削除行を対応付ける', () 
   ]);
 });
 
-void test('alignLines: 編集と追加が混在しても LCS に沿って対応付ける', () => {
+void test('alignLines: 編集と追加が混在しても最小編集かつ keep 優先で対応付ける', () => {
   const old = mk('remove', 'keep', 'tail');
   assert.deepEqual(alignLines(old, ['keep', 'changed', 'added', 'tail']), [
     { kind: 'del', line: old[0] },
@@ -42,6 +42,16 @@ void test('alignLines: 編集と追加が混在しても LCS に沿って対応�
   ]);
 });
 
+void test('同文行への更新は位置を保ち、削除と追加は一致行を保つ', () => {
+  assert.deepEqual(diffLines(mk('local', 'same'), ['same', 'same'], idgen()), [
+    { type: 'update', id: 'L0', text: 'same' },
+  ]);
+  assert.deepEqual(diffLines(mk('local', 'keep'), ['keep', 'new'], idgen()), [
+    { type: 'delete', id: 'L0' },
+    { type: 'insert', id: 'N0', after: 'L1', text: 'new' },
+  ]);
+});
+
 void test('変更なしなら空の ops', () => {
   assert.deepEqual(diffLines(mk('a', 'b'), ['a', 'b'], idgen()), []);
 });
@@ -49,6 +59,15 @@ void test('変更なしなら空の ops', () => {
 void test('1 行の編集は update になり行 ID を保つ', () => {
   const ops = diffLines(mk('title', 'body'), ['title', 'body!'], idgen());
   assert.deepEqual(ops, [{ type: 'update', id: 'L1', text: 'body!' }]);
+});
+
+void test('長い文書の局所編集は共通部分を比較表から除外する', () => {
+  const before = Array.from({ length: 10_000 }, (_, index) => `line ${index}`);
+  const after = [...before];
+  after[5_000] = 'changed';
+  assert.deepEqual(diffLines(mk(...before), after, idgen()), [
+    { type: 'update', id: 'L5000', text: 'changed' },
+  ]);
 });
 
 void test('挿入と削除', () => {

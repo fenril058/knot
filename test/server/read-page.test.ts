@@ -35,6 +35,29 @@ void test('GET /api/pages/:project/:title が lines / links / relatedPages を�
   assert.equal((await s.request('/api/pages/proj/None', {}, cookie)).status, 404);
 });
 
+void test('編集用 pageId があれば古い URL タイトルからリネーム後のページを取得できる', async () => {
+  const s = await makeServer();
+  const userId = await s.addUser('alice', 'pw12345678');
+  const cookie = await s.login('alice', 'pw12345678');
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  const pageId = await seedPage(s.storage, project.id, 'Old', ['body'], s.clock.t);
+  const page = await s.storage.getPageById(pageId);
+  await s.storage.commit({
+    projectId: project.id,
+    pageId,
+    commitId: 'rename-commit',
+    baseVersion: page!.version,
+    ops: [{ type: 'update', id: page!.lines[0]!.id, text: 'New' }],
+    userId,
+    now: s.clock.t + 1,
+  });
+
+  const response = await s.request(`/api/pages/proj/Old?pageId=${pageId}`, {}, cookie);
+
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).title, 'New');
+});
+
 void test('GET /api/pages/:project/search/titles', async () => {
   const s = await makeServer();
   await s.addUser('alice', 'pw12345678');

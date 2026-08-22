@@ -3,6 +3,7 @@ import { encodeTitleForUrl } from '../../core/title.ts';
 import type { Snapshot } from './sync.ts';
 
 type PageJson = {
+  id: string;
   title: string;
   version: number;
   lines: Array<{
@@ -32,24 +33,26 @@ function toSnapshot(page: PageJson): Snapshot {
 export async function fetchPage(
   project: string,
   title: string,
-): Promise<{ title: string; snapshot: Snapshot } | null> {
-  const response = await fetch(pagePath(project, title));
+  pageId?: string,
+): Promise<{ id: string; title: string; snapshot: Snapshot } | null> {
+  const path = pagePath(project, title);
+  const response = await fetch(pageId === undefined ? path : `${path}?pageId=${encodeURIComponent(pageId)}`);
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`page fetch failed: ${response.status}`);
 
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const page = await response.json() as PageJson;
-  return { title: page.title, snapshot: toSnapshot(page) };
+  return { id: page.id, title: page.title, snapshot: toSnapshot(page) };
 }
 
 export async function postCommit(
   project: string,
   title: string,
-  commit: { commitId: string; baseVersion: number; ops: LineOp[] },
+  commit: { pageId?: string; commitId: string; baseVersion: number; ops: LineOp[] },
   opts?: { keepalive?: boolean },
 ): Promise<
-  | { kind: 'ok'; version: number }
-  | { kind: 'conflict'; page: { version: number; title: string; lines: Line[] } }
+  | { kind: 'ok'; version: number; pageId?: string }
+  | { kind: 'conflict'; page: { id: string; version: number; title: string; lines: Line[] } }
   | { kind: 'bad'; message: string }
   | { kind: 'network' }
 > {
@@ -65,13 +68,18 @@ export async function postCommit(
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const body = await response.json() as {
       version?: number;
+      pageId?: string;
       message?: string;
       reason?: string;
       page?: PageJson;
     };
 
     if (response.ok && typeof body.version === 'number') {
-      return { kind: 'ok', version: body.version };
+      return {
+        kind: 'ok',
+        version: body.version,
+        ...(typeof body.pageId === 'string' ? { pageId: body.pageId } : {}),
+      };
     }
     if (response.status === 409 && body.page !== undefined) {
       // リベースと再送の対象は reason 'version' だけ（storage/types.ts の契約）。
@@ -82,7 +90,7 @@ export async function postCommit(
       const snapshot = toSnapshot(body.page);
       return {
         kind: 'conflict',
-        page: { version: snapshot.version, title: body.page.title, lines: snapshot.lines },
+        page: { id: body.page.id, version: snapshot.version, title: body.page.title, lines: snapshot.lines },
       };
     }
     return { kind: 'bad', message: body.message ?? `HTTP ${response.status}` };
