@@ -7,6 +7,7 @@ import { rebase, type RebaseConflict } from '../../core/rebase.ts';
 export type Snapshot = { version: number; lines: Line[] };
 
 export type PendingRecord = {
+  // Existing recovery records predate the discriminant and must remain readable.
   kind?: undefined;
   commitId: string;
   baseVersion: number;
@@ -222,13 +223,12 @@ export class SyncEngine {
   ackConflict(latest: { id?: string; version: number; title: string; lines: Line[] }): SyncEffect[] {
     if (this.#inflight === null) return [];
 
-    const resolvingConflict = this.#conflictCandidate !== null;
     const sentLines = this.#inflight.expectedLines;
     const localOps = diffLines(sentLines, this.#buffer, this.#makeId);
     const unadjustedLocal = localOps.length === 0
       ? sentLines
       : applyOps(sentLines, localOps, this.#context(this.#confirmed.version + 1));
-    const local = alignAmbiguousDuplicateDeletionWithRemoteChange(
+    const local = alignAmbiguousDuplicateDeletionWithLatestChange(
       this.#confirmed.lines,
       unadjustedLocal,
       latest.lines,
@@ -267,11 +267,8 @@ export class SyncEngine {
       ];
     }
 
-    if (resolvingConflict) this.#conflictCandidate = [...latest.lines];
-    else {
-      this.#conflictCandidate = null;
-      this.#conflicts = [];
-    }
+    this.#conflictCandidate = null;
+    this.#conflicts = [];
     const effects = this.#startCommit(result.ops);
     this.#buffer = this.#inflightTexts();
     return [{ type: 'replace-document', texts: [...this.#buffer] }, ...effects];
@@ -460,9 +457,9 @@ function sameTexts(lines: readonly Line[], texts: readonly string[]): boolean {
 }
 
 // The text editor cannot identify which one of several equal lines was deleted.
-// Align an ambiguous deletion with a remotely changed duplicate so rebase reports
+// Align an ambiguous deletion with a duplicate changed in the latest snapshot so rebase reports
 // a conservative delete/update conflict instead of silently accepting both edits.
-function alignAmbiguousDuplicateDeletionWithRemoteChange(base: Line[], local: Line[], latest: Line[]): Line[] {
+function alignAmbiguousDuplicateDeletionWithLatestChange(base: Line[], local: Line[], latest: Line[]): Line[] {
   const localById = new Map(local.map((line) => [line.id, line]));
   const latestById = new Map(latest.map((line) => [line.id, line]));
   const byText = new Map<string, Line[]>();
@@ -475,14 +472,14 @@ function alignAmbiguousDuplicateDeletionWithRemoteChange(base: Line[], local: Li
   for (const duplicateLines of byText.values()) {
     if (duplicateLines.length < 2) continue;
     const removed = duplicateLines.filter((line) => !localById.has(line.id));
-    const remotelyChangedButLocallyUnchanged = duplicateLines.filter((line) => {
+    const latestChangedButLocallyUnchanged = duplicateLines.filter((line) => {
       const localLine = localById.get(line.id);
       const latestLine = latestById.get(line.id);
       return localLine?.text === line.text && latestLine !== undefined && latestLine.text !== line.text;
     });
-    const pairs = Math.min(removed.length, remotelyChangedButLocallyUnchanged.length);
+    const pairs = Math.min(removed.length, latestChangedButLocallyUnchanged.length);
     for (let index = 0; index < pairs; index++) {
-      replacements.set(remotelyChangedButLocallyUnchanged[index]!.id, removed[index]!);
+      replacements.set(latestChangedButLocallyUnchanged[index]!.id, removed[index]!);
     }
   }
   return replacements.size === 0

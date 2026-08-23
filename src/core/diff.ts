@@ -6,106 +6,34 @@ export type AlignStep =
   | { kind: 'add'; text: string };
 
 export function alignLines(oldLines: Line[], newTexts: string[]): AlignStep[] {
-  const steps: AlignStep[] = [];
-  let start = 0;
-  const commonLength = Math.min(oldLines.length, newTexts.length);
-  while (start < commonLength && oldLines[start]!.text === newTexts[start]) {
-    steps.push({ kind: 'keep', line: oldLines[start]! });
-    start++;
-  }
-  let oldEnd = oldLines.length;
-  let newEnd = newTexts.length;
-  while (oldEnd > start && newEnd > start && oldLines[oldEnd - 1]!.text === newTexts[newEnd - 1]) {
-    oldEnd--;
-    newEnd--;
-  }
-  steps.push(...alignChangedRange(oldLines, newTexts, start, oldEnd, newEnd));
-  for (let index = oldEnd; index < oldLines.length; index++) {
-    steps.push({ kind: 'keep', line: oldLines[index]! });
-  }
-  return steps;
-}
-
-const KEEP = 1;
-const SUBSTITUTE = 2;
-const DELETE = 3;
-const ADD = 4;
-
-function alignChangedRange(
-  oldLines: Line[],
-  newTexts: string[],
-  start: number,
-  oldEnd: number,
-  newEnd: number,
-): AlignStep[] {
-  const n = oldEnd - start;
-  const m = newEnd - start;
-  const width = m + 1;
-  const choices = new Uint8Array((n + 1) * width);
-  let nextCosts = new Uint32Array(width);
-  let nextKeeps = new Uint32Array(width);
-  for (let j = m - 1; j >= 0; j--) {
-    nextCosts[j] = nextCosts[j + 1]! + 1;
-    choices[n * width + j] = ADD;
-  }
+  const n = oldLines.length;
+  const m = newTexts.length;
+  const lcs: number[][] = Array.from({ length: n + 1 }, () => Array.from({ length: m + 1 }, () => 0));
+  // lcs は n+1 行 m+1 列で確保済み、i/j はその範囲内を動くので添字は必ず存在する。
   for (let i = n - 1; i >= 0; i--) {
-    const costs = new Uint32Array(width);
-    const keeps = new Uint32Array(width);
-    costs[m] = nextCosts[m]! + 1;
-    choices[i * width + m] = DELETE;
+    const row = lcs[i]!;
+    const nextRow = lcs[i + 1]!;
+    const oldText = oldLines[i]!.text;
     for (let j = m - 1; j >= 0; j--) {
-      const choiceIndex = i * width + j;
-      if (oldLines[start + i]!.text === newTexts[start + j]) {
-        costs[j] = nextCosts[j + 1]!;
-        keeps[j] = nextKeeps[j + 1]! + 1;
-        choices[choiceIndex] = KEEP;
-        continue;
-      }
-      let bestChoice = SUBSTITUTE;
-      let bestCost = nextCosts[j + 1]! + 1;
-      let bestKeeps = nextKeeps[j + 1]!;
-      const deleteCost = nextCosts[j]! + 1;
-      const deleteKeeps = nextKeeps[j]!;
-      if (deleteCost < bestCost || (deleteCost === bestCost && deleteKeeps > bestKeeps)) {
-        bestChoice = DELETE;
-        bestCost = deleteCost;
-        bestKeeps = deleteKeeps;
-      }
-      const addCost = costs[j + 1]! + 1;
-      const addKeeps = keeps[j + 1]!;
-      if (addCost < bestCost || (addCost === bestCost && addKeeps > bestKeeps)) {
-        bestChoice = ADD;
-        bestCost = addCost;
-        bestKeeps = addKeeps;
-      }
-      costs[j] = bestCost;
-      keeps[j] = bestKeeps;
-      choices[choiceIndex] = bestChoice;
+      row[j] = oldText === newTexts[j]
+        ? nextRow[j + 1]! + 1
+        : Math.max(nextRow[j]!, row[j + 1]!);
     }
-    nextCosts = costs;
-    nextKeeps = keeps;
   }
   const steps: AlignStep[] = [];
   let i = 0;
   let j = 0;
   while (i < n || j < m) {
-    const choice = choices[i * width + j];
-    if (choice === KEEP) {
-      steps.push({ kind: 'keep', line: oldLines[start + i]! });
+    if (i < n && j < m && oldLines[i]!.text === newTexts[j]) {
+      steps.push({ kind: 'keep', line: oldLines[i]! });
       i++;
       j++;
-    } else if (choice === SUBSTITUTE) {
-      steps.push({ kind: 'del', line: oldLines[start + i]! }, { kind: 'add', text: newTexts[start + j]! });
-      i++;
+    } else if (j < m && (i === n || lcs[i]![j + 1]! >= lcs[i + 1]![j]!)) {
+      steps.push({ kind: 'add', text: newTexts[j]! });
       j++;
-    } else if (choice === ADD) {
-      steps.push({ kind: 'add', text: newTexts[start + j]! });
-      j++;
-    } else if (choice === DELETE) {
-      steps.push({ kind: 'del', line: oldLines[start + i]! });
-      i++;
     } else {
-      throw new Error('line alignment choice is missing');
+      steps.push({ kind: 'del', line: oldLines[i]! });
+      i++;
     }
   }
   return steps;

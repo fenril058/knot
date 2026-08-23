@@ -134,17 +134,10 @@ test('同一行の並行編集は自動上書きせず、手元の内容を明�
     other.locator('#edit-page-button').click(),
   ]);
 
-  const replaceDocument = async (target: typeof page, body: string): Promise<void> => {
-    const editor = target.locator('#editor-root .cm-content');
-    await editor.click();
-    await target.keyboard.press('Control+A');
-    await target.keyboard.insertText(`${title}\n${body}`);
-  };
-
-  await replaceDocument(page, 'server change');
+  await replaceEditorDocument(page, [title, 'server change']);
   await expect(page.locator('#save-status')).toHaveText('保存済み');
 
-  await replaceDocument(other, 'local change');
+  await replaceEditorDocument(other, [title, 'local change']);
   await expect(other.locator('#edit-conflict')).toBeVisible();
   await expect(other.locator('#save-status')).toContainText('自動保存を停止しました');
   await expect(other.locator('#edit-conflict')).toContainText('base');
@@ -155,7 +148,7 @@ test('同一行の並行編集は自動上書きせず、手元の内容を明�
   const beforeResolution = await other.request.get(`/api/pages/e2e/${title}`);
   expect((await beforeResolution.json()).lines[1].text).toBe('server change');
 
-  await replaceDocument(other, 'edited during conflict');
+  await replaceEditorDocument(other, [title, 'edited during conflict']);
   await other.reload();
   await other.locator('#edit-page-button').click();
   await expect(other.locator('#edit-conflict')).toBeVisible();
@@ -187,6 +180,7 @@ test('異なる行の並行編集はエディタ表示も最新版へリベー�
         { type: 'insert', id: 'different-title', after: '_head', text: title },
         { type: 'insert', id: 'different-first', after: 'different-title', text: 'first base' },
         { type: 'insert', id: 'different-second', after: 'different-first', text: 'second base' },
+        { type: 'insert', id: 'different-tail', after: 'different-second', text: 'tail' },
       ],
     },
   });
@@ -196,21 +190,24 @@ test('異なる行の並行編集はエディタ表示も最新版へリベー�
   await Promise.all([page.goto(`/e2e/${title}`), other.goto(`/e2e/${title}`)]);
   await Promise.all([page.locator('#edit-page-button').click(), other.locator('#edit-page-button').click()]);
 
-  await replaceEditorDocument(page, [title, 'first remote', 'second base']);
+  await replaceEditorDocument(page, [title, 'first remote', 'second base', 'tail']);
   await expect(page.locator('#save-status')).toHaveText('保存済み');
 
-  await replaceEditorDocument(other, [title, 'first base', 'second local']);
+  await other.locator('#editor-root .cm-line').nth(2).click();
+  await other.keyboard.press('End');
+  await other.keyboard.type(' local');
   await expect(other.locator('#save-status')).toHaveText('保存済み');
   await expect(other.locator('#editor-root .cm-content')).toContainText('first remote');
-  await expect(other.locator('#editor-root .cm-content')).toContainText('second local');
+  await expect(other.locator('#editor-root .cm-content')).toContainText('second base local');
 
-  await replaceEditorDocument(other, [title, 'first remote', 'second local continued']);
+  await other.keyboard.type(' continued');
   await expect(other.locator('#save-status')).toHaveText('保存済み');
   const saved = await other.request.get(`/api/pages/e2e/${title}`);
   expect((await saved.json()).lines.map((line: { text: string }) => line.text)).toEqual([
     title,
     'first remote',
-    'second local continued',
+    'second base local continued',
+    'tail',
   ]);
   await other.close();
 });
@@ -250,12 +247,13 @@ test('編集開始前にリネームされても pageId から最新版を開く
   await expect(page.locator('#editor-root .cm-content')).toContainText(newTitle);
 });
 
-test('別セッションでリネームされても pageId から未保存草稿を復元する', async ({ page }) => {
+test('pageId とタイトルの回復キーから未保存草稿を復元する', async ({ page }) => {
   const login = await page.request.post('/api/knot/session', {
     headers: { 'X-Knot-Client': 'e2e' },
     data: { name: 'e2e', password: 'e2e-password' },
   });
   expect(login.ok()).toBe(true);
+  {
   const oldTitle = 'rename-after-draft';
   const newTitle = 'renamed-after-draft';
   const created = await page.request.post(`/api/knot/pages/e2e/${oldTitle}/commits`, {
@@ -315,6 +313,109 @@ test('別セッションでリネームされても pageId から未保存草稿
     newTitle,
     'local draft corrected',
   ]);
+  }
+
+  {
+  const title = 'recover-applied-insert';
+  const created = await page.request.post(`/api/knot/pages/e2e/${title}/commits`, {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: {
+      commitId: 'recover-applied-insert-create',
+      baseVersion: 0,
+      ops: [
+        { type: 'insert', id: 'recover-title', after: '_head', text: title },
+        { type: 'insert', id: 'recover-body', after: 'recover-title', text: 'body' },
+      ],
+    },
+  });
+  const { pageId } = await created.json();
+  const baseResponse = await page.request.get(`/api/pages/e2e/${title}`);
+  const base = await baseResponse.json();
+  const pendingOps = [{ type: 'insert', id: 'recover-insert', after: 'recover-body', text: 'inserted' }];
+  const applied = await page.request.post(`/api/knot/pages/e2e/${title}/commits`, {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: {
+      pageId,
+      commitId: 'recover-applied-insert-pending',
+      baseVersion: base.version,
+      ops: pendingOps,
+    },
+  });
+  expect(applied.ok()).toBe(true);
+  const remote = await page.request.post(`/api/knot/pages/e2e/${title}/commits`, {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: {
+      pageId,
+      commitId: 'recover-applied-insert-remote',
+      baseVersion: base.version + 1,
+      ops: [{ type: 'update', id: 'recover-body', text: 'remote body' }],
+    },
+  });
+  expect(remote.ok()).toBe(true);
+
+  await page.goto(`/e2e/${title}`);
+  await page.evaluate(({ key, record }) => {
+    localStorage.setItem(key, JSON.stringify(record));
+  }, {
+    key: `knot:pending:e2e/page:${pageId}`,
+    record: {
+      commitId: 'recover-applied-insert-pending',
+      baseVersion: base.version,
+      ops: pendingOps,
+      baseLines: base.lines.map((line: object) => ({ ...line, updatedVersion: base.version })),
+      title,
+      pageId,
+      draftTexts: [title, 'body', 'inserted-then-edited'],
+    },
+  });
+  await page.reload();
+  await page.locator('#edit-page-button').click();
+
+  const editor = page.locator('#editor-root .cm-content');
+  await expect(editor).toContainText('remote body');
+  await expect(editor).toContainText('inserted-then-edited');
+  await expect(page.locator('#save-status')).toHaveText('保存済み');
+  const saved = await page.request.get(`/api/pages/e2e/${title}`);
+  expect((await saved.json()).lines.map((line: { text: string }) => line.text)).toEqual([
+    title,
+    'remote body',
+    'inserted-then-edited',
+  ]);
+  }
+
+  {
+  const title = 'recover-created-page';
+  const pendingOps = [{ type: 'insert', id: 'recover-created-title', after: '_head', text: title }];
+  const created = await page.request.post(`/api/knot/pages/e2e/${title}/commits`, {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: {
+      commitId: 'recover-created-page-pending',
+      baseVersion: 0,
+      ops: pendingOps,
+    },
+  });
+  expect(created.ok()).toBe(true);
+
+  await page.goto(`/e2e/${title}`);
+  await page.evaluate(({ key, record }) => {
+    localStorage.setItem(key, JSON.stringify(record));
+  }, {
+    key: `knot:pending:e2e/title:${title}`,
+    record: {
+      commitId: 'recover-created-page-pending',
+      baseVersion: 0,
+      ops: pendingOps,
+      baseLines: [],
+      title,
+      draftTexts: [title, 'draft after send'],
+    },
+  });
+  await page.reload();
+  await page.locator('#edit-page-button').click();
+
+  await expect(page.locator('#editor-root .cm-content')).toContainText('draft after send');
+  await expect(page.locator('#save-status')).toHaveText('保存済み');
+  }
 });
 
 test('選択行だけ原文にし、それ以外の行を整形表示する', async ({ page }) => {

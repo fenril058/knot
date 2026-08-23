@@ -15,9 +15,9 @@ export type RebaseResult =
   | { kind: 'rebased'; ops: LineOp[] }
   | { kind: 'conflict'; conflicts: RebaseConflict[]; candidateOps: LineOp[] };
 
-const state = (line: Line | undefined): RebaseLineState => line === undefined
-  ? { kind: 'deleted' }
-  : { kind: 'present', text: line.text };
+function toLineState(line: Line | undefined): RebaseLineState {
+  return line === undefined ? { kind: 'deleted' } : { kind: 'present', text: line.text };
+}
 
 export function rebase(base: Line[], local: Line[], latest: Line[]): RebaseResult {
   const baseById = new Map(base.map((line) => [line.id, line]));
@@ -41,7 +41,7 @@ export function rebase(base: Line[], local: Line[], latest: Line[]): RebaseResul
           lineId: baseLine.id,
           base: { kind: 'present', text: baseLine.text },
           local: { kind: 'deleted' },
-          latest: state(latestLine),
+          latest: toLineState(latestLine),
         });
       }
       deletes.push({ type: 'delete', id: baseLine.id });
@@ -54,7 +54,7 @@ export function rebase(base: Line[], local: Line[], latest: Line[]): RebaseResul
         conflicts.push({
           lineId: baseLine.id,
           base: { kind: 'present', text: baseLine.text },
-          local: state(localLine),
+          local: toLineState(localLine),
           latest: { kind: 'deleted' },
         });
         insertionIds.add(baseLine.id);
@@ -67,8 +67,8 @@ export function rebase(base: Line[], local: Line[], latest: Line[]): RebaseResul
       conflicts.push({
         lineId: baseLine.id,
         base: { kind: 'present', text: baseLine.text },
-        local: state(localLine),
-        latest: state(latestLine),
+        local: toLineState(localLine),
+        latest: toLineState(latestLine),
       });
     }
     if (localLine.text !== latestLine.text) {

@@ -31,7 +31,7 @@ void test('同一行を同じ内容へ更新した場合は競合にしない', 
   assert.deepEqual(rebase(base, local, latest), { kind: 'rebased', ops: [] });
 });
 
-void test('remote delete と local update は競合として返す', () => {
+void test('サーバ上の最新版の削除と手元の更新は競合として返す', () => {
   const base = lines(['title', 'Title'], ['body', 'base']);
   const local = lines(['title', 'Title'], ['body', 'local']);
   const latest = lines(['title', 'Title']);
@@ -48,7 +48,7 @@ void test('remote delete と local update は競合として返す', () => {
   });
 });
 
-void test('local delete と remote update は競合として返す', () => {
+void test('手元の削除とサーバ上の最新版の更新は競合として返す', () => {
   const base = lines(['title', 'Title'], ['body', 'base']);
   const local = lines(['title', 'Title']);
   const latest = lines(['title', 'Title'], ['body', 'latest']);

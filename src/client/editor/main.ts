@@ -1,4 +1,5 @@
 import { defaultKeymap, history as historyExtension, historyKeymap } from '@codemirror/commands';
+import { EditorSelection } from '@codemirror/state';
 import { keymap, EditorView } from '@codemirror/view';
 import { applyOps } from '../../core/apply.ts';
 import type { RebaseConflict, RebaseLineState } from '../../core/rebase.ts';
@@ -38,7 +39,7 @@ if (
   || conflictListElement === null
   || resolveConflictButtonElement === null
 ) {
-  throw new Error('editor root is missing');
+  throw new Error('editor UI element is missing');
 }
 const editorRoot = root;
 const saveStatus = statusElement;
@@ -114,7 +115,7 @@ function readPending(key: string): EditorRecord | null {
   }
 }
 
-const initialPageId = data.pageId === '' ? undefined : data.pageId;
+const initialPageId = data.pageId;
 let storageKey = pendingKey(title, initialPageId);
 let engine: SyncEngine;
 let view: EditorView;
@@ -126,21 +127,25 @@ let suppressChanges = false;
 function readInitialPending(): EditorRecord | null {
   const record = readPending(storageKey);
   if (record !== null) return record;
-  const legacyKey = legacyPendingKey(title);
-  const legacyRecord = readPending(legacyKey);
-  if (legacyRecord === null) return null;
-  const migratedRecord: EditorRecord = legacyRecord.pageId === undefined && initialPageId !== undefined
-    ? { ...legacyRecord, pageId: initialPageId }
-    : legacyRecord;
-  try {
-    localStorage.setItem(storageKey, serializeEditorRecord(migratedRecord));
-    localStorage.removeItem(legacyKey);
-  } catch (error) {
-    console.error('failed to migrate the editor recovery record', error);
-    storageKey = legacyKey;
-    storageWarning = 'ブラウザに未保存内容を保存できません';
+  const fallbackKeys = [pendingKey(title), legacyPendingKey(title)];
+  for (const fallbackKey of fallbackKeys) {
+    if (fallbackKey === storageKey) continue;
+    const fallbackRecord = readPending(fallbackKey);
+    if (fallbackRecord === null) continue;
+    const migratedRecord: EditorRecord = fallbackRecord.pageId === undefined && initialPageId !== undefined
+      ? { ...fallbackRecord, pageId: initialPageId }
+      : fallbackRecord;
+    try {
+      localStorage.setItem(storageKey, serializeEditorRecord(migratedRecord));
+      localStorage.removeItem(fallbackKey);
+    } catch (error) {
+      console.error('failed to migrate the editor recovery record', error);
+      storageKey = fallbackKey;
+      storageWarning = 'ブラウザに未保存内容を保存できません';
+    }
+    return migratedRecord;
   }
-  return migratedRecord;
+  return null;
 }
 
 function renderStatus(): void {
@@ -178,7 +183,7 @@ function renderConflicts(conflicts: readonly RebaseConflict[]): void {
     values.append(
       conflictValue('基準', conflict.base),
       conflictValue('手元', conflict.local),
-      conflictValue('サーバ', conflict.latest),
+      conflictValue('サーバ上の最新版', conflict.latest),
     );
     item.append(label, values);
     return item;
@@ -221,8 +226,22 @@ function syncEditorLocation(previousTitle: string): void {
 function syncDocument(lines: readonly string[]): void {
   const next = lines.join('\n');
   if (view.state.doc.toString() === next) return;
+  const previousDocument = view.state.doc;
+  const previousSelection = view.state.selection;
+  const nextLines = lines.length === 0 ? [''] : lines;
+  const mapPosition = (position: number): number => {
+    const previousLine = previousDocument.lineAt(position);
+    const lineIndex = Math.min(previousLine.number - 1, nextLines.length - 1);
+    let lineStart = 0;
+    for (let index = 0; index < lineIndex; index++) lineStart += nextLines[index]!.length + 1;
+    return lineStart + Math.min(position - previousLine.from, nextLines[lineIndex]!.length);
+  };
+  const selection = EditorSelection.create(
+    previousSelection.ranges.map(({ anchor, head }) => EditorSelection.range(mapPosition(anchor), mapPosition(head))),
+    previousSelection.mainIndex,
+  );
   suppressChanges = true;
-  view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next } });
+  view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next }, selection });
   suppressChanges = false;
 }
 
@@ -374,25 +393,43 @@ async function restorePending(record: EditorRecord): Promise<Recovery | null> {
     ops: record.ops,
   });
   if (result.kind === 'ok') {
+    let latest: Awaited<ReturnType<typeof fetchPage>> = null;
     if (record.pageId !== undefined) {
       try {
-        const latest = await fetchPage(project, title, record.pageId);
-        if (latest !== null && latest.snapshot.version > result.version) {
-          const effects = restored.ackConflict({
-            id: latest.id,
-            version: latest.snapshot.version,
-            title: latest.title,
-            lines: latest.snapshot.lines,
-          });
-          return { engine: restored, effects, texts: textsAfterEffects(latest.snapshot, effects) };
-        }
+        latest = await fetchPage(project, title, record.pageId);
       } catch (error) {
         console.error('failed to check the latest page after recovering a commit', error);
       }
     }
+    const acknowledged = restored.ackSuccess(result.version, result.pageId);
+    if (latest !== null && latest.snapshot.version > result.version) {
+      if (acknowledged.some((effect) => effect.type === 'send')) {
+        const effects = restored.ackConflict({
+          id: latest.id,
+          version: latest.snapshot.version,
+          title: latest.title,
+          lines: latest.snapshot.lines,
+        });
+        return { engine: restored, effects, texts: textsAfterEffects(latest.snapshot, effects) };
+      }
+      const current = new SyncEngine({
+        snapshot: latest.snapshot,
+        title: latest.title,
+        pageId: latest.id,
+        userId: userName,
+        isNew: false,
+        now: unixTime,
+      });
+      const texts = latest.snapshot.lines.map(({ text }) => text);
+      return {
+        engine: current,
+        effects: [{ type: 'replace-document', texts }, { type: 'persist', record: null }],
+        texts,
+      };
+    }
     return {
       engine: restored,
-      effects: restored.ackSuccess(result.version, result.pageId),
+      effects: acknowledged,
       texts: expectedTexts(record),
     };
   }

@@ -213,7 +213,7 @@ void test('同じ本文が連続していても編集した行 ID の競合を�
   assert.deepEqual(effect(effects, 'present-conflict')?.conflicts.map(({ lineId }) => lineId), ['first']);
 });
 
-void test('同文2行の片方を削除した曖昧な差分も remote update があれば競合にする', () => {
+void test('同文2行の片方を削除した曖昧な差分もサーバ上の最新版で更新されていれば競合にする', () => {
   const base = [line('first', 'same'), line('second', 'same')];
   const sync = engine(base, 'same');
   sync.bufferChanged(['same']);
@@ -327,7 +327,7 @@ void test('競合解消でサーバ上の内容を選んだ場合は再送せず
   assert.equal(sync.status, 'saved');
 });
 
-void test('local delete と remote update の競合でサーバ側を選ぶと元の行 ID とメタデータを保つ', () => {
+void test('手元の削除とサーバ上の最新版の更新の競合で最新版を選ぶと元の行 ID とメタデータを保つ', () => {
   const base = [line('title', 'Title'), line('body', 'base')];
   const latestBody = line('body', 'latest', 2, 'other');
   const sync = engine(base);
@@ -341,7 +341,7 @@ void test('local delete と remote update の競合でサーバ側を選ぶと�
   assert.deepEqual(sync.confirmedLines, [base[0]!, latestBody]);
 });
 
-void test('同じ本文が並んでいても local delete と remote update のサーバ側選択で行を落とさない', () => {
+void test('同じ本文が並んでいても手元の削除と最新版の更新で最新版を選べば行を落とさない', () => {
   const base = [line('removed', 'old'), line('keep', 'same')];
   const latest = [line('removed', 'same', 2), base[1]!];
   const sync = engine(base, 'old');
@@ -420,11 +420,16 @@ void test('競合解消コミットの自動リベース再送が拒否されて
   });
   assert.notEqual(effect(rebased, 'send'), undefined);
 
-  assert.equal(sync.ackBad().some((candidate) => candidate.type === 'present-conflict'), true);
-  assert.equal(sync.status, 'conflict');
+  const rejected = sync.ackBad();
+  assert.equal(rejected.some((candidate) => candidate.type === 'present-conflict'), false);
+  const record = effect(rejected, 'persist')?.record;
+  assert.equal(record?.kind, 'unsaved-draft');
+  if (record?.kind !== 'unsaved-draft') throw new Error('unsaved draft missing');
+  assert.deepEqual(record.texts, ['Title', 'local', 'changed']);
+  assert.equal(sync.status, 'error');
 });
 
-void test('remote delete と local update の競合を手元側で解消すると元の行 ID で再送する', () => {
+void test('サーバ上の最新版の削除と手元の更新の競合を手元側で解消すると元の行 ID で再送する', () => {
   const base = [line('title', 'Title'), line('body', 'base')];
   const sync = engine(base);
   sync.bufferChanged(['Title', 'local']);
