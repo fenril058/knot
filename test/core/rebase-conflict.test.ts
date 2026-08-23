@@ -65,6 +65,23 @@ void test('手元の削除とサーバ上の最新版の更新は競合として
   });
 });
 
+void test('基準にない同じ行 ID の挿入内容が異なる場合も競合として返す', () => {
+  const base = lines(['title', 'Title']);
+  const local = [...base, ...lines(['same-id', 'local'])];
+  const latest = [...base, ...lines(['same-id', 'latest'])];
+
+  assert.deepEqual(rebase(base, local, latest), {
+    kind: 'conflict',
+    conflicts: [{
+      lineId: 'same-id',
+      base: { kind: 'deleted' },
+      local: { kind: 'present', text: 'local' },
+      latest: { kind: 'present', text: 'latest' },
+    }],
+    candidateOps: [{ type: 'update', id: 'same-id', text: 'local' }],
+  });
+});
+
 void test('同じ anchor への並行 insert は先に受理された行の後へ置く', () => {
   const base = lines(['title', 'Title'], ['tail', 'tail']);
   const local = lines(['title', 'Title'], ['local', 'local'], ['tail', 'tail']);

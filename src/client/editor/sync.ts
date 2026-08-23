@@ -595,14 +595,10 @@ function isLineState(value: unknown): boolean {
     && (value.kind === 'deleted' || (value.kind === 'present' && typeof value.text === 'string'));
 }
 
-function isPresentLineState(value: unknown): boolean {
-  return isRecord(value) && value.kind === 'present' && typeof value.text === 'string';
-}
-
 function isConflict(value: unknown): value is RebaseConflict {
   return isRecord(value)
     && typeof value.lineId === 'string'
-    && isPresentLineState(value.base)
+    && isLineState(value.base)
     && isLineState(value.local)
     && isLineState(value.latest);
 }

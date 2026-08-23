@@ -6,7 +6,7 @@ export type RebaseLineState =
 
 export type RebaseConflict = {
   lineId: string;
-  base: Extract<RebaseLineState, { kind: 'present' }>;
+  base: RebaseLineState;
   local: RebaseLineState;
   latest: RebaseLineState;
 };
@@ -77,8 +77,20 @@ export function rebase(base: Line[], local: Line[], latest: Line[]): RebaseResul
   }
 
   for (const localLine of local) {
-    if (!baseById.has(localLine.id) && !latestById.has(localLine.id)) {
+    if (baseById.has(localLine.id)) continue;
+    const latestLine = latestById.get(localLine.id);
+    if (latestLine === undefined) {
       insertionIds.add(localLine.id);
+      continue;
+    }
+    if (latestLine.text !== localLine.text) {
+      conflicts.push({
+        lineId: localLine.id,
+        base: { kind: 'deleted' },
+        local: toLineState(localLine),
+        latest: toLineState(latestLine),
+      });
+      updates.push({ type: 'update', id: localLine.id, text: localLine.text });
     }
   }
 
