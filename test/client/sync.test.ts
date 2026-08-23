@@ -401,7 +401,7 @@ void test('競合解消で行を並べ替えても送信後の本文がエディ
   assert.deepEqual(resolved.map(({ text }) => text), ['z', 'x']);
 });
 
-void test('競合解消コミットの自動リベース再送が拒否されても解消待ちへ戻る', () => {
+void test('競合解消コミットの自動リベース再送が拒否されたら未保存草稿として残す', () => {
   const base = [line('title', 'Title'), line('body', 'base'), line('other', 'before')];
   const sync = engine(base);
   sync.bufferChanged(['Title', 'local', 'before']);
