@@ -46,7 +46,13 @@ export function registerReadRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
   const getPage = async (c: Context<ApiEnv>): Promise<Response> => {
     const project = await resolveProject(storage, c);
     if (!project) return jsonError(c, 404, 'not_found');
-    const page = await resolvePage(storage, project.id, c);
+    const pageId = c.req.query('pageId');
+    const page = pageId === undefined
+      ? await resolvePage(storage, project.id, c)
+      : await storage.getPageById(pageId);
+    if (page !== null && (page.projectId !== project.id || page.deleted)) {
+      return jsonError(c, 404, 'not_found');
+    }
     if (!page) return jsonError(c, 404, 'not_found');
     const authors = await storage.getPageAuthors(page.id);
     const visitMetrics = await storage.getPageVisitMetrics(page.id);

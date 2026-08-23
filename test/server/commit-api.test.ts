@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeServer } from '../helpers/server.ts';
 import { ulid } from '../../src/core/id.ts';
+import { seedPage } from '../helpers/pages.ts';
 
 async function setup() {
   const s = await makeServer();
@@ -25,16 +26,18 @@ void test('新規作成 → 編集 → 冪等な再送', async () => {
     ops: [{ type: 'insert', id: l1, after: '_head', text: 'New Page' }],
   });
   assert.equal(create.status, 200);
-  assert.deepEqual(await create.json(), { version: 1 });
+  const created = await create.json();
+  assert.equal(created.version, 1);
+  assert.equal(typeof created.pageId, 'string');
 
   const editId = ulid();
   const edit = { commitId: editId, baseVersion: 1, ops: [{ type: 'update', id: l1, text: 'New Page!' }] };
   const first = await post('New Page', edit);
   assert.equal(first.status, 200);
-  assert.deepEqual(await first.json(), { version: 2 });
+  assert.deepEqual(await first.json(), { version: 2, pageId: created.pageId });
   const resend = await post('New Page!', edit); // タイトルが変わったので URL も新タイトル
   assert.equal(resend.status, 200);
-  assert.deepEqual(await resend.json(), { version: 2 }); // 冪等: 最初の version
+  assert.deepEqual(await resend.json(), { version: 2, pageId: created.pageId }); // 冪等: 最初の version
 
   // 行の userId はセッションユーザー
   const project = await s.storage.getProject('proj');
@@ -54,6 +57,80 @@ void test('baseVersion 不一致は 409 reason version で最新状態を返す'
   assert.equal(body.reason, 'version');
   assert.equal(body.page.version, 2);
   assert.equal(body.page.lines[0].text, 'P2'); // rebase の latestSnapshot に使える全行
+});
+
+void test('別クライアントがタイトルを変更しても pageId で元のページを特定して 409 を返す', async () => {
+  const { s, post } = await setup();
+  const titleId = ulid();
+  const bodyId = ulid();
+  await post('Old', {
+    commitId: ulid(),
+    baseVersion: 0,
+    ops: [
+      { type: 'insert', id: titleId, after: '_head', text: 'Old' },
+      { type: 'insert', id: bodyId, after: titleId, text: 'base' },
+    ],
+  });
+  const project = await s.storage.getProject('proj');
+  const page = await s.storage.getPageByTitle(project!.id, 'old');
+  await post('Old', {
+    pageId: page!.id,
+    commitId: ulid(),
+    baseVersion: 1,
+    ops: [{ type: 'update', id: titleId, text: 'New' }],
+  });
+
+  const stale = await post('Old', {
+    pageId: page!.id,
+    commitId: ulid(),
+    baseVersion: 1,
+    ops: [{ type: 'update', id: bodyId, text: 'local' }],
+  });
+
+  assert.equal(stale.status, 409);
+  const response = await stale.json();
+  assert.equal(response.reason, 'version');
+  assert.equal(response.page.id, page!.id);
+  assert.equal(response.page.title, 'New');
+});
+
+void test('pageId は URL のプロジェクト外にあるページを参照できない', async () => {
+  const { s, post } = await setup();
+  const otherProject = await s.storage.ensureProject('other', s.clock.t);
+  const otherPageId = await seedPage(s.storage, otherProject.id, 'Other', ['body'], s.clock.t);
+
+  const response = await post('Other', {
+    pageId: otherPageId,
+    commitId: ulid(),
+    baseVersion: 1,
+    ops: [{ type: 'update', id: ulid(), text: 'changed' }],
+  });
+
+  assert.equal(response.status, 404);
+});
+
+void test('全行削除済みでも同じ pageId と commitId の再送は冪等に成功する', async () => {
+  const { s, post } = await setup();
+  const titleId = ulid();
+  await post('Delete me', {
+    commitId: ulid(),
+    baseVersion: 0,
+    ops: [{ type: 'insert', id: titleId, after: '_head', text: 'Delete me' }],
+  });
+  const project = await s.storage.getProject('proj');
+  const page = await s.storage.getPageByTitle(project!.id, 'delete_me');
+  const deletion = {
+    pageId: page!.id,
+    commitId: ulid(),
+    baseVersion: 1,
+    ops: [{ type: 'delete', id: titleId }],
+  };
+  assert.equal((await post('Delete me', deletion)).status, 200);
+
+  const resent = await post('Delete me', deletion);
+
+  assert.equal(resent.status, 200);
+  assert.deepEqual(await resent.json(), { version: 2, pageId: page!.id });
 });
 
 void test('タイトル衝突は 409 reason title で占有ページを返す', async () => {

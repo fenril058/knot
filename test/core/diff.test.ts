@@ -42,6 +42,27 @@ void test('alignLines: 編集と追加が混在しても LCS に沿って対応�
   ]);
 });
 
+void test('同文行への更新は位置を保ち、削除と追加は一致行を保つ', () => {
+  assert.deepEqual(diffLines(mk('local', 'same'), ['same', 'same'], idgen()), [
+    { type: 'update', id: 'L0', text: 'same' },
+  ]);
+  assert.deepEqual(diffLines(mk('local', 'keep'), ['keep', 'new'], idgen()), [
+    { type: 'delete', id: 'L0' },
+    { type: 'insert', id: 'N0', after: 'L1', text: 'new' },
+  ]);
+});
+
+void test('離れた位置へ残る未変更行は ID とメタデータを保つ', () => {
+  const old = mk('keep', 'D1', 'D2', 'D3', 'D4', 'D5');
+  const after = ['N1', 'N2', 'N3', 'N4', 'N5', 'keep'];
+  const ops = diffLines(old, after, idgen());
+  const applied = applyOps(old, ops, ctx);
+
+  assert.equal(applied[5]?.id, 'L0');
+  assert.equal(applied[5]?.updated, old[0]?.updated);
+  assert.equal(applied[5]?.userId, old[0]?.userId);
+});
+
 void test('変更なしなら空の ops', () => {
   assert.deepEqual(diffLines(mk('a', 'b'), ['a', 'b'], idgen()), []);
 });

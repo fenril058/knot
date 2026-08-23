@@ -40,6 +40,16 @@ dialog form { display: grid; gap: 1rem; }
 #editor-root .cm-focused { outline: 2px solid #2c6ea3; outline-offset: 2px; }
 #save-status { min-height: 1.5em; margin-bottom: 0.5rem; color: #555; text-align: right; }
 #save-status[data-status="error"] { color: #c0392b; }
+#save-status[data-status="conflict"] { color: #9a6700; font-weight: 700; }
+.edit-conflict { border: 2px solid #9a6700; border-radius: 4px; margin-block: 0.75rem; max-width: 960px; padding: 1rem; }
+.edit-conflict:focus { outline: 3px solid #2c6ea3; outline-offset: 2px; }
+.edit-conflict h2 { font-size: 1.1rem; margin-top: 0; }
+.edit-conflict-list-item { margin-block: 0.75rem; }
+.edit-conflict-values { display: grid; gap: 0.5rem; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-block: 0.5rem; }
+.edit-conflict-values > div { border: 1px solid #767676; padding: 0.5rem; }
+.edit-conflict-values dt { font-weight: 700; }
+.edit-conflict-values dd { margin: 0.25rem 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+@media (max-width: 45rem) { .edit-conflict-values { grid-template-columns: 1fr; } }
 
 #editor-root .cm-telomere-gutter .cm-gutterElement { display: flex; align-items: stretch; }
 #editor-root .cm-telomere-gutter .telomere { display: block; min-height: 1.4em; margin-right: 0; }

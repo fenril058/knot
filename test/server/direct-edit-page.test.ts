@@ -25,6 +25,7 @@ void test('既存ページの正規 URL は SSR 本文と直接編集用の要�
   assert.match(body, /id="editor-root"[^>]*class="page-body"/);
   assert.match(body, /line one/);
   assert.equal(dataAttribute(body, 'project'), 'proj');
+  assert.equal(dataAttribute(body, 'page-id').length, 26);
   assert.equal(dataAttribute(body, 'title'), 'Alpha');
   assert.equal(dataAttribute(body, 'user-name'), 'alice');
   assert.equal(dataAttribute(body, 'last-seen-version'), '0');
@@ -33,6 +34,9 @@ void test('既存ページの正規 URL は SSR 本文と直接編集用の要�
   assert.equal(res.headers.get('content-security-policy'), `${BASE_CSP}; style-src 'self' 'nonce-${nonce}'`);
   assert.match(body, /<nav class="page-nav"><a href="\/proj">proj<\/a><\/nav>/);
   assert.match(body, /<div id="save-status"/);
+  assert.match(body, /<section id="edit-conflict"[^>]*hidden>/);
+  assert.match(body, /id="edit-conflict-list"/);
+  assert.match(body, /id="resolve-edit-conflict"[^>]*>現在の内容で保存する<\/button>/);
   assert.match(body, /<script type="module" src="\/assets\/build\/editor\.js"><\/script>/);
 });
 
@@ -48,6 +52,7 @@ void test('不在ページの正規 URL は同じ場所で作成を始める SSR
   assert.match(body, /id="edit-page-button"[^>]*>このタイトルで新規作成する<\/button>/);
   assert.equal(dataAttribute(body, 'title'), 'New Page');
   assert.equal(dataAttribute(body, 'last-seen-version'), '0');
+  assert.match(body, /<section id="edit-conflict"[^>]*hidden>/);
   assert.match(body, /<script type="module" src="\/assets\/build\/editor\.js"><\/script>/);
 });
 

@@ -43,6 +43,15 @@ function relatedSection(
   )}</ul></section>`;
 }
 
+function editConflictPanel(): Html {
+  return html`<section id="edit-conflict" class="edit-conflict" aria-labelledby="edit-conflict-title" tabindex="-1" hidden>
+<h2 id="edit-conflict-title">同じ行の編集が競合しました</h2>
+<p>手元の内容はエディタに残っています。基準とサーバ上の内容を確認して編集し、現在の内容で保存してください。</p>
+<ol id="edit-conflict-list"></ol>
+<button type="button" id="resolve-edit-conflict">現在の内容で保存する</button>
+</section>`;
+}
+
 export function pageViewPage(
   project: Project,
   page: PageSnapshot,
@@ -63,6 +72,7 @@ export function pageViewPage(
 <h1>${page.title}</h1>
 <button type="button" id="edit-page-button">編集</button>
 <div id="save-status" aria-live="polite" hidden></div>
+${editConflictPanel()}
 <div id="page-menu-root" data-project="${project.name}" data-title="${page.title}" data-version="${page.version}">
 <details id="page-actions" class="page-actions">
 <summary>操作</summary>
@@ -97,6 +107,7 @@ ${related.hasBackLinks ? html`<p class="backlinks-badge">逆リンクまたは�
   id="editor-root"
   class="page-body"
   data-project="${project.name}"
+  data-page-id="${page.id}"
   data-title="${page.title}"
   data-user-name="${userName}"
   data-last-seen-version="${previousVisit?.lastSeenVersion ?? 0}"
@@ -128,6 +139,7 @@ export function pageNotFoundPage(
 <h1>「${title}」はまだありません</h1>
 <button type="button" id="edit-page-button">このタイトルで新規作成する</button>
 <div id="save-status" aria-live="polite" hidden></div>
+${editConflictPanel()}
 <div
   id="editor-root"
   class="page-body"

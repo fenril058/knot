@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rebase } from '../../src/core/rebase.ts';
+import { rebase, type RebaseResult } from '../../src/core/rebase.ts';
 import { applyOps } from '../../src/core/apply.ts';
 import { type Line } from '../../src/core/ops.ts';
 import { lcg } from '../helpers/rand.ts';
@@ -9,13 +9,16 @@ const mk = (...pairs: [string, string][]): Line[] =>
   pairs.map(([id, text]) => ({ id, text, created: 1, updated: 1, updatedVersion: 1, userId: 'u' }));
 const ctx = { userId: 'me', now: 9, version: 10 };
 const texts = (lines: Line[]) => lines.map((l) => l.text);
-const apply = (lines: Line[], ops: ReturnType<typeof rebase>) =>
-  ops.length === 0 ? lines : applyOps(lines, ops, ctx);
+const candidateOps = (result: RebaseResult) => result.kind === 'rebased' ? result.ops : result.candidateOps;
+const apply = (lines: Line[], result: RebaseResult) => {
+  const ops = candidateOps(result);
+  return ops.length === 0 ? lines : applyOps(lines, ops, ctx);
+};
 
 void test('ローカル変更なしなら空', () => {
   const base = mk(['a', 't'], ['b', 'x']);
   const latest = mk(['a', 't'], ['b', 'y']);
-  assert.deepEqual(rebase(base, base, latest), []);
+  assert.deepEqual(rebase(base, base, latest), { kind: 'rebased', ops: [] });
 });
 
 void test('他者だけが変えた行を上書きしない', () => {
@@ -26,19 +29,23 @@ void test('他者だけが変えた行を上書きしない', () => {
   assert.deepEqual(texts(out), ['t', 'x-other', 'z-edited']);
 });
 
-void test('同一行の競合は再送側（ローカル）が勝つ', () => {
+void test('同一行を異なる内容へ更新した場合は競合にし、手元の内容を候補へ保持する', () => {
   const base = mk(['a', 't'], ['b', 'x']);
   const local = mk(['a', 't'], ['b', 'mine']);
   const latest = mk(['a', 't'], ['b', 'theirs']);
-  const out = apply(latest, rebase(base, local, latest));
+  const result = rebase(base, local, latest);
+  assert.equal(result.kind, 'conflict');
+  const out = apply(latest, result);
   assert.deepEqual(texts(out), ['t', 'mine']);
 });
 
-void test('編集した行が削除されていたら同じ ID で復活する', () => {
+void test('編集した行が削除されていたら競合にし、同じ ID で復元する候補を保持する', () => {
   const base = mk(['a', 't'], ['b', 'x'], ['c', 'z']);
   const local = mk(['a', 't'], ['b', 'x-mine'], ['c', 'z']);
   const latest = mk(['a', 't'], ['c', 'z']);
-  const out = apply(latest, rebase(base, local, latest));
+  const result = rebase(base, local, latest);
+  assert.equal(result.kind, 'conflict');
+  const out = apply(latest, result);
   assert.deepEqual(texts(out), ['t', 'x-mine', 'z']);
   assert.equal(out[1]!.id, 'b');
 });
@@ -47,14 +54,16 @@ void test('触っていない行の削除は受け入れる', () => {
   const base = mk(['a', 't'], ['b', 'x']);
   const local = mk(['a', 't'], ['b', 'x']);
   const latest = mk(['a', 't']);
-  assert.deepEqual(rebase(base, local, latest), []);
+  assert.deepEqual(rebase(base, local, latest), { kind: 'rebased', ops: [] });
 });
 
-void test('自分の削除は他者の編集より勝つ', () => {
+void test('手元の削除とサーバ上の更新は競合にし、削除した候補を保持する', () => {
   const base = mk(['a', 't'], ['b', 'x']);
   const local = mk(['a', 't']);
   const latest = mk(['a', 't'], ['b', 'x-other']);
-  const out = apply(latest, rebase(base, local, latest));
+  const result = rebase(base, local, latest);
+  assert.equal(result.kind, 'conflict');
+  const out = apply(latest, result);
   assert.deepEqual(texts(out), ['t']);
 });
 
@@ -66,7 +75,7 @@ void test('挿入アンカーの行が消えていても挿入内容を失わな
   assert.deepEqual(texts(out), ['t', 'new line']);
 });
 
-void test('プロパティ: ローカルの全編集が生き残り、他者だけの編集を消さない', () => {
+void test('プロパティ: 候補は手元の全編集を保持し、他者だけの編集を消さない', () => {
   const rnd = lcg(20260711);
   for (let round = 0; round < 30; round++) {
     const size = 3 + Math.floor(rnd() * 5);
@@ -117,7 +126,7 @@ void test('プロパティ: ローカルの全編集が生き残り、他者だ�
   }
 });
 
-void test('プロパティ: 同一行を両者が触る競合が規則どおりに解決される', () => {
+void test('プロパティ: 同一行を両者が触る場合は競合にし、候補に手元の変更を保持する', () => {
   const rnd = lcg(7113);
   for (let round = 0; round < 30; round++) {
     const base: Line[] = [];
@@ -133,13 +142,15 @@ void test('プロパティ: 同一行を両者が触る競合が規則どおり�
     const latest = base.map((l) => ({ ...l }));
     if (latestKind === 'update') latest[target] = { ...latest[target]!, text: 'theirs' };
     else latest.splice(target, 1);
-    const merged = apply(latest, rebase(base, local, latest));
+    const result = rebase(base, local, latest);
+    const merged = apply(latest, result);
     const found = merged.find((m) => m.id === `B${target}`);
+    assert.equal(result.kind, localKind === latestKind && localKind === 'delete' ? 'rebased' : 'conflict');
     if (localKind === 'delete') {
-      assert.equal(found, undefined, `round ${round}: 自分の削除が勝つ`);
+      assert.equal(found, undefined, `round ${round}: 候補に手元の削除が反映される`);
     } else {
       assert.ok(found !== undefined && found.text === 'mine',
-        `round ${round}: 自分の更新が勝つ（相手が${latestKind === 'delete' ? '削除' : '更新'}でも）`);
+        `round ${round}: 候補に手元の更新が反映される（相手が${latestKind === 'delete' ? '削除' : '更新'}でも）`);
     }
     for (const b of base) {
       if (b.id !== `B${target}`) {
