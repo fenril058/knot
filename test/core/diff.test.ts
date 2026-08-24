@@ -90,6 +90,38 @@ const sequences = (alphabet: string[], maxLength: number): string[][] => {
   return result;
 };
 
+const assertLargeLocalEditWithinHeap = (kind: 'unique' | 'blank-every-ten', editIndex: number) => {
+  const diffModule = new URL('../../src/core/diff.ts', import.meta.url).href;
+  const script = `
+    const { alignLines } = await import(process.argv[1]);
+    const kind = process.argv[2];
+    const editIndex = Number(process.argv[3]);
+    const oldLines = Array.from({ length: 5000 }, (_, i) => ({
+      id: 'L' + i,
+      text: kind === 'blank-every-ten' && i % 10 === 9 ? '' : 'line ' + i,
+      created: 1,
+      updated: 1,
+      updatedVersion: 1,
+      userId: 'u',
+    }));
+    const newTexts = oldLines.map((line) => line.text);
+    newTexts[editIndex] = 'changed';
+    const steps = alignLines(oldLines, newTexts);
+    if (steps.length !== 5001) process.exitCode = 1;
+  `;
+  const result = spawnSync(process.execPath, [
+    '--max-old-space-size=128',
+    '--input-type=module',
+    '--eval',
+    script,
+    diffModule,
+    kind,
+    String(editIndex),
+  ], { encoding: 'utf8' });
+
+  assert.equal(result.status, 0, `${kind}@${editIndex}\n${result.stderr}`);
+};
+
 void test('alignLines: 純追加は既存行を保って新規行を加える', () => {
   const old = mk('a', 'b');
   assert.deepEqual(alignLines(old, ['a', 'b', 'c']), [
@@ -137,8 +169,8 @@ void test('alignLines: 共通 suffix と同文の行が中央にあれば先の�
   ]);
 });
 
-void test('alignLines: 長さ 0〜4 の全組合せで従来の LCS と一致する', () => {
-  const inputs = sequences(['a', 'b', 'c'], 4);
+void test('alignLines: 長さ 0〜5 の全組合せで従来の LCS と一致する', () => {
+  const inputs = sequences(['a', 'b', 'c'], 5);
   for (const oldTexts of inputs) {
     for (const newTexts of inputs) {
       const old = mk(...oldTexts);
@@ -148,8 +180,8 @@ void test('alignLines: 長さ 0〜4 の全組合せで従来の LCS と一致す
   }
 });
 
-void test('diffLines: 長さ 0〜4 の全組合せで従来の LineOp と一致する', () => {
-  const inputs = sequences(['a', 'b', 'c'], 4);
+void test('diffLines: 長さ 0〜5 の全組合せで従来の LineOp と一致する', () => {
+  const inputs = sequences(['a', 'b', 'c'], 5);
   for (const oldTexts of inputs) {
     for (const newTexts of inputs) {
       const old = mk(...oldTexts);
@@ -159,32 +191,16 @@ void test('diffLines: 長さ 0〜4 の全組合せで従来の LineOp と一致�
   }
 });
 
-void test('alignLines: 5000 行の中央 1 行変更を 128 MiB のヒープ内で処理する', () => {
-  const diffModule = new URL('../../src/core/diff.ts', import.meta.url).href;
-  const script = `
-    const { alignLines } = await import(process.argv[1]);
-    const oldLines = Array.from({ length: 5000 }, (_, i) => ({
-      id: 'L' + i,
-      text: 'line ' + i,
-      created: 1,
-      updated: 1,
-      updatedVersion: 1,
-      userId: 'u',
-    }));
-    const newTexts = oldLines.map((line) => line.text);
-    newTexts[2500] = 'changed';
-    const steps = alignLines(oldLines, newTexts);
-    if (steps.length !== 5001) process.exitCode = 1;
-  `;
-  const result = spawnSync(process.execPath, [
-    '--max-old-space-size=128',
-    '--input-type=module',
-    '--eval',
-    script,
-    diffModule,
-  ], { encoding: 'utf8' });
+void test('alignLines: 5000 行の先頭付近の変更で共通 suffix を比較表から除外する', () => {
+  assertLargeLocalEditWithinHeap('unique', 1);
+});
 
-  assert.equal(result.status, 0, result.stderr);
+void test('alignLines: 5000 行の末尾付近の変更で共通 prefix を比較表から除外する', () => {
+  assertLargeLocalEditWithinHeap('unique', 4998);
+});
+
+void test('alignLines: 空行を含む 5000 行の先頭付近の変更でも共通 suffix を除外する', () => {
+  assertLargeLocalEditWithinHeap('blank-every-ten', 9);
 });
 
 void test('同文行への更新は位置を保ち、削除と追加は一致行を保つ', () => {

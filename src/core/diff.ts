@@ -5,7 +5,11 @@ export type AlignStep =
   | { kind: 'del'; line: Line }
   | { kind: 'add'; text: string };
 
-function findSuffixStarts(oldLines: Line[], newTexts: string[], prefixEnd: number): [number, number] {
+function findMiddleEnds(
+  oldLines: Line[],
+  newTexts: string[],
+  prefixEnd: number,
+): { oldEnd: number; newEnd: number } {
   let oldEnd = oldLines.length;
   let newEnd = newTexts.length;
   while (oldEnd > prefixEnd && newEnd > prefixEnd && oldLines[oldEnd - 1]!.text === newTexts[newEnd - 1]) {
@@ -14,31 +18,25 @@ function findSuffixStarts(oldLines: Line[], newTexts: string[], prefixEnd: numbe
   }
 
   const suffixLength = oldLines.length - oldEnd;
-  if (suffixLength === 0) return [oldEnd, newEnd];
+  if (suffixLength === 0) return { oldEnd, newEnd };
 
-  const lastSuffixOffsets = new Map<string, number>();
-  for (let offset = 0; offset < suffixLength; offset++) {
-    lastSuffixOffsets.set(oldLines[oldEnd + offset]!.text, offset);
-  }
-
-  let middleSuffixLength = 0;
+  const middleTexts = new Set<string>();
   for (let i = prefixEnd; i < oldEnd; i++) {
-    const offset = lastSuffixOffsets.get(oldLines[i]!.text);
-    if (offset !== undefined) middleSuffixLength = Math.max(middleSuffixLength, offset + 1);
+    middleTexts.add(oldLines[i]!.text);
   }
   for (let j = prefixEnd; j < newEnd; j++) {
-    const offset = lastSuffixOffsets.get(newTexts[j]!);
-    if (offset !== undefined) middleSuffixLength = Math.max(middleSuffixLength, offset + 1);
+    middleTexts.add(newTexts[j]!);
   }
 
-  // 中央と suffix に同じ本文があると、従来の tie-breaking は中央側の行を keep する場合がある。
-  // 境界をまたぐ同文行をすべて中央へ戻し、残りの suffix だけを先に確定する。
-  for (let offset = 0; offset < middleSuffixLength; offset++) {
-    const lastOffset = lastSuffixOffsets.get(oldLines[oldEnd + offset]!.text)!;
-    middleSuffixLength = Math.max(middleSuffixLength, lastOffset + 1);
+  // 保持する suffix の先頭行と同じ本文が中央にあると、従来の走査は中央側を keep する場合がある。
+  // 先頭行と同じ本文が中央から無くなるところまで suffix を中央へ戻す。
+  let pullBackLength = 0;
+  while (pullBackLength < suffixLength
+    && middleTexts.has(oldLines[oldEnd + pullBackLength]!.text)) {
+    pullBackLength++;
   }
 
-  return [oldEnd + middleSuffixLength, newEnd + middleSuffixLength];
+  return { oldEnd: oldEnd + pullBackLength, newEnd: newEnd + pullBackLength };
 }
 
 export function alignLines(oldLines: Line[], newTexts: string[]): AlignStep[] {
@@ -47,7 +45,7 @@ export function alignLines(oldLines: Line[], newTexts: string[]): AlignStep[] {
     && oldLines[prefixEnd]!.text === newTexts[prefixEnd]) {
     prefixEnd++;
   }
-  const [oldEnd, newEnd] = findSuffixStarts(oldLines, newTexts, prefixEnd);
+  const { oldEnd, newEnd } = findMiddleEnds(oldLines, newTexts, prefixEnd);
   const n = oldEnd - prefixEnd;
   const m = newEnd - prefixEnd;
   const lcs: number[][] = Array.from({ length: n + 1 }, () => Array.from({ length: m + 1 }, () => 0));
