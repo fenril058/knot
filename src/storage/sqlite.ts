@@ -1,14 +1,18 @@
 import { DatabaseSync } from 'node:sqlite';
-import { OpsError, type Line, type LineOp } from '../core/ops.ts';
-import { applyOps } from '../core/apply.ts';
-import { extractRefs, rewritePageLinks } from '../core/links.ts';
-import { titleLc } from '../core/title.ts';
+import {
+  commitPage,
+  deletePage as deletePageApplication,
+  derivePageData,
+  importPage as importPageApplication,
+  renamePage as renamePageApplication,
+  type PageMutation,
+  type PageRepository,
+  type PageTransaction,
+} from '../application/pageMutations.ts';
+import type { Line } from '../core/ops.ts';
 import { ulid } from '../core/id.ts';
 import type { SearchQuery } from '../core/searchQuery.ts';
-import { opsHash } from './hash.ts';
-import { validateImportLines } from './importValidation.ts';
 import {
-  BadCommitError,
   StorageError,
   type Account,
   type Actor,
@@ -17,7 +21,7 @@ import {
   type Attachment,
   type CommitInput,
   type CommitResult,
-  type ImportLine,
+  type CreateAttachmentResult,
   type ImportPageInput,
   type ImportPageResult,
   type ListPageSummariesOptions,
@@ -42,6 +46,7 @@ import {
 const PROJECT_NAME_RE = /^[a-z0-9-]+$/;
 const MAX_PROJECT_NAME_LENGTH = 64;
 const RESERVED_PROJECT_NAMES = new Set(['api', 'login', 'files', 'assets']);
+const SQLITE_CONSTRAINT_UNIQUE = 2067;
 
 type AccountRow = {
   id: string;
@@ -89,6 +94,13 @@ type AttachmentRow = {
 
 function escapeLike(s: string): string {
   return s.replaceAll(/[\\%_]/g, (m) => `\\${m}`);
+}
+
+function isUniqueConstraint(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'errcode' in error
+    && error.errcode === SQLITE_CONSTRAINT_UNIQUE;
 }
 
 export class SqliteStorage implements Storage {
@@ -353,7 +365,7 @@ export class SqliteStorage implements Storage {
     this.#db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
   }
 
-  async createAttachment(attachment: Attachment, claimOwner?: string): Promise<void> {
+  #createAttachment(attachment: Attachment, claimOwner?: string): void {
     this.#tx(() => {
       this.#ensureActor(attachment.actorId, attachment.created);
       this.#db
@@ -379,6 +391,20 @@ export class SqliteStorage implements Storage {
           .run(attachment.id, claimOwner);
       }
     });
+  }
+
+  async createAttachment(attachment: Attachment, claimOwner?: string): Promise<void> {
+    this.#createAttachment(attachment, claimOwner);
+  }
+
+  async tryCreateAttachment(attachment: Attachment, claimOwner?: string): Promise<CreateAttachmentResult> {
+    try {
+      this.#createAttachment(attachment, claimOwner);
+      return { kind: 'created' };
+    } catch (error) {
+      if (isUniqueConstraint(error)) return { kind: 'conflict' };
+      throw error;
+    }
   }
 
   async updateAttachmentMetadata(id: string, filename: string, contentType: string): Promise<void> {
@@ -407,6 +433,19 @@ export class SqliteStorage implements Storage {
 
   async finalizeAttachmentClaims(owner: string): Promise<void> {
     this.#tx(() => this.#finalizeAttachmentClaims(owner));
+  }
+
+  #finalizeAttachmentClaims(owner: string): void {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+    const claims = this.#db
+      .prepare('SELECT attachment_id FROM attachment_claims WHERE owner = ?')
+      .all(owner) as { attachment_id: string }[];
+    const makePermanent = this.#db.prepare('UPDATE attachments SET provisional = 0 WHERE id = ?');
+    const clearClaims = this.#db.prepare('DELETE FROM attachment_claims WHERE attachment_id = ?');
+    for (const { attachment_id: id } of claims) {
+      makePermanent.run(id);
+      clearClaims.run(id);
+    }
   }
 
   #attachmentRowToAttachment(row: AttachmentRow): Attachment {
@@ -495,6 +534,130 @@ export class SqliteStorage implements Storage {
 
   #snapshot(row: PageRow): PageSnapshot {
     return { ...this.#pageRowToMeta(row), lines: this.#getLines(row.id) };
+  }
+
+  #pageRepository(): PageRepository {
+    return {
+      transaction: <T>(operation: (tx: PageTransaction) => T): T => this.#tx(() => operation({
+        ensureActor: (actorId, now) => this.#ensureActor(actorId, now),
+        getAppliedCommit: (commitId) => {
+          // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+          const row = this.#db
+            .prepare('SELECT version, ops_hash FROM commits WHERE id = ?')
+            .get(commitId) as { version: number; ops_hash: string } | undefined;
+          return row === undefined ? null : { version: row.version, opsHash: row.ops_hash };
+        },
+        getPageById: (pageId) => {
+          // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+          const row = this.#db.prepare('SELECT * FROM pages WHERE id = ?').get(pageId) as PageRow | undefined;
+          return row === undefined ? null : this.#snapshot(row);
+        },
+        getPageByTitle: (projectId, titleLcValue) => {
+          // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+          const row = this.#db
+            .prepare('SELECT * FROM pages WHERE project_id = ? AND title_lc = ? AND deleted = 0')
+            .get(projectId, titleLcValue) as PageRow | undefined;
+          return row === undefined ? null : this.#snapshot(row);
+        },
+        getCurrentTitleStarted: (pageId, fallback) => {
+          // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+          const row = this.#db
+            .prepare('SELECT COALESCE(MAX(ended), ?) AS started FROM title_history WHERE page_id = ?')
+            .get(fallback, pageId) as { started: number };
+          return row.started;
+        },
+        pageIdExists: (pageId) => this.#db.prepare('SELECT 1 FROM pages WHERE id = ?').get(pageId) !== undefined,
+        listPagesLinkingTo: (projectId, targetTitleLc, excludePageId) => {
+          // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+          const rows = this.#db
+            .prepare(
+              `SELECT DISTINCT p.* FROM pages p JOIN links l ON l.source_page_id = p.id
+               WHERE l.project_id = ? AND l.target_title_lc = ? AND p.id != ? AND p.deleted = 0`,
+            )
+            .all(projectId, targetTitleLc, excludePageId) as PageRow[];
+          return rows.map((row) => this.#snapshot(row));
+        },
+        savePageMutation: (mutation) => this.#savePageMutation(mutation),
+        finalizeAttachmentClaims: (owner) => this.#finalizeAttachmentClaims(owner),
+      })),
+    };
+  }
+
+  #savePageMutation(mutation: PageMutation): void {
+    const { before, after, commit, derived } = mutation;
+    if (before === null) {
+      this.#db
+        .prepare(
+          `INSERT INTO pages (id, project_id, title, title_lc, version, pinned, deleted, image, created, updated)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          after.id,
+          after.projectId,
+          after.title,
+          after.titleLc,
+          after.version,
+          after.pinned,
+          after.deleted ? 1 : 0,
+          derived.image,
+          after.created,
+          after.updated,
+        );
+    } else {
+      if (mutation.titleHistory !== undefined) {
+        const history = mutation.titleHistory;
+        this.#db
+          .prepare('INSERT INTO title_history (page_id, old_title, old_title_lc, started, ended) VALUES (?, ?, ?, ?, ?)')
+          .run(after.id, history.oldTitle, history.oldTitleLc, history.started, history.ended);
+      }
+      this.#db
+        .prepare(
+          `UPDATE pages SET title = ?, title_lc = ?, version = ?, pinned = ?, deleted = ?, image = ?, created = ?, updated = ?
+           WHERE id = ?`,
+        )
+        .run(
+          after.title,
+          after.titleLc,
+          after.version,
+          after.pinned,
+          after.deleted ? 1 : 0,
+          derived.image,
+          after.created,
+          after.updated,
+          after.id,
+        );
+    }
+    this.#writeLines(after.id, after.lines);
+    this.#db
+      .prepare(
+        `INSERT INTO commits (id, page_id, base_version, version, actor_id, created, ops, ops_hash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        commit.id,
+        commit.pageId,
+        commit.baseVersion,
+        commit.version,
+        commit.actorId,
+        commit.created,
+        JSON.stringify(commit.ops),
+        commit.opsHash,
+      );
+    this.#writeDerived(after.projectId, after.id, derived);
+  }
+
+  #writeDerived(projectId: string, pageId: string, derived: PageMutation['derived']): void {
+    this.#db.prepare('DELETE FROM links WHERE source_page_id = ?').run(pageId);
+    this.#db.prepare('DELETE FROM pages_fts WHERE page_id = ?').run(pageId);
+    this.#db.prepare('UPDATE pages SET image = ? WHERE id = ?').run(derived.image, pageId);
+    if (derived.searchText === null) return;
+    const insertLink = this.#db.prepare(
+      'INSERT OR IGNORE INTO links (project_id, source_page_id, target_title_lc, target_title) VALUES (?, ?, ?, ?)',
+    );
+    for (const target of derived.links) insertLink.run(projectId, pageId, target.titleLc, target.title);
+    this.#db
+      .prepare('INSERT INTO pages_fts (page_id, project_id, content) VALUES (?, ?, ?)')
+      .run(pageId, projectId, derived.searchText);
   }
 
   async getPageByTitle(projectId: string, titleLcValue: string): Promise<PageSnapshot | null> {
@@ -750,178 +913,15 @@ export class SqliteStorage implements Storage {
   }
 
   async commit(input: CommitInput): Promise<CommitResult> {
-    return this.#tx(() => this.#applyCommit(input));
+    return commitPage(this.#pageRepository(), input);
   }
 
   async deletePage(projectId: string, pageId: string, actorId: string, now: number): Promise<{ version: number }> {
-    return this.#tx(() => {
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-      const row = this.#db.prepare('SELECT * FROM pages WHERE id = ?').get(pageId) as PageRow | undefined;
-      if (!row || row.deleted === 1) throw new BadCommitError(`unknown page: ${pageId}`);
-      if (row.project_id !== projectId) throw new BadCommitError(`page ${pageId} is not in project ${projectId}`);
-      const ops: LineOp[] = this.#getLines(pageId).map((l) => ({ type: 'delete' as const, id: l.id }));
-      const result = this.#applyCommit({
-        projectId, pageId, commitId: ulid(now * 1000), baseVersion: row.version, ops, actorId, now,
-      });
-      if (result.kind !== 'applied') throw new StorageError('unexpected conflict in deletePage');
-      return { version: result.version };
-    });
+    return deletePageApplication(this.#pageRepository(), projectId, pageId, actorId, now);
   }
 
   async renamePage(input: RenameInput): Promise<RenameResult> {
-    const { projectId, pageId, baseVersion, newTitle, rewriteLinks, actorId, now } = input;
-    return this.#tx(() => {
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-      const row = this.#db.prepare('SELECT * FROM pages WHERE id = ?').get(pageId) as PageRow | undefined;
-      if (!row || row.deleted === 1) throw new BadCommitError(`unknown page: ${pageId}`);
-      if (row.project_id !== projectId) throw new BadCommitError(`page ${pageId} is not in project ${projectId}`);
-      if (newTitle === '') throw new BadCommitError('title must not be empty');
-      if (newTitle === row.title) throw new BadCommitError('title is unchanged');
-      if (baseVersion !== row.version) {
-        return { kind: 'conflict' as const, reason: 'version' as const, page: this.#snapshot(row) };
-      }
-      const oldTitleLc = row.title_lc;
-
-      // 未削除ページであることを上で確認済み。未削除なら 1 行以上あることをコミットが保証する。
-      const lines = this.#getLines(pageId);
-      const titleCommit = this.#applyCommit({
-        projectId, pageId, commitId: ulid(now * 1000), baseVersion,
-        ops: [{ type: 'update', id: lines[0]!.id, text: newTitle }], actorId, now,
-      });
-      if (titleCommit.kind === 'conflict') {
-        return { kind: 'conflict' as const, reason: 'title' as const, page: titleCommit.page };
-      }
-
-      const rewritten: { pageId: string; title: string; version: number }[] = [];
-      if (rewriteLinks && titleLc(newTitle) !== oldTitleLc) {
-        // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-        const sources = this.#db
-          .prepare(
-            `SELECT DISTINCT p.id FROM pages p JOIN links l ON l.source_page_id = p.id
-             WHERE l.project_id = ? AND l.target_title_lc = ? AND p.id != ? AND p.deleted = 0`,
-          )
-          .all(projectId, oldTitleLc, pageId) as { id: string }[];
-        for (const source of sources) {
-          // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-          const srcRow = this.#db.prepare('SELECT * FROM pages WHERE id = ?').get(source.id) as PageRow;
-          const srcLines = this.#getLines(source.id);
-          const changes = rewritePageLinks(srcLines.map((l) => l.text), oldTitleLc, newTitle);
-          const ops: LineOp[] = [];
-          // changes は srcLines を map した結果なので添字が対応する。
-          changes.forEach((text, i) => {
-            if (text !== null) ops.push({ type: 'update', id: srcLines[i]!.id, text });
-          });
-          if (ops.length === 0) continue;
-          const result = this.#applyCommit({
-            projectId, pageId: source.id, commitId: ulid(now * 1000), baseVersion: srcRow.version, ops, actorId, now,
-          });
-          if (result.kind !== 'applied') {
-            throw new StorageError(`link rewrite conflict on page ${source.id}`);
-          }
-          rewritten.push({ pageId: source.id, title: srcRow.title, version: result.version });
-        }
-      }
-      return { kind: 'applied' as const, version: titleCommit.version, rewritten };
-    });
-  }
-
-  #applyCommit(input: CommitInput): CommitResult {
-    const { projectId, pageId, commitId, baseVersion, ops, actorId, now } = input;
-
-    this.#ensureActor(actorId, now);
-
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-    const prior = this.#db
-      .prepare('SELECT version, ops_hash FROM commits WHERE id = ?')
-      .get(commitId) as { version: number; ops_hash: string } | undefined;
-    if (prior) {
-      if (prior.ops_hash !== opsHash(pageId, baseVersion, ops)) {
-        throw new BadCommitError(`commit ${commitId} was already applied with different content`);
-      }
-      return { kind: 'applied', version: prior.version };
-    }
-
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-    const row = this.#db.prepare('SELECT * FROM pages WHERE id = ?').get(pageId) as PageRow | undefined;
-    if (!row && baseVersion !== 0) throw new BadCommitError(`unknown page: ${pageId}`);
-    if (row && row.project_id !== projectId) {
-      throw new BadCommitError(`page ${pageId} is not in project ${projectId}`);
-    }
-    if (row && row.deleted === 1) throw new BadCommitError(`page ${pageId} is deleted`);
-    if (row && baseVersion !== row.version) {
-      return { kind: 'conflict', reason: 'version', page: this.#snapshot(row) };
-    }
-
-    const currentLines = row ? this.#getLines(pageId) : [];
-    const version = baseVersion + 1;
-    let newLines: Line[];
-    try {
-      newLines = applyOps(currentLines, ops, { userId: actorId, now, version });
-    } catch (e) {
-      if (e instanceof OpsError) throw new BadCommitError(e.message);
-      throw e;
-    }
-
-    const deleted = newLines.length === 0;
-    // 新規作成はタイトル行が残る最初のコミットでなければならない（スペック「行操作とコミット」）
-    if (!row && deleted) throw new BadCommitError('page creation must leave at least one line');
-    // deleted が false なので newLines は 1 行以上ある。
-    const newTitle = deleted ? (row ? row.title : '') : newLines[0]!.text;
-    const newTitleLc = titleLc(newTitle);
-
-    if (!deleted && (!row || newTitleLc !== row.title_lc)) {
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-      const clash = this.#db
-        .prepare('SELECT * FROM pages WHERE project_id = ? AND title_lc = ? AND deleted = 0 AND id != ?')
-        .get(projectId, newTitleLc, pageId) as PageRow | undefined;
-      if (clash) return { kind: 'conflict', reason: 'title', page: this.#snapshot(clash) };
-    }
-
-    if (!row) {
-      this.#db
-        .prepare(
-          `INSERT INTO pages (id, project_id, title, title_lc, version, pinned, deleted, image, created, updated)
-           VALUES (?, ?, ?, ?, ?, 0, ?, NULL, ?, ?)`,
-        )
-        .run(pageId, projectId, newTitle, newTitleLc, version, deleted ? 1 : 0, now, now);
-    } else {
-      if (!deleted && newTitle !== row.title) {
-        // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-        const started = this.#db
-          .prepare('SELECT COALESCE(MAX(ended), ?) AS s FROM title_history WHERE page_id = ?')
-          .get(row.created, pageId) as { s: number };
-        this.#db
-          .prepare('INSERT INTO title_history (page_id, old_title, old_title_lc, started, ended) VALUES (?, ?, ?, ?, ?)')
-          .run(pageId, row.title, row.title_lc, started.s, now);
-      }
-      this.#db
-        .prepare('UPDATE pages SET title = ?, title_lc = ?, version = ?, deleted = ?, updated = ? WHERE id = ?')
-        .run(newTitle, newTitleLc, version, deleted ? 1 : 0, now, pageId);
-    }
-
-    this.#writeLines(pageId, newLines);
-    this.#insertCommit(commitId, pageId, baseVersion, version, actorId, now, ops);
-    this.#updateDerived(projectId, pageId, newLines, deleted);
-    return { kind: 'applied', version };
-  }
-
-  #updateDerived(projectId: string, pageId: string, lines: Line[], deleted: boolean): void {
-    this.#db.prepare('DELETE FROM links WHERE source_page_id = ?').run(pageId);
-    this.#db.prepare('DELETE FROM pages_fts WHERE page_id = ?').run(pageId);
-    if (deleted) {
-      this.#db.prepare('UPDATE pages SET image = NULL WHERE id = ?').run(pageId);
-      return;
-    }
-    const text = lines.map((l) => l.text).join('\n');
-    const refs = extractRefs(text);
-    const insertLink = this.#db.prepare(
-      'INSERT OR IGNORE INTO links (project_id, source_page_id, target_title_lc, target_title) VALUES (?, ?, ?, ?)',
-    );
-    for (const target of refs.linkTargets) insertLink.run(projectId, pageId, target.titleLc, target.title);
-    this.#db.prepare('UPDATE pages SET image = ? WHERE id = ?').run(refs.image, pageId);
-    this.#db
-      .prepare('INSERT INTO pages_fts (page_id, project_id, content) VALUES (?, ?, ?)')
-      .run(pageId, projectId, text);
+    return renamePageApplication(this.#pageRepository(), input);
   }
 
   #writeLines(pageId: string, lines: Line[]): void {
@@ -935,97 +935,8 @@ export class SqliteStorage implements Storage {
     });
   }
 
-  #insertCommit(
-    commitId: string,
-    pageId: string,
-    baseVersion: number,
-    version: number,
-    actorId: string,
-    now: number,
-    ops: LineOp[],
-  ): void {
-    this.#db
-      .prepare(
-        `INSERT INTO commits (id, page_id, base_version, version, actor_id, created, ops, ops_hash)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(commitId, pageId, baseVersion, version, actorId, now, JSON.stringify(ops), opsHash(pageId, baseVersion, ops));
-  }
-
   async importPage(input: ImportPageInput): Promise<ImportPageResult> {
-    return this.#tx(() => {
-      const { projectId, page, lines, actorId, now, onConflict } = input;
-      this.#ensureActor(actorId, now);
-      for (const line of lines) this.#ensureActor(line.actorId, line.created);
-      validateImportLines(page.title, lines);
-      const lcValue = titleLc(page.title);
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-      const existing = this.#db
-        .prepare('SELECT * FROM pages WHERE project_id = ? AND title_lc = ? AND deleted = 0')
-        .get(projectId, lcValue) as PageRow | undefined;
-
-      if (existing && onConflict === 'skip') return { kind: 'skipped' as const, pageId: existing.id };
-
-      // i === 0 を先に分岐しているので lines[i - 1] は範囲内。
-      const insertOps: LineOp[] = lines.map((l, i) => ({
-        type: 'insert' as const,
-        id: l.id,
-        after: i === 0 ? '_head' : lines[i - 1]!.id,
-        text: l.text,
-      }));
-
-      if (existing) {
-        const deleteOps: LineOp[] = this.#getLines(existing.id).map((l) => ({ type: 'delete' as const, id: l.id }));
-        const version = existing.version + 1;
-        this.#writeImportedLines(existing.id, lines, version);
-        this.#db
-          .prepare('UPDATE pages SET title = ?, version = ?, created = ?, updated = ? WHERE id = ?')
-          .run(page.title, version, page.created, page.updated, existing.id);
-        this.#insertCommit(ulid(now * 1000), existing.id, existing.version, version, actorId, now, [
-          ...deleteOps,
-          ...insertOps,
-        ]);
-        this.#updateDerived(projectId, existing.id, this.#getLines(existing.id), false);
-        if (input.attachmentClaimOwner !== undefined) this.#finalizeAttachmentClaims(input.attachmentClaimOwner);
-        return { kind: 'overwritten' as const, pageId: existing.id };
-      }
-
-      const idTaken = this.#db.prepare('SELECT 1 AS x FROM pages WHERE id = ?').get(page.id) !== undefined;
-      const pageId = idTaken ? ulid(now * 1000) : page.id;
-      this.#db
-        .prepare(
-          `INSERT INTO pages (id, project_id, title, title_lc, version, pinned, deleted, image, created, updated)
-           VALUES (?, ?, ?, ?, 1, 0, 0, NULL, ?, ?)`,
-        )
-        .run(pageId, projectId, page.title, lcValue, page.created, page.updated);
-      this.#writeImportedLines(pageId, lines, 1);
-      this.#insertCommit(ulid(now * 1000), pageId, 0, 1, actorId, now, insertOps);
-      this.#updateDerived(projectId, pageId, this.#getLines(pageId), false);
-      if (input.attachmentClaimOwner !== undefined) this.#finalizeAttachmentClaims(input.attachmentClaimOwner);
-      return { kind: 'created' as const, pageId };
-    });
-  }
-
-  #finalizeAttachmentClaims(owner: string): void {
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-    const claims = this.#db
-      .prepare('SELECT attachment_id FROM attachment_claims WHERE owner = ?')
-      .all(owner) as { attachment_id: string }[];
-    const makePermanent = this.#db.prepare('UPDATE attachments SET provisional = 0 WHERE id = ?');
-    const clearClaims = this.#db.prepare('DELETE FROM attachment_claims WHERE attachment_id = ?');
-    for (const { attachment_id: id } of claims) {
-      makePermanent.run(id);
-      clearClaims.run(id);
-    }
-  }
-
-  #writeImportedLines(pageId: string, lines: ImportLine[], version: number): void {
-    this.#db.prepare('DELETE FROM lines WHERE page_id = ?').run(pageId);
-    const st = this.#db.prepare(
-      `INSERT INTO lines (id, page_id, ord, text, created, updated, updated_version, actor_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    );
-    lines.forEach((l, ord) => st.run(l.id, pageId, ord, l.text, l.created, l.updated, version, l.actorId));
+    return importPageApplication(this.#pageRepository(), input);
   }
 
   async search(projectId: string, query: SearchQuery): Promise<SearchHit[]> {
@@ -1105,7 +1016,8 @@ export class SqliteStorage implements Storage {
           : this.#db.prepare('SELECT * FROM pages WHERE project_id = ?').all(projectId)
       ) as PageRow[];
       for (const row of rows) {
-        this.#updateDerived(row.project_id, row.id, this.#getLines(row.id), row.deleted === 1);
+        const lines = this.#getLines(row.id);
+        this.#writeDerived(row.project_id, row.id, derivePageData(lines, row.deleted === 1));
       }
       return { pages: rows.length };
     });

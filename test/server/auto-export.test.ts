@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from '
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { importCosense } from '../../src/storage/import.ts';
+import { importCosense } from '../../src/application/importCosense.ts';
 import { runAutoExportOnce, startAutoExport } from '../../src/server/autoExport.ts';
 import { defaultConfig } from '../../src/server/config.ts';
 import type { Attachment, Storage } from '../../src/storage/types.ts';

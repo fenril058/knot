@@ -8,9 +8,26 @@ import {
   type AttachmentImportOptions,
   type AttachmentImportSummary,
 } from './importAttachments.ts';
-import { releaseAttachmentClaims } from './attachmentFiles.ts';
+import { releaseAttachmentClaims } from './attachments.ts';
 import { validateImportLines } from './importValidation.ts';
-import type { ImportLine, Storage } from './types.ts';
+import type {
+  Actor,
+  AttachmentRepository,
+  ImportLine,
+  ImportPageInput,
+  ImportPageResult,
+  PageSnapshot,
+  Project,
+} from '../storage/types.ts';
+
+export interface ImportRepository extends AttachmentRepository {
+  ensureProject(name: string, now: number): Promise<Project>;
+  setProjectDisplayName(projectId: string, displayName: string, now: number): Promise<void>;
+  upsertActor(actor: Actor, now: number): Promise<string>;
+  getActorById(id: string): Promise<Actor | null>;
+  getPageByTitle(projectId: string, titleLcValue: string): Promise<PageSnapshot | null>;
+  importPage(input: ImportPageInput): Promise<ImportPageResult>;
+}
 
 export const IMPORTER_USER_NAME = 'knot-import';
 
@@ -29,7 +46,7 @@ export type ImportSummary = {
   attachments?: AttachmentImportSummary;
 };
 
-export async function importCosense(storage: Storage, data: unknown, options: ImportOptions): Promise<ImportSummary> {
+export async function importCosense(storage: ImportRepository, data: unknown, options: ImportOptions): Promise<ImportSummary> {
   const exp = parseExportFile(data);
   const now = options.now ?? Math.floor(Date.now() / 1000);
   const onConflict = options.onConflict ?? 'skip';

@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Context, Hono } from 'hono';
-import { attachmentUrl, storeAttachment } from '../../storage/attachmentFiles.ts';
+import { attachmentUrl, storeAttachment } from '../../application/attachments.ts';
 import type { Attachment } from '../../storage/types.ts';
 import type { AppDeps } from '../app.ts';
 import { jsonError, type ApiEnv } from '../http.ts';

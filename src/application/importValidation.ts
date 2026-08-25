@@ -1,4 +1,4 @@
-import { StorageError, type ImportLine } from './types.ts';
+import { StorageError, type ImportLine } from '../storage/types.ts';
 
 export function validateImportLines(pageTitle: string, lines: ImportLine[]): void {
   if (lines.length === 0) throw new StorageError(`page "${pageTitle}" has no lines`);

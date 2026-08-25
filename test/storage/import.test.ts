@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseSearchQuery } from '../../src/core/searchQuery.ts';
 import { makeStorage } from '../helpers/storage.ts';
-import { importCosense, IMPORTER_USER_NAME } from '../../src/storage/import.ts';
+import { importCosense, IMPORTER_USER_NAME } from '../../src/application/importCosense.ts';
 import { StorageError } from '../../src/storage/types.ts';
 import type { CosenseExport, CosenseLine } from '../../src/core/cosense.ts';
 

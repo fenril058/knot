@@ -47,6 +47,8 @@ export type Attachment = {
   created: number;
 };
 
+export type CreateAttachmentResult = { kind: 'created' } | { kind: 'conflict' };
+
 export type PageMeta = {
   id: string;
   projectId: string;
@@ -156,7 +158,19 @@ export class StorageError extends Error {
   }
 }
 
-export interface Storage {
+export interface AttachmentRepository {
+  /** claimOwner がある添付は、対応するページが確定するまで一覧・取得 API へ公開しない。 */
+  tryCreateAttachment(attachment: Attachment, claimOwner?: string): Promise<CreateAttachmentResult>;
+  updateAttachmentMetadata(id: string, filename: string, contentType: string): Promise<void>;
+  /** owner の利用宣言を解除し、他の利用者もページ参照もない暫定添付 ID を返す。 */
+  releaseAttachmentClaims(owner: string): Promise<string[]>;
+  /** owner が利用中の暫定添付を確定し、同じ添付に対する利用宣言を解除する。 */
+  finalizeAttachmentClaims(owner: string): Promise<void>;
+  /** 再利用はプロジェクト単位とし、claimOwner があれば暫定添付への利用を宣言する。 */
+  reuseAttachmentBySha256(projectId: string, sha256: string, claimOwner?: string): Promise<Attachment | null>;
+}
+
+export interface Storage extends AttachmentRepository {
   ensureProject(name: string, now: number): Promise<Project>;
   getProject(name: string): Promise<Project | null>;
   listProjects(): Promise<Project[]>;
@@ -179,17 +193,10 @@ export interface Storage {
   getSession(id: string, now: number): Promise<Session | null>;
   refreshSession(id: string, expires: number): Promise<void>;
   deleteSession(id: string): Promise<void>;
-  /** claimOwner がある添付は、対応するページが確定するまで一覧・取得 API へ公開しない。 */
+  /** unique constraint を含む永続化エラーを呼び出し元へ返す低水準 API。 */
   createAttachment(attachment: Attachment, claimOwner?: string): Promise<void>;
-  updateAttachmentMetadata(id: string, filename: string, contentType: string): Promise<void>;
-  /** owner の利用宣言を解除し、他の利用者もページ参照もない暫定添付 ID を返す。 */
-  releaseAttachmentClaims(owner: string): Promise<string[]>;
-  /** owner が利用中の暫定添付を確定し、同じ添付に対する利用宣言を解除する。 */
-  finalizeAttachmentClaims(owner: string): Promise<void>;
   listAttachments(projectId: string): Promise<Attachment[]>;
   getAttachment(id: string): Promise<Attachment | null>;
-  /** 再利用はプロジェクト単位とし、claimOwner があれば暫定添付への利用を宣言する。 */
-  reuseAttachmentBySha256(projectId: string, sha256: string, claimOwner?: string): Promise<Attachment | null>;
   getPageByTitle(projectId: string, titleLcValue: string): Promise<PageSnapshot | null>;
   getPageById(pageId: string): Promise<PageSnapshot | null>;
   getPageAuthors(pageId: string): Promise<{ user: Actor | null; lastUpdateUser: Actor | null }>;

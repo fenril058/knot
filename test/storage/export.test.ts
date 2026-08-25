@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { makeStorage } from '../helpers/storage.ts';
-import { importCosense } from '../../src/storage/import.ts';
+import { importCosense } from '../../src/application/importCosense.ts';
 import { exportCosense } from '../../src/storage/export.ts';
 import { normalizeLines, parseExportFile, type CosenseLine } from '../../src/core/cosense.ts';
 import { ulid } from '../../src/core/id.ts';

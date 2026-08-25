@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { makeStorage } from '../helpers/storage.ts';
 import { readZip } from '../helpers/zip.ts';
-import { importCosense } from '../../src/storage/import.ts';
+import { importCosense } from '../../src/application/importCosense.ts';
 import { buildExportZip } from '../../src/storage/exportZip.ts';
 import { StorageError, type Attachment } from '../../src/storage/types.ts';
 

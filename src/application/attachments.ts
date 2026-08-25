@@ -2,10 +2,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ulid } from '../core/id.ts';
-import type { Attachment, Storage } from './types.ts';
+import { StorageError, type Attachment, type AttachmentRepository } from '../storage/types.ts';
 
 export type StoreAttachmentInput = {
-  storage: Storage;
+  storage: AttachmentRepository;
   filesDir: string;
   projectId: string;
   filename: string;
@@ -18,8 +18,6 @@ export type StoreAttachmentInput = {
 };
 
 export type StoreAttachmentResult = { attachment: Attachment; created: boolean };
-
-const SQLITE_CONSTRAINT_UNIQUE = 2067;
 
 export function attachmentUrl(attachment: Pick<Attachment, 'id' | 'filename'>): string {
   return `/files/${attachment.id}/${encodeURIComponent(attachment.filename)}`;
@@ -45,15 +43,8 @@ async function ensureFile(path: string, bytes: Uint8Array, sha256: string): Prom
   await replaceFile(path, bytes);
 }
 
-function isUniqueConstraint(error: unknown): boolean {
-  return typeof error === 'object'
-    && error !== null
-    && 'errcode' in error
-    && error.errcode === SQLITE_CONSTRAINT_UNIQUE;
-}
-
 async function reconcileMetadata(
-  storage: Storage,
+  storage: AttachmentRepository,
   attachment: Attachment,
   input: StoreAttachmentInput,
 ): Promise<Attachment> {
@@ -87,7 +78,7 @@ async function reuseStoredAttachment(
 }
 
 export async function releaseAttachmentClaims(
-  storage: Storage,
+  storage: AttachmentRepository,
   filesDir: string,
   owner: string,
 ): Promise<void> {
@@ -116,14 +107,16 @@ export async function storeAttachment(input: StoreAttachmentInput): Promise<Stor
   for (let attempt = 0; attempt < 2; attempt += 1) {
     await replaceFile(finalPath, input.bytes);
     try {
-      await input.storage.createAttachment(attachment, input.claimOwner);
-      return { attachment, created: true };
-    } catch (error) {
+      const result = await input.storage.tryCreateAttachment(attachment, input.claimOwner);
+      if (result.kind === 'created') return { attachment, created: true };
       await rm(finalPath, { force: true });
       const raced = await reuseStoredAttachment(input, sha256, reuseClaimOwner);
       if (raced !== null) return raced;
-      if (!isUniqueConstraint(error) || attempt === 1) throw error;
+      if (attempt === 1) throw new StorageError('attachment creation conflict could not be resolved');
+    } catch (error) {
+      await rm(finalPath, { force: true });
+      throw error;
     }
   }
-  throw new Error('attachment creation retry exhausted');
+  throw new StorageError('attachment creation retry exhausted');
 }
