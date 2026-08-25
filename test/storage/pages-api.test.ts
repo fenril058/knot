@@ -44,7 +44,7 @@ void test('listPageSummaries: 削除済みページは数えず返さない', as
   const page = await storage.getPageById(pageId);
   await storage.commit({
     projectId: project.id, pageId, commitId: ulid(now * 1000), baseVersion: page!.version,
-    ops: page!.lines.map((l) => ({ type: 'delete' as const, id: l.id })), userId: 'u', now,
+    ops: page!.lines.map((l) => ({ type: 'delete' as const, id: l.id })), actorId: 'u', now,
   });
   const { count, pages } = await storage.listPageSummaries(project.id, { skip: 0, limit: 10, sort: 'updated' });
   assert.equal(count, 0);

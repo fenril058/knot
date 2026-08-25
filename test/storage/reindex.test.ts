@@ -11,7 +11,7 @@ async function setup() {
       { type: 'insert', id: 'l1', after: '_head', text: 'ホーム' },
       { type: 'insert', id: 'l2', after: 'l1', text: '[リンク先] と [https://gyazo.com/img1]' },
     ],
-    userId: 'u1', now: 2000,
+    actorId: 'u1', now: 2000,
   });
   // 導出データを壊す
   db.prepare('DELETE FROM links').run();
@@ -47,7 +47,7 @@ void test('reindex は削除済みページの残骸も掃除する', async () =
       { type: 'delete', id: 'l1' },
       { type: 'delete', id: 'l2' },
     ],
-    userId: 'u1', now: 3000,
+    actorId: 'u1', now: 3000,
   });
   // 削除済みページに残骸を仕込む
   db.prepare("INSERT INTO links (project_id, source_page_id, target_title_lc) VALUES (?, 'pg1', 'ゴミ')").run(project.id);
@@ -67,7 +67,7 @@ void test('projectId を指定すると、そのプロジェクトのページ�
   await storage.commit({
     projectId: other.id, pageId: 'pg9', commitId: 'c9', baseVersion: 0,
     ops: [{ type: 'insert', id: 'm1', after: '_head', text: '別プロジェクト' }],
-    userId: 'u1', now: 2000,
+    actorId: 'u1', now: 2000,
   });
   const result = await storage.reindex(other.id);
   assert.equal(result.pages, 1);

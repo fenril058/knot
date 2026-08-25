@@ -34,11 +34,11 @@ async function setup() {
   const attachments: Attachment[] = [
     {
       id: 'file-b', projectId: project.id, filename: 'b.txt', contentType: 'text/plain', size: 3,
-      sha256: 'b'.repeat(64), userId: 'u1', created: NOW - 2,
+      sha256: 'b'.repeat(64), actorId: 'u1', created: NOW - 2,
     },
     {
       id: 'file-a', projectId: project.id, filename: 'a.txt', contentType: 'text/plain', size: 3,
-      sha256: 'a'.repeat(64), userId: 'u1', created: NOW - 3,
+      sha256: 'a'.repeat(64), actorId: 'u1', created: NOW - 3,
     },
   ];
   for (const attachment of attachments) await storage.createAttachment(attachment);

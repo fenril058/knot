@@ -71,10 +71,9 @@ void test('文字列行はインポート時刻と knot-import ユーザーで�
   const page = await storage.getPageByTitle(project.id, '簡易形式のページ');
   assert.ok(page);
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  const importer = db.prepare('SELECT id, password_hash FROM users WHERE name = ?').get(IMPORTER_USER_NAME) as {
-    id: string; password_hash: string | null;
-  };
-  assert.equal(importer.password_hash, null);
+  const importer = db.prepare('SELECT id FROM actors WHERE name = ?').get(IMPORTER_USER_NAME) as { id: string };
+  const importerAccount = db.prepare('SELECT id FROM accounts WHERE actor_id = ?').get(importer.id);
+  assert.equal(importerAccount, undefined);
   for (const line of page.lines) {
     assert.equal(line.created, 1760000000);
     assert.equal(line.userId, importer.id);
@@ -192,10 +191,10 @@ void test('不正な JSON と重複行 ID は拒否する', async () => {
   await storage.close();
 });
 
-void test('同名別 ID のユーザーは既存 ID に統合され、行の userId も再マップされる', async () => {
-  const { storage } = makeStorage();
+void test('同名別 ID の imported Actor は統合せず、本文の userId を Actor ID として保つ', async () => {
+  const { db, storage } = makeStorage();
   const now = 1700000000;
-  await storage.upsertDisplayUser({ id: 'A1', name: 'alice', displayName: 'Alice' }, now);
+  await storage.upsertActor({ id: 'A1', name: 'alice', displayName: 'Alice' }, now);
   const data = {
     name: 'proj',
     displayName: 'Proj',
@@ -214,7 +213,11 @@ void test('同名別 ID のユーザーは既存 ID に統合され、行の use
   assert.ok(project);
   const page = await storage.getPageByTitle(project.id, 'p');
   assert.ok(page);
-  assert.equal(page.lines[0]!.userId, 'A1');
+  assert.equal(page.lines[0]!.userId, 'A2');
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  const actors = db.prepare("SELECT id FROM actors WHERE name = 'alice' ORDER BY id").all() as { id: string }[];
+  assert.deepEqual(actors.map((actor) => actor.id), ['A1', 'A2']);
+  assert.equal(db.prepare("SELECT id FROM accounts WHERE actor_id IN ('A1', 'A2')").get(), undefined);
   await storage.close();
 });
 

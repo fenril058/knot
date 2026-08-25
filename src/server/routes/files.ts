@@ -89,7 +89,7 @@ export function registerFileRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
       filename: file.name,
       contentType,
       bytes,
-      userId: c.get('userId'),
+      actorId: c.get('actorId'),
       now: now(),
     });
     return c.json(attachmentToJson(stored.attachment));

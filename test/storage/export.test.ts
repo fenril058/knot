@@ -86,7 +86,7 @@ void test('削除済みページはエクスポートに含まれない', async 
     commitId: 'del1',
     baseVersion: page.version,
     ops: page.lines.map((l) => ({ type: 'delete' as const, id: l.id })),
-    userId: 'u1',
+    actorId: 'u1',
     now: 1760000500,
   });
   const out = await exportCosense(storage, 'sandbox', 'full', 1760001000);
@@ -105,8 +105,8 @@ void test('行を持たないが commits に残るユーザーも export の use
   const { storage } = makeStorage();
   const now = 1700000000;
   const project = await storage.ensureProject('proj', now);
-  await storage.upsertDisplayUser({ id: 'U1', name: 'u1', displayName: 'U1' }, now);
-  await storage.upsertDisplayUser({ id: 'U2', name: 'u2', displayName: 'U2' }, now);
+  await storage.upsertActor({ id: 'U1', name: 'u1', displayName: 'U1' }, now);
+  await storage.upsertActor({ id: 'U2', name: 'u2', displayName: 'U2' }, now);
   const pageId = ulid(now * 1000);
   const lineId = ulid(now * 1000);
   await storage.commit({
@@ -115,7 +115,7 @@ void test('行を持たないが commits に残るユーザーも export の use
     commitId: ulid(now * 1000),
     baseVersion: 0,
     ops: [{ type: 'insert', id: lineId, after: '_head', text: 'T' }],
-    userId: 'U1',
+    actorId: 'U1',
     now,
   });
   await storage.commit({
@@ -124,7 +124,7 @@ void test('行を持たないが commits に残るユーザーも export の use
     commitId: ulid(now * 1000),
     baseVersion: 1,
     ops: [{ type: 'update', id: lineId, text: 'T2' }],
-    userId: 'U2',
+    actorId: 'U2',
     now,
   });
   const exp = await exportCosense(storage, 'proj', 'full', now);

@@ -21,7 +21,7 @@ const exportData = {
 
 async function setup() {
   const s = await makeServer();
-  await s.addUser('alice', 'pw12345678');
+  await s.addAccount('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
   return { s, cookie };
 }
@@ -73,7 +73,7 @@ void test('import API は添付画像を保存し、取得失敗数を応答に�
   };
   const s = await makeServer({ dataDir }, { fetchFn });
   try {
-    await s.addUser('alice', 'pw12345678');
+    await s.addAccount('alice', 'pw12345678');
     const cookie = await s.login('alice', 'pw12345678');
     const ok = 'https://scrapbox.io/files/ok#.png';
     const failed = 'https://scrapbox.io/files/failed#.png';

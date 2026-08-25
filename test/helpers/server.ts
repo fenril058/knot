@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { openDatabase } from '../../src/storage/db.ts';
 import { SqliteStorage } from '../../src/storage/sqlite.ts';
-import type { Storage } from '../../src/storage/types.ts';
+import type { AddAccountResult, Storage } from '../../src/storage/types.ts';
 import { createApp } from '../../src/server/app.ts';
 import { defaultConfig } from '../../src/server/config.ts';
 import type { ServerConfig } from '../../src/server/config.ts';
@@ -13,7 +13,7 @@ export type TestServer = {
   app: Hono<ApiEnv>;
   storage: Storage;
   clock: { t: number; now: () => number };
-  addUser(name: string, password: string, isAdmin?: boolean): Promise<string>;
+  addAccount(name: string, password: string, isAdmin?: boolean): Promise<AddAccountResult>;
   login(name: string, password: string): Promise<string>;
   request(path: string, init?: RequestInit, cookie?: string): Promise<Response>;
 };
@@ -27,12 +27,17 @@ export async function makeServer(
   const config = { ...defaultConfig(overrides?.dataDir ?? '/nonexistent'), secureCookie: false, ...overrides };
   const app = createApp({ storage, config, now: clock.now, fetchFn: deps?.fetchFn });
 
-  const addUser = async (name: string, password: string, isAdmin = false): Promise<string> => {
-    const result = await storage.addUser(
-      { id: ulid(clock.t * 1000), name, displayName: name, passwordHash: hashPassword(password), isAdmin },
+  const addAccount = async (name: string, password: string, isAdmin = false): Promise<AddAccountResult> => {
+    return storage.addAccount(
+      {
+        id: ulid(clock.t * 1000),
+        actor: { id: ulid(clock.t * 1000), name, displayName: name },
+        name,
+        passwordHash: hashPassword(password),
+        isAdmin,
+      },
       clock.t,
     );
-    return result.id;
   };
 
   const request = (path: string, init: RequestInit = {}, cookie?: string): Promise<Response> => {
@@ -53,7 +58,7 @@ export async function makeServer(
     return setCookie.split(';')[0]!;
   };
 
-  return { app, storage, clock, addUser, login, request };
+  return { app, storage, clock, addAccount, login, request };
 }
 
 export async function loginAs(
@@ -61,6 +66,6 @@ export async function loginAs(
   name = 'alice',
   password = 'pw12345678',
 ): Promise<string> {
-  await s.addUser(name, password);
+  await s.addAccount(name, password);
   return s.login(name, password);
 }

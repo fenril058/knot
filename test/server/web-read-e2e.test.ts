@@ -5,7 +5,7 @@ import { seedPage } from '../helpers/pages.ts';
 
 void test('login → 一覧 → 閲覧 → 再訪問 → 404 の一気通貫でインライン要素を含まない', async () => {
   const s = await makeServer();
-  await s.addUser('alice', 'pw12345678');
+  await s.addAccount('alice', 'pw12345678');
   const project = await s.storage.ensureProject('proj', s.clock.t);
   await seedPage(s.storage, project.id, 'Beta', ['content'], s.clock.t);
   await seedPage(s.storage, project.id, 'Alpha', ['links to [Beta] and [Ghost]'], s.clock.t + 1);

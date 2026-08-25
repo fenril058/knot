@@ -2,7 +2,7 @@ import type { Context } from 'hono';
 import { titleLc } from '../core/title.ts';
 import type { PageSnapshot, Project, Storage } from '../storage/types.ts';
 
-export type ApiEnv = { Variables: { userId: string; styleNonce?: string } };
+export type ApiEnv = { Variables: { accountId: string; actorId: string; styleNonce?: string } };
 
 export function jsonError(c: Context, status: number, error: string, extra?: Record<string, unknown>): Response {
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion

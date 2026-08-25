@@ -39,15 +39,15 @@ export async function importCosense(storage: Storage, data: unknown, options: Im
   }
 
   const users = exp.users ?? [];
-  const effectiveUserId = new Map<string, string>();
+  const effectiveActorId = new Map<string, string>();
   for (const user of users) {
-    const effective = await storage.upsertDisplayUser(
+    const effective = await storage.upsertActor(
       { id: user.id, name: user.name, displayName: user.displayName ?? user.name },
       now,
     );
-    effectiveUserId.set(user.id, effective);
+    effectiveActorId.set(user.id, effective);
   }
-  const importerId = await storage.upsertDisplayUser(
+  const importerActorId = await storage.upsertActor(
     { id: ulid(now * 1000), name: IMPORTER_USER_NAME, displayName: IMPORTER_USER_NAME },
     now,
   );
@@ -59,7 +59,7 @@ export async function importCosense(storage: Storage, data: unknown, options: Im
     attachmentContext = {
       storage,
       projectId: project.id,
-      userId: importerId,
+      actorId: importerActorId,
       now,
       options: options.attachments,
       cache: new Map(),
@@ -68,13 +68,23 @@ export async function importCosense(storage: Storage, data: unknown, options: Im
     };
   }
   for (const page of exp.pages) {
-    let lines: ImportLine[] = normalizeLines(page).map((line) => ({
-      id: line.id ?? ulid(now * 1000),
-      text: line.text,
-      created: line.created ?? now,
-      updated: line.updated ?? now,
-      userId: line.userId !== null ? (effectiveUserId.get(line.userId) ?? line.userId) : importerId,
-    }));
+    let lines: ImportLine[] = [];
+    for (const line of normalizeLines(page)) {
+      let actorId = importerActorId;
+      if (line.userId !== null) {
+        actorId = effectiveActorId.get(line.userId) ?? line.userId;
+        if (await storage.getActorById(actorId) === null) {
+          await storage.upsertActor({ id: actorId, name: actorId, displayName: actorId }, now);
+        }
+      }
+      lines.push({
+        id: line.id ?? ulid(now * 1000),
+        text: line.text,
+        created: line.created ?? now,
+        updated: line.updated ?? now,
+        actorId,
+      });
+    }
     validateImportLines(page.title, lines);
     if (onConflict === 'skip' && await storage.getPageByTitle(project.id, titleLc(page.title)) !== null) {
       summary.skipped++;
@@ -94,7 +104,7 @@ export async function importCosense(storage: Storage, data: unknown, options: Im
           updated: page.updated ?? now,
         },
         lines,
-        userId: importerId,
+        actorId: importerActorId,
         now,
         onConflict,
         attachmentClaimOwner: attachmentContext?.claimOwner,

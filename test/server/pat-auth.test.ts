@@ -6,10 +6,12 @@ import { makeServer } from '../helpers/server.ts';
 
 void test('PAT で cookie なしの API にアクセスできる', async () => {
   const s = await makeServer();
-  const userId = await s.addUser('alice', 'pw12345678');
+  const account = await s.addAccount('alice', 'pw12345678');
   await s.storage.ensureProject('proj', s.clock.t);
   const { token, tokenHash } = generateApiToken();
-  await s.storage.createApiToken({ id: ulid(s.clock.t * 1000), userId, label: 'test', tokenHash, created: s.clock.t });
+  await s.storage.createApiToken({
+    id: ulid(s.clock.t * 1000), accountId: account.accountId, label: 'test', tokenHash, created: s.clock.t,
+  });
 
   const res = await s.request('/api/pages/proj', { headers: { 'x-personal-access-token': token } });
 
@@ -19,7 +21,7 @@ void test('PAT で cookie なしの API にアクセスできる', async () => {
 
 void test('不正な PAT は有効な cookie があっても 401', async () => {
   const s = await makeServer();
-  await s.addUser('alice', 'pw12345678');
+  await s.addAccount('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
 
   const res = await s.request(
@@ -33,9 +35,11 @@ void test('不正な PAT は有効な cookie があっても 401', async () => {
 
 void test('HTML ルートでは PAT ヘッダを無視する', async () => {
   const s = await makeServer();
-  const userId = await s.addUser('alice', 'pw12345678');
+  const account = await s.addAccount('alice', 'pw12345678');
   const { token, tokenHash } = generateApiToken();
-  await s.storage.createApiToken({ id: ulid(s.clock.t * 1000), userId, label: 'test', tokenHash, created: s.clock.t });
+  await s.storage.createApiToken({
+    id: ulid(s.clock.t * 1000), accountId: account.accountId, label: 'test', tokenHash, created: s.clock.t,
+  });
 
   const res = await s.request('/', { redirect: 'manual', headers: { 'x-personal-access-token': token } });
 

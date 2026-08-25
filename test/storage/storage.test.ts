@@ -65,29 +65,29 @@ void test('listProjects は name 昇順ですべてのプロジェクトを返�
   await storage.close();
 });
 
-void test('upsertDisplayUser は name 一致の既存ユーザー ID を返す', async () => {
+void test('upsertActor は同名でも ID が異なる Actor を統合しない', async () => {
   const { db, storage } = makeStorage();
-  const first = await storage.upsertDisplayUser({ id: 'u1', name: 'alice', displayName: 'Alice' }, 1);
-  const second = await storage.upsertDisplayUser({ id: 'u2', name: 'alice', displayName: 'Alice2' }, 2);
+  const first = await storage.upsertActor({ id: 'u1', name: 'alice', displayName: 'Alice' }, 1);
+  const second = await storage.upsertActor({ id: 'u2', name: 'alice', displayName: 'Alice2' }, 2);
   assert.equal(first, 'u1');
-  assert.equal(second, 'u1');
+  assert.equal(second, 'u2');
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  const count = (db.prepare('SELECT count(*) AS c FROM users').get() as { c: number }).c;
-  assert.equal(count, 1);
+  const count = (db.prepare('SELECT count(*) AS c FROM actors').get() as { c: number }).c;
+  assert.equal(count, 2);
   await storage.close();
 });
 
 void test('getPageAuthors は最古と最新のコミットのユーザーを返す', async () => {
   const { db, storage } = makeStorage();
   const project = await storage.ensureProject('wiki', 1);
-  await storage.upsertDisplayUser({ id: 'creator', name: 'alice', displayName: 'Alice' }, 1);
-  await storage.upsertDisplayUser({ id: 'editor', name: 'bob', displayName: 'Bob' }, 2);
+  await storage.upsertActor({ id: 'creator', name: 'alice', displayName: 'Alice' }, 1);
+  await storage.upsertActor({ id: 'editor', name: 'bob', displayName: 'Bob' }, 2);
   db.prepare(
     `INSERT INTO pages (id, project_id, title, title_lc, version, pinned, deleted, image, created, updated)
      VALUES ('page', ?, 'Page', 'page', 2, 0, 0, NULL, 1, 2)`,
   ).run(project.id);
   const insertCommit = db.prepare(
-    `INSERT INTO commits (id, page_id, base_version, version, user_id, created, ops, ops_hash)
+    `INSERT INTO commits (id, page_id, base_version, version, actor_id, created, ops, ops_hash)
      VALUES (?, 'page', ?, ?, ?, ?, '[]', ?)`,
   );
   insertCommit.run('commit-1', 0, 1, 'creator', 1, 'hash-1');
@@ -109,8 +109,9 @@ void test('getPageByTitle / listPages は削除済みページを除外する', 
   );
   insertPage.run('pg1', project.id, 'Foo Bar', 'foo_bar', 0, 30);
   insertPage.run('pg2', project.id, 'Gone', 'gone', 1, 20);
+  await storage.upsertActor({ id: 'u1', name: 'u1', displayName: 'u1' }, 10);
   db.prepare(
-    `INSERT INTO lines (id, page_id, ord, text, created, updated, updated_version, user_id)
+    `INSERT INTO lines (id, page_id, ord, text, created, updated, updated_version, actor_id)
      VALUES ('l1', 'pg1', 0, 'Foo Bar', 10, 10, 1, 'u1'), ('l2', 'pg1', 1, 'body', 10, 12, 1, 'u1')`,
   ).run();
 

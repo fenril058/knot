@@ -11,7 +11,7 @@ void test('rename はタイトル行の update コミットに帰着する', asy
   const project = await storage.ensureProject('proj', now);
   const pageId = await seedPage(storage, project.id, 'Old', ['body'], now);
   const result = await storage.renamePage({
-    projectId: project.id, pageId, baseVersion: 1, newTitle: 'New', rewriteLinks: false, userId: 'u', now: now + 10,
+    projectId: project.id, pageId, baseVersion: 1, newTitle: 'New', rewriteLinks: false, actorId: 'u', now: now + 10,
   });
   assert.equal(result.kind, 'applied');
   const page = await storage.getPageById(pageId);
@@ -28,7 +28,7 @@ void test('rewriteLinks: true でリンク元の本文が書き換わり、リ�
   const srcId = await seedPage(storage, project.id, 'Src', ['see [Old Name] and #old_name'], now + 1);
   const untouchedId = await seedPage(storage, project.id, 'Untouched', ['no links'], now + 2);
   const result = await storage.renamePage({
-    projectId: project.id, pageId: targetId, baseVersion: 1, newTitle: 'New Name', rewriteLinks: true, userId: 'u', now: now + 10,
+    projectId: project.id, pageId: targetId, baseVersion: 1, newTitle: 'New Name', rewriteLinks: true, actorId: 'u', now: now + 10,
   });
   assert.equal(result.kind, 'applied');
   assert.deepEqual(result.kind === 'applied' ? result.rewritten.map((r) => r.pageId) : [], [srcId]);
@@ -48,7 +48,7 @@ void test('新タイトルの占有は conflict で全体が失敗する（リ�
   const targetId = await seedPage(storage, project.id, 'Old', ['x'], now + 1);
   const srcId = await seedPage(storage, project.id, 'Src', ['[Old]'], now + 2);
   const result = await storage.renamePage({
-    projectId: project.id, pageId: targetId, baseVersion: 1, newTitle: 'Taken', rewriteLinks: true, userId: 'u', now: now + 10,
+    projectId: project.id, pageId: targetId, baseVersion: 1, newTitle: 'Taken', rewriteLinks: true, actorId: 'u', now: now + 10,
   });
   assert.equal(result.kind, 'conflict');
   assert.equal(result.kind === 'conflict' ? result.reason : '', 'title');
@@ -62,7 +62,7 @@ void test('大文字小文字だけの変更（同じ lc）は衝突しない', 
   const project = await storage.ensureProject('proj', now);
   const pageId = await seedPage(storage, project.id, 'name', ['x'], now);
   const result = await storage.renamePage({
-    projectId: project.id, pageId, baseVersion: 1, newTitle: 'Name', rewriteLinks: false, userId: 'u', now: now + 10,
+    projectId: project.id, pageId, baseVersion: 1, newTitle: 'Name', rewriteLinks: false, actorId: 'u', now: now + 10,
   });
   assert.equal(result.kind, 'applied');
   const page = await storage.getPageById(pageId);
@@ -74,10 +74,10 @@ void test('baseVersion 不一致は conflict reason version で最新を返す',
   const project = await storage.ensureProject('proj', now);
   const pageId = await seedPage(storage, project.id, 'Old', ['x'], now);
   await storage.renamePage({
-    projectId: project.id, pageId, baseVersion: 1, newTitle: 'Mid', rewriteLinks: false, userId: 'u', now: now + 5,
+    projectId: project.id, pageId, baseVersion: 1, newTitle: 'Mid', rewriteLinks: false, actorId: 'u', now: now + 5,
   });
   const stale = await storage.renamePage({
-    projectId: project.id, pageId, baseVersion: 1, newTitle: 'New', rewriteLinks: false, userId: 'u', now: now + 10,
+    projectId: project.id, pageId, baseVersion: 1, newTitle: 'New', rewriteLinks: false, actorId: 'u', now: now + 10,
   });
   assert.equal(stale.kind, 'conflict');
   assert.equal(stale.kind === 'conflict' ? stale.reason : '', 'version');
@@ -88,7 +88,7 @@ void test('空タイトルと同一タイトルは BadCommitError', async () => 
   const { storage } = makeStorage();
   const project = await storage.ensureProject('proj', now);
   const pageId = await seedPage(storage, project.id, 'Old', ['x'], now);
-  const base = { projectId: project.id, pageId, baseVersion: 1, rewriteLinks: false, userId: 'u', now: now + 10 };
+  const base = { projectId: project.id, pageId, baseVersion: 1, rewriteLinks: false, actorId: 'u', now: now + 10 };
   await assert.rejects(storage.renamePage({ ...base, newTitle: '' }), BadCommitError);
   await assert.rejects(storage.renamePage({ ...base, newTitle: 'Old' }), BadCommitError);
 });

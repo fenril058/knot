@@ -112,16 +112,16 @@ void test('正規 URL の本文はインライン script・style・イベント�
 
 void test('既存ページの正規 URL は直前の visit を渡して訪問を記録する', async () => {
   const s = await makeServer();
-  const userId = await s.addUser('alice', 'pw12345678');
+  const account = await s.addAccount('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
   const project = await s.storage.ensureProject('proj', s.clock.t);
   const pageId = await seedPage(s.storage, project.id, 'Alpha', ['line one'], s.clock.t);
-  await s.storage.recordVisit(userId, pageId, s.clock.t - 10, 0);
+  await s.storage.recordVisit(account.accountId, pageId, s.clock.t - 10, 0);
 
   const res = await s.request('/proj/Alpha', {}, cookie);
 
   assert.equal(dataAttribute(await res.text(), 'last-seen-version'), '0');
-  assert.equal((await s.storage.getVisit(userId, pageId))?.lastSeenVersion, 1);
+  assert.equal((await s.storage.getVisit(account.accountId, pageId))?.lastSeenVersion, 1);
 });
 
 void test('存在しないプロジェクトの正規 URL は HTML 404', async () => {

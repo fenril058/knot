@@ -15,24 +15,24 @@ const tmp = () => mkdtempSync(join(tmpdir(), 'knot-token-'));
 void test('token add、list、revoke が通る', async () => {
   const dir = tmp();
   execFileSync(process.execPath, [MAIN, 'init', '--data', dir]);
-  execFileSync(process.execPath, [MAIN, 'user', 'add', '--data', dir, '--name', 'alice'], {
+  execFileSync(process.execPath, [MAIN, 'account', 'add', '--data', dir, '--name', 'alice'], {
     input: 'pw12345678',
   });
 
   const token = execFileSync(
     process.execPath,
-    [MAIN, 'token', 'add', '--data', dir, '--user', 'alice'],
+    [MAIN, 'token', 'add', '--data', dir, '--account', 'alice'],
     { encoding: 'utf8' },
   ).trim();
   assert.match(token, /^knot_[A-Za-z0-9_-]+$/);
 
   const storage = new SqliteStorage(openDatabase(join(dir, 'knot.db')));
-  const user = await storage.getUserByApiTokenHash(hashApiToken(token));
-  assert.equal(user?.name, 'alice');
-  const [issued] = await storage.listApiTokens(user.id);
+  const account = await storage.getAccountByApiTokenHash(hashApiToken(token));
+  assert.equal(account?.name, 'alice');
+  const [issued] = await storage.listApiTokens(account.id);
   assert.ok(issued);
 
-  const list = execFileSync(process.execPath, [MAIN, 'token', 'list', '--data', dir, '--user', 'alice'], {
+  const list = execFileSync(process.execPath, [MAIN, 'token', 'list', '--data', dir, '--account', 'alice'], {
     encoding: 'utf8',
   });
   assert.match(list, /default/);
@@ -40,7 +40,7 @@ void test('token add、list、revoke が通る', async () => {
   assert.doesNotMatch(list, new RegExp(token));
 
   execFileSync(process.execPath, [MAIN, 'token', 'revoke', '--data', dir, '--id', issued.id]);
-  assert.equal(await storage.getUserByApiTokenHash(hashApiToken(token)), null);
+  assert.equal(await storage.getAccountByApiTokenHash(hashApiToken(token)), null);
   await storage.close();
 });
 
@@ -49,7 +49,7 @@ void test('token add は未知ユーザーを exit code 1 で拒否する', () =
   execFileSync(process.execPath, [MAIN, 'init', '--data', dir]);
 
   assert.throws(
-    () => execFileSync(process.execPath, [MAIN, 'token', 'add', '--data', dir, '--user', 'nobody']),
+    () => execFileSync(process.execPath, [MAIN, 'token', 'add', '--data', dir, '--account', 'nobody']),
     (error: unknown) => typeof error === 'object' && error !== null && 'status' in error && error.status === 1,
   );
 });

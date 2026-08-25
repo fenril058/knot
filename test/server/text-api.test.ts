@@ -4,7 +4,7 @@ import { makeServer } from '../helpers/server.ts';
 
 async function setup() {
   const s = await makeServer();
-  await s.addUser('alice', 'pw12345678');
+  await s.addAccount('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
   await s.storage.ensureProject('proj', s.clock.t);
   const put = (title: string, body: unknown) =>

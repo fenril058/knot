@@ -5,7 +5,7 @@ import { seedPage } from '../helpers/pages.ts';
 
 void test('GET /api/pages/v2/:project/:title は v1 と同一 JSON を返す', async () => {
   const s = await makeServer();
-  await s.addUser('alice', 'pw12345678');
+  await s.addAccount('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
   const project = await s.storage.ensureProject('proj', s.clock.t);
   await seedPage(s.storage, project.id, 'Home', ['see [Sub Page]'], s.clock.t);
@@ -21,7 +21,7 @@ void test('GET /api/pages/v2/:project/:title は v1 と同一 JSON を返す', a
 
 void test('GET /api/pages/v2/:project/:title は未知ページに 404 を返す', async () => {
   const s = await makeServer();
-  await s.addUser('alice', 'pw12345678');
+  await s.addAccount('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
   await s.storage.ensureProject('proj', s.clock.t);
 

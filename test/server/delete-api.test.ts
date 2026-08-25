@@ -5,7 +5,7 @@ import { seedPage } from '../helpers/pages.ts';
 
 void test('DELETE でページが消え、以後の GET は 404', async () => {
   const s = await makeServer();
-  await s.addUser('alice', 'pw12345678');
+  await s.addAccount('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
   const project = await s.storage.ensureProject('proj', s.clock.t);
   await seedPage(s.storage, project.id, 'Doomed', ['x'], s.clock.t);

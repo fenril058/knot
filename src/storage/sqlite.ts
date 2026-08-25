@@ -10,18 +10,18 @@ import { validateImportLines } from './importValidation.ts';
 import {
   BadCommitError,
   StorageError,
-  type AddUserResult,
+  type Account,
+  type Actor,
+  type AddAccountResult,
   type ApiToken,
   type Attachment,
-  type AuthUser,
   type CommitInput,
   type CommitResult,
-  type DisplayUser,
   type ImportLine,
   type ImportPageInput,
   type ImportPageResult,
   type ListPageSummariesOptions,
-  type NewUser,
+  type NewAccount,
   type PageMeta,
   type PageSort,
   type PageSnapshot,
@@ -43,10 +43,10 @@ const PROJECT_NAME_RE = /^[a-z0-9-]+$/;
 const MAX_PROJECT_NAME_LENGTH = 64;
 const RESERVED_PROJECT_NAMES = new Set(['api', 'login', 'files', 'assets']);
 
-type UserRow = {
+type AccountRow = {
   id: string;
+  actor_id: string;
   name: string;
-  display_name: string;
   email: string | null;
   password_hash: string | null;
   is_admin: number;
@@ -72,7 +72,7 @@ type LineRow = {
   created: number;
   updated: number;
   updated_version: number;
-  user_id: string;
+  actor_id: string;
 };
 
 type AttachmentRow = {
@@ -82,7 +82,7 @@ type AttachmentRow = {
   content_type: string;
   size: number;
   sha256: string;
-  user_id: string;
+  actor_id: string;
   created: number;
   provisional: number;
 };
@@ -108,6 +108,12 @@ export class SqliteStorage implements Storage {
       this.#db.exec('ROLLBACK');
       throw e;
     }
+  }
+
+  #ensureActor(actorId: string, now: number): void {
+    this.#db
+      .prepare('INSERT OR IGNORE INTO actors (id, name, display_name, created) VALUES (?, ?, ?, ?)')
+      .run(actorId, actorId, actorId, now);
   }
 
   #getProjectRow(name: string): Project | null {
@@ -160,28 +166,35 @@ export class SqliteStorage implements Storage {
       .run(displayName, now, projectId);
   }
 
-  async upsertDisplayUser(user: DisplayUser, now: number): Promise<string> {
+  async upsertActor(actor: Actor, now: number): Promise<string> {
     this.#db
-      .prepare('INSERT OR IGNORE INTO users (id, name, display_name, created) VALUES (?, ?, ?, ?)')
-      .run(user.id, user.name, user.displayName, now);
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-    const row = this.#db.prepare('SELECT id FROM users WHERE name = ?').get(user.name) as
-      | { id: string }
-      | undefined;
-    return row ? row.id : user.id;
+      .prepare(
+        `INSERT INTO actors (id, name, display_name, created) VALUES (?, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET name = excluded.name, display_name = excluded.display_name`,
+      )
+      .run(actor.id, actor.name, actor.displayName, now);
+    return actor.id;
   }
 
-  async listUsersForProject(projectId: string): Promise<DisplayUser[]> {
+  async getActorById(id: string): Promise<Actor | null> {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+    const row = this.#db.prepare('SELECT id, name, display_name FROM actors WHERE id = ?').get(id) as
+      | { id: string; name: string; display_name: string }
+      | undefined;
+    return row ? { id: row.id, name: row.name, displayName: row.display_name } : null;
+  }
+
+  async listActorsForProject(projectId: string): Promise<Actor[]> {
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const rows = this.#db
       .prepare(
-        `SELECT u.id, u.name, u.display_name FROM users u
-         WHERE u.id IN (
-           SELECT l.user_id FROM lines l JOIN pages p ON p.id = l.page_id WHERE p.project_id = ?
+        `SELECT a.id, a.name, a.display_name FROM actors a
+         WHERE a.id IN (
+           SELECT l.actor_id FROM lines l JOIN pages p ON p.id = l.page_id WHERE p.project_id = ?
            UNION
-           SELECT c.user_id FROM commits c JOIN pages p ON p.id = c.page_id WHERE p.project_id = ?
+           SELECT c.actor_id FROM commits c JOIN pages p ON p.id = c.page_id WHERE p.project_id = ?
          )
-         ORDER BY u.name`,
+         ORDER BY a.name, a.id`,
       )
       .all(projectId, projectId) as { id: string; name: string; display_name: string }[];
     return rows.map((r) => ({ id: r.id, name: r.name, displayName: r.display_name }));
@@ -189,14 +202,14 @@ export class SqliteStorage implements Storage {
 
   async getPageAuthors(
     pageId: string,
-  ): Promise<{ user: DisplayUser | null; lastUpdateUser: DisplayUser | null }> {
+  ): Promise<{ user: Actor | null; lastUpdateUser: Actor | null }> {
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const row = this.#db
       .prepare(
         `WITH first_commit AS (
-           SELECT user_id FROM commits WHERE page_id = ? ORDER BY version ASC LIMIT 1
+           SELECT actor_id FROM commits WHERE page_id = ? ORDER BY version ASC LIMIT 1
          ), last_commit AS (
-           SELECT user_id FROM commits WHERE page_id = ? ORDER BY version DESC LIMIT 1
+           SELECT actor_id FROM commits WHERE page_id = ? ORDER BY version DESC LIMIT 1
          )
          SELECT
            first_user.id AS first_id,
@@ -207,8 +220,8 @@ export class SqliteStorage implements Storage {
            last_user.display_name AS last_display_name
          FROM first_commit
          CROSS JOIN last_commit
-         LEFT JOIN users first_user ON first_user.id = first_commit.user_id
-         LEFT JOIN users last_user ON last_user.id = last_commit.user_id`,
+         LEFT JOIN actors first_user ON first_user.id = first_commit.actor_id
+         LEFT JOIN actors last_user ON last_user.id = last_commit.actor_id`,
       )
       .get(pageId, pageId) as
       | {
@@ -231,11 +244,11 @@ export class SqliteStorage implements Storage {
     return { user, lastUpdateUser };
   }
 
-  #userRowToAuthUser(r: UserRow): AuthUser {
+  #accountRowToAccount(r: AccountRow): Account {
     return {
       id: r.id,
+      actorId: r.actor_id,
       name: r.name,
-      displayName: r.display_name,
       email: r.email,
       passwordHash: r.password_hash,
       isAdmin: r.is_admin === 1,
@@ -243,68 +256,70 @@ export class SqliteStorage implements Storage {
     };
   }
 
-  async addUser(user: NewUser, now: number): Promise<AddUserResult> {
+  async addAccount(account: NewAccount, now: number): Promise<AddAccountResult> {
     return this.#tx(() => {
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-      const existing = this.#db
-        .prepare('SELECT id, password_hash FROM users WHERE name = ?')
-        .get(user.name) as { id: string; password_hash: string | null } | undefined;
-      if (existing) {
-        if (existing.password_hash !== null) {
-          throw new StorageError(`user already exists: ${user.name}`);
-        }
-        this.#db
-          .prepare('UPDATE users SET display_name = ?, email = ?, password_hash = ?, is_admin = ? WHERE id = ?')
-          .run(user.displayName, user.email ?? null, user.passwordHash, user.isAdmin ? 1 : 0, existing.id);
-        return { kind: 'claimed' as const, id: existing.id };
+      if (this.#db.prepare('SELECT 1 FROM accounts WHERE name = ?').get(account.name) !== undefined) {
+        throw new StorageError(`account already exists: ${account.name}`);
       }
       this.#db
+        .prepare('INSERT INTO actors (id, name, display_name, created) VALUES (?, ?, ?, ?)')
+        .run(account.actor.id, account.actor.name, account.actor.displayName, now);
+      this.#db
         .prepare(
-          'INSERT INTO users (id, name, display_name, email, password_hash, is_admin, created) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          `INSERT INTO accounts (id, actor_id, name, email, password_hash, is_admin, created)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
         )
-        .run(user.id, user.name, user.displayName, user.email ?? null, user.passwordHash, user.isAdmin ? 1 : 0, now);
-      return { kind: 'created' as const, id: user.id };
+        .run(
+          account.id,
+          account.actor.id,
+          account.name,
+          account.email ?? null,
+          account.passwordHash,
+          account.isAdmin ? 1 : 0,
+          now,
+        );
+      return { accountId: account.id, actorId: account.actor.id };
     });
   }
 
-  async getUserByName(name: string): Promise<AuthUser | null> {
+  async getAccountByName(name: string): Promise<Account | null> {
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-    const r = this.#db.prepare('SELECT * FROM users WHERE name = ?').get(name) as UserRow | undefined;
-    return r ? this.#userRowToAuthUser(r) : null;
+    const r = this.#db.prepare('SELECT * FROM accounts WHERE name = ?').get(name) as AccountRow | undefined;
+    return r ? this.#accountRowToAccount(r) : null;
   }
 
-  async getUserById(id: string): Promise<AuthUser | null> {
+  async getAccountById(id: string): Promise<Account | null> {
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-    const r = this.#db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined;
-    return r ? this.#userRowToAuthUser(r) : null;
+    const r = this.#db.prepare('SELECT * FROM accounts WHERE id = ?').get(id) as AccountRow | undefined;
+    return r ? this.#accountRowToAccount(r) : null;
   }
 
   async createApiToken(token: {
     id: string;
-    userId: string;
+    accountId: string;
     label: string;
     tokenHash: string;
     created: number;
   }): Promise<void> {
     this.#db
-      .prepare('INSERT INTO api_tokens (id, user_id, label, token_hash, created) VALUES (?, ?, ?, ?, ?)')
-      .run(token.id, token.userId, token.label, token.tokenHash, token.created);
+      .prepare('INSERT INTO api_tokens (id, account_id, label, token_hash, created) VALUES (?, ?, ?, ?, ?)')
+      .run(token.id, token.accountId, token.label, token.tokenHash, token.created);
   }
 
-  async getUserByApiTokenHash(tokenHash: string): Promise<AuthUser | null> {
+  async getAccountByApiTokenHash(tokenHash: string): Promise<Account | null> {
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const row = this.#db
-      .prepare('SELECT u.* FROM users u JOIN api_tokens t ON t.user_id = u.id WHERE t.token_hash = ?')
-      .get(tokenHash) as UserRow | undefined;
-    return row ? this.#userRowToAuthUser(row) : null;
+      .prepare('SELECT a.* FROM accounts a JOIN api_tokens t ON t.account_id = a.id WHERE t.token_hash = ?')
+      .get(tokenHash) as AccountRow | undefined;
+    return row ? this.#accountRowToAccount(row) : null;
   }
 
-  async listApiTokens(userId: string): Promise<ApiToken[]> {
+  async listApiTokens(accountId: string): Promise<ApiToken[]> {
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const rows = this.#db
-      .prepare('SELECT id, user_id, label, created FROM api_tokens WHERE user_id = ? ORDER BY created ASC, id ASC')
-      .all(userId) as { id: string; user_id: string; label: string; created: number }[];
-    return rows.map((row) => ({ id: row.id, userId: row.user_id, label: row.label, created: row.created }));
+      .prepare('SELECT id, account_id, label, created FROM api_tokens WHERE account_id = ? ORDER BY created ASC, id ASC')
+      .all(accountId) as { id: string; account_id: string; label: string; created: number }[];
+    return rows.map((row) => ({ id: row.id, accountId: row.account_id, label: row.label, created: row.created }));
   }
 
   async deleteApiToken(id: string): Promise<boolean> {
@@ -313,21 +328,21 @@ export class SqliteStorage implements Storage {
 
   async createSession(session: Session): Promise<void> {
     this.#db
-      .prepare('INSERT INTO sessions (id, user_id, expires, created) VALUES (?, ?, ?, ?)')
-      .run(session.id, session.userId, session.expires, session.created);
+      .prepare('INSERT INTO sessions (id, account_id, expires, created) VALUES (?, ?, ?, ?)')
+      .run(session.id, session.accountId, session.expires, session.created);
   }
 
   async getSession(id: string, now: number): Promise<Session | null> {
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-    const r = this.#db.prepare('SELECT id, user_id, expires, created FROM sessions WHERE id = ?').get(id) as
-      | { id: string; user_id: string; expires: number; created: number }
+    const r = this.#db.prepare('SELECT id, account_id, expires, created FROM sessions WHERE id = ?').get(id) as
+      | { id: string; account_id: string; expires: number; created: number }
       | undefined;
     if (!r) return null;
     if (r.expires <= now) {
       this.#db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
       return null;
     }
-    return { id: r.id, userId: r.user_id, expires: r.expires, created: r.created };
+    return { id: r.id, accountId: r.account_id, expires: r.expires, created: r.created };
   }
 
   async refreshSession(id: string, expires: number): Promise<void> {
@@ -340,10 +355,11 @@ export class SqliteStorage implements Storage {
 
   async createAttachment(attachment: Attachment, claimOwner?: string): Promise<void> {
     this.#tx(() => {
+      this.#ensureActor(attachment.actorId, attachment.created);
       this.#db
         .prepare(
           `INSERT INTO attachments
-           (id, project_id, filename, content_type, size, sha256, user_id, created, provisional)
+           (id, project_id, filename, content_type, size, sha256, actor_id, created, provisional)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
@@ -353,7 +369,7 @@ export class SqliteStorage implements Storage {
           attachment.contentType,
           attachment.size,
           attachment.sha256,
-          attachment.userId,
+          attachment.actorId,
           attachment.created,
           claimOwner === undefined ? 0 : 1,
         );
@@ -401,7 +417,7 @@ export class SqliteStorage implements Storage {
       contentType: row.content_type,
       size: row.size,
       sha256: row.sha256,
-      userId: row.user_id,
+      actorId: row.actor_id,
       created: row.created,
     };
   }
@@ -465,7 +481,7 @@ export class SqliteStorage implements Storage {
   #getLines(pageId: string): Line[] {
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const rows = this.#db
-      .prepare('SELECT id, text, created, updated, updated_version, user_id FROM lines WHERE page_id = ? ORDER BY ord')
+      .prepare('SELECT id, text, created, updated, updated_version, actor_id FROM lines WHERE page_id = ? ORDER BY ord')
       .all(pageId) as LineRow[];
     return rows.map((r) => ({
       id: r.id,
@@ -473,7 +489,7 @@ export class SqliteStorage implements Storage {
       created: r.created,
       updated: r.updated,
       updatedVersion: r.updated_version,
-      userId: r.user_id,
+      userId: r.actor_id,
     }));
   }
 
@@ -698,11 +714,11 @@ export class SqliteStorage implements Storage {
     this.#db.prepare('UPDATE pages SET pinned = ? WHERE id = ?').run(pinned ? 1 : 0, pageId);
   }
 
-  async getVisit(userId: string, pageId: string): Promise<Visit | null> {
+  async getVisit(accountId: string, pageId: string): Promise<Visit | null> {
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const row = this.#db
-      .prepare('SELECT visited, last_seen_version FROM page_visits WHERE user_id = ? AND page_id = ?')
-      .get(userId, pageId) as { visited: number; last_seen_version: number } | undefined;
+      .prepare('SELECT visited, last_seen_version FROM page_visits WHERE account_id = ? AND page_id = ?')
+      .get(accountId, pageId) as { visited: number; last_seen_version: number } | undefined;
     return row ? { visited: row.visited, lastSeenVersion: row.last_seen_version } : null;
   }
 
@@ -721,23 +737,23 @@ export class SqliteStorage implements Storage {
     return this.#pageVisitMetrics(pageId);
   }
 
-  async recordVisit(userId: string, pageId: string, visitedAt: number, lastSeenVersion: number): Promise<void> {
+  async recordVisit(accountId: string, pageId: string, visitedAt: number, lastSeenVersion: number): Promise<void> {
     this.#db
       .prepare(
-        `INSERT INTO page_visits (user_id, page_id, visited, last_seen_version) VALUES (?, ?, ?, ?)
-         ON CONFLICT (user_id, page_id) DO UPDATE SET
+        `INSERT INTO page_visits (account_id, page_id, visited, last_seen_version) VALUES (?, ?, ?, ?)
+         ON CONFLICT (account_id, page_id) DO UPDATE SET
            visited = MAX(page_visits.visited, excluded.visited),
            last_seen_version = MAX(page_visits.last_seen_version, excluded.last_seen_version),
            views = page_visits.views + 1`,
       )
-      .run(userId, pageId, visitedAt, lastSeenVersion);
+      .run(accountId, pageId, visitedAt, lastSeenVersion);
   }
 
   async commit(input: CommitInput): Promise<CommitResult> {
     return this.#tx(() => this.#applyCommit(input));
   }
 
-  async deletePage(projectId: string, pageId: string, userId: string, now: number): Promise<{ version: number }> {
+  async deletePage(projectId: string, pageId: string, actorId: string, now: number): Promise<{ version: number }> {
     return this.#tx(() => {
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       const row = this.#db.prepare('SELECT * FROM pages WHERE id = ?').get(pageId) as PageRow | undefined;
@@ -745,7 +761,7 @@ export class SqliteStorage implements Storage {
       if (row.project_id !== projectId) throw new BadCommitError(`page ${pageId} is not in project ${projectId}`);
       const ops: LineOp[] = this.#getLines(pageId).map((l) => ({ type: 'delete' as const, id: l.id }));
       const result = this.#applyCommit({
-        projectId, pageId, commitId: ulid(now * 1000), baseVersion: row.version, ops, userId, now,
+        projectId, pageId, commitId: ulid(now * 1000), baseVersion: row.version, ops, actorId, now,
       });
       if (result.kind !== 'applied') throw new StorageError('unexpected conflict in deletePage');
       return { version: result.version };
@@ -753,7 +769,7 @@ export class SqliteStorage implements Storage {
   }
 
   async renamePage(input: RenameInput): Promise<RenameResult> {
-    const { projectId, pageId, baseVersion, newTitle, rewriteLinks, userId, now } = input;
+    const { projectId, pageId, baseVersion, newTitle, rewriteLinks, actorId, now } = input;
     return this.#tx(() => {
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       const row = this.#db.prepare('SELECT * FROM pages WHERE id = ?').get(pageId) as PageRow | undefined;
@@ -770,7 +786,7 @@ export class SqliteStorage implements Storage {
       const lines = this.#getLines(pageId);
       const titleCommit = this.#applyCommit({
         projectId, pageId, commitId: ulid(now * 1000), baseVersion,
-        ops: [{ type: 'update', id: lines[0]!.id, text: newTitle }], userId, now,
+        ops: [{ type: 'update', id: lines[0]!.id, text: newTitle }], actorId, now,
       });
       if (titleCommit.kind === 'conflict') {
         return { kind: 'conflict' as const, reason: 'title' as const, page: titleCommit.page };
@@ -797,7 +813,7 @@ export class SqliteStorage implements Storage {
           });
           if (ops.length === 0) continue;
           const result = this.#applyCommit({
-            projectId, pageId: source.id, commitId: ulid(now * 1000), baseVersion: srcRow.version, ops, userId, now,
+            projectId, pageId: source.id, commitId: ulid(now * 1000), baseVersion: srcRow.version, ops, actorId, now,
           });
           if (result.kind !== 'applied') {
             throw new StorageError(`link rewrite conflict on page ${source.id}`);
@@ -810,7 +826,9 @@ export class SqliteStorage implements Storage {
   }
 
   #applyCommit(input: CommitInput): CommitResult {
-    const { projectId, pageId, commitId, baseVersion, ops, userId, now } = input;
+    const { projectId, pageId, commitId, baseVersion, ops, actorId, now } = input;
+
+    this.#ensureActor(actorId, now);
 
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const prior = this.#db
@@ -838,7 +856,7 @@ export class SqliteStorage implements Storage {
     const version = baseVersion + 1;
     let newLines: Line[];
     try {
-      newLines = applyOps(currentLines, ops, { userId, now, version });
+      newLines = applyOps(currentLines, ops, { userId: actorId, now, version });
     } catch (e) {
       if (e instanceof OpsError) throw new BadCommitError(e.message);
       throw e;
@@ -882,7 +900,7 @@ export class SqliteStorage implements Storage {
     }
 
     this.#writeLines(pageId, newLines);
-    this.#insertCommit(commitId, pageId, baseVersion, version, userId, now, ops);
+    this.#insertCommit(commitId, pageId, baseVersion, version, actorId, now, ops);
     this.#updateDerived(projectId, pageId, newLines, deleted);
     return { kind: 'applied', version };
   }
@@ -909,7 +927,7 @@ export class SqliteStorage implements Storage {
   #writeLines(pageId: string, lines: Line[]): void {
     this.#db.prepare('DELETE FROM lines WHERE page_id = ?').run(pageId);
     const st = this.#db.prepare(
-      `INSERT INTO lines (id, page_id, ord, text, created, updated, updated_version, user_id)
+      `INSERT INTO lines (id, page_id, ord, text, created, updated, updated_version, actor_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     lines.forEach((l, ord) => {
@@ -922,21 +940,23 @@ export class SqliteStorage implements Storage {
     pageId: string,
     baseVersion: number,
     version: number,
-    userId: string,
+    actorId: string,
     now: number,
     ops: LineOp[],
   ): void {
     this.#db
       .prepare(
-        `INSERT INTO commits (id, page_id, base_version, version, user_id, created, ops, ops_hash)
+        `INSERT INTO commits (id, page_id, base_version, version, actor_id, created, ops, ops_hash)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(commitId, pageId, baseVersion, version, userId, now, JSON.stringify(ops), opsHash(pageId, baseVersion, ops));
+      .run(commitId, pageId, baseVersion, version, actorId, now, JSON.stringify(ops), opsHash(pageId, baseVersion, ops));
   }
 
   async importPage(input: ImportPageInput): Promise<ImportPageResult> {
     return this.#tx(() => {
-      const { projectId, page, lines, userId, now, onConflict } = input;
+      const { projectId, page, lines, actorId, now, onConflict } = input;
+      this.#ensureActor(actorId, now);
+      for (const line of lines) this.#ensureActor(line.actorId, line.created);
       validateImportLines(page.title, lines);
       const lcValue = titleLc(page.title);
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion
@@ -961,7 +981,7 @@ export class SqliteStorage implements Storage {
         this.#db
           .prepare('UPDATE pages SET title = ?, version = ?, created = ?, updated = ? WHERE id = ?')
           .run(page.title, version, page.created, page.updated, existing.id);
-        this.#insertCommit(ulid(now * 1000), existing.id, existing.version, version, userId, now, [
+        this.#insertCommit(ulid(now * 1000), existing.id, existing.version, version, actorId, now, [
           ...deleteOps,
           ...insertOps,
         ]);
@@ -979,7 +999,7 @@ export class SqliteStorage implements Storage {
         )
         .run(pageId, projectId, page.title, lcValue, page.created, page.updated);
       this.#writeImportedLines(pageId, lines, 1);
-      this.#insertCommit(ulid(now * 1000), pageId, 0, 1, userId, now, insertOps);
+      this.#insertCommit(ulid(now * 1000), pageId, 0, 1, actorId, now, insertOps);
       this.#updateDerived(projectId, pageId, this.#getLines(pageId), false);
       if (input.attachmentClaimOwner !== undefined) this.#finalizeAttachmentClaims(input.attachmentClaimOwner);
       return { kind: 'created' as const, pageId };
@@ -1002,10 +1022,10 @@ export class SqliteStorage implements Storage {
   #writeImportedLines(pageId: string, lines: ImportLine[], version: number): void {
     this.#db.prepare('DELETE FROM lines WHERE page_id = ?').run(pageId);
     const st = this.#db.prepare(
-      `INSERT INTO lines (id, page_id, ord, text, created, updated, updated_version, user_id)
+      `INSERT INTO lines (id, page_id, ord, text, created, updated, updated_version, actor_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     );
-    lines.forEach((l, ord) => st.run(l.id, pageId, ord, l.text, l.created, l.updated, version, l.userId));
+    lines.forEach((l, ord) => st.run(l.id, pageId, ord, l.text, l.created, l.updated, version, l.actorId));
   }
 
   async search(projectId: string, query: SearchQuery): Promise<SearchHit[]> {

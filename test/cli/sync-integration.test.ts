@@ -33,13 +33,17 @@ async function makeEnv(): Promise<Env> {
   const config = { ...defaultConfig('/nonexistent'), secureCookie: false };
   const app = createApp({ storage, config, now: () => clock.t });
   const project = await storage.ensureProject('notes', clock.t);
-  const userId = ulid(clock.t * 1000);
-  await storage.addUser(
-    { id: userId, name: 'alice', displayName: 'alice', passwordHash: hashPassword('pw12345678'), isAdmin: false },
+  const accountId = ulid(clock.t * 1000);
+  await storage.addAccount(
+    {
+      id: accountId,
+      actor: { id: ulid(clock.t * 1000), name: 'alice', displayName: 'alice' },
+      name: 'alice', passwordHash: hashPassword('pw12345678'), isAdmin: false,
+    },
     clock.t,
   );
   const { token, tokenHash } = generateApiToken();
-  await storage.createApiToken({ id: ulid(clock.t * 1000), userId, label: 'sync', tokenHash, created: clock.t });
+  await storage.createApiToken({ id: ulid(clock.t * 1000), accountId, label: 'sync', tokenHash, created: clock.t });
   const listener = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: 0 });
   await new Promise<void>((resolve) => listener.on('listening', () => resolve()));
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
@@ -102,7 +106,7 @@ void test('pull: 両方変更は conflicts に隔離し exitCode 1', async () =>
       projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
       baseVersion: page!.version,
       ops: [{ type: 'insert', id: ulid(env.clock.t * 1000), after: lastLineId, text: 'remote add' }],
-      userId: 'u', now: env.clock.t,
+      actorId: 'u', now: env.clock.t,
     });
     const result = await runSync(['pull', '--dir', env.dir]);
     assert.equal(result.exitCode, 1);
@@ -127,7 +131,7 @@ void test('pull: conflicts の祖先 symlink を辿って同期ディレクト�
       projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
       baseVersion: page!.version,
       ops: [{ type: 'insert', id: ulid(env.clock.t * 1000), after: page!.lines.at(-1)!.id, text: 'remote add' }],
-      userId: 'u', now: env.clock.t,
+      actorId: 'u', now: env.clock.t,
     });
 
     const result = await runSync(['pull', '--dir', env.dir]);
@@ -151,7 +155,7 @@ void test('pull: リモートのリネームは旧ファイルを消して新名
       projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
       baseVersion: page!.version,
       ops: [{ type: 'update', id: page!.lines[0]!.id, text: 'Alpha2' }],
-      userId: 'u', now: env.clock.t,
+      actorId: 'u', now: env.clock.t,
     });
     const result = await runSync(['pull', '--dir', env.dir]);
     assert.equal(result.exitCode, 0);
@@ -174,7 +178,7 @@ void test('pull: リネーム中断記録から新ファイルを追跡し直し
       projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
       baseVersion: page!.version,
       ops: [{ type: 'update', id: page!.lines[0]!.id, text: 'Alpha2' }],
-      userId: 'u', now: env.clock.t,
+      actorId: 'u', now: env.clock.t,
     });
     const renamed = await env.storage.getPageById(pageId);
     const text = 'Alpha2\nbody';
@@ -214,7 +218,7 @@ void test('pull: 一覧取得失敗時はリネーム中断回復を確定しな
       projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
       baseVersion: page!.version,
       ops: [{ type: 'update', id: page!.lines[0]!.id, text: 'Alpha2' }],
-      userId: 'u', now: env.clock.t,
+      actorId: 'u', now: env.clock.t,
     });
     const renamed = await env.storage.getPageById(pageId);
     const text = 'Alpha2\nbody';
@@ -249,7 +253,7 @@ void test('pull: state 保存後に再作成された旧ファイルを中断回
       projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
       baseVersion: page!.version,
       ops: [{ type: 'update', id: page!.lines[0]!.id, text: 'Alpha2' }],
-      userId: 'u', now: env.clock.t,
+      actorId: 'u', now: env.clock.t,
     });
     const renamed = await env.storage.getPageById(pageId);
     const text = 'Alpha2\nbody';
@@ -287,7 +291,7 @@ void test('pull: リネーム先の書き込み失敗で部分的な最終ファ
       projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
       baseVersion: page!.version,
       ops: [{ type: 'update', id: page!.lines[0]!.id, text: 'Alpha2' }],
-      userId: 'u', now: env.clock.t,
+      actorId: 'u', now: env.clock.t,
     });
 
     await assert.rejects(runSync(['pull', '--dir', env.dir], {
@@ -323,7 +327,7 @@ void test('pull: 長いリネーム先でも短い一時ファイル名を使っ
       projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
       baseVersion: page!.version,
       ops: [{ type: 'update', id: page!.lines[0]!.id, text: title }],
-      userId: 'u', now: env.clock.t,
+      actorId: 'u', now: env.clock.t,
     });
 
     const result = await runSync(['pull', '--dir', env.dir]);
@@ -349,7 +353,7 @@ void test('pull: 一時ファイル書き込み中に現れたリネーム先を
       projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
       baseVersion: page!.version,
       ops: [{ type: 'update', id: page!.lines[0]!.id, text: 'Alpha2' }],
-      userId: 'u', now: env.clock.t,
+      actorId: 'u', now: env.clock.t,
     });
 
     const result = await runSync(['pull', '--dir', env.dir], {
@@ -381,7 +385,7 @@ void test('pull: 別ページが使用中のファイル名を古い中断記録
       projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
       baseVersion: page!.version,
       ops: [{ type: 'update', id: page!.lines[0]!.id, text: 'Beta' }],
-      userId: 'u', now: env.clock.t,
+      actorId: 'u', now: env.clock.t,
     });
     const beta = await env.storage.getPageById(pageId);
     const betaText = 'Beta\nbody';
@@ -398,7 +402,7 @@ void test('pull: 別ページが使用中のファイル名を古い中断記録
       projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
       baseVersion: page!.version,
       ops: [{ type: 'update', id: page!.lines[0]!.id, text: 'Gamma' }],
-      userId: 'u', now: env.clock.t,
+      actorId: 'u', now: env.clock.t,
     });
     const betaPageId = await seedPage(env.storage, env.projectId, 'Beta', ['body'], env.clock.t + 1);
     const betaPage = await env.storage.getPageById(betaPageId);
@@ -468,7 +472,7 @@ void test('pull: サーバ由来の pageId で conflicts の外へ書き込ま�
       projectId: env.projectId, pageId: actualId, commitId: ulid(env.clock.t * 1000),
       baseVersion: page!.version,
       ops: [{ type: 'insert', id: ulid(env.clock.t * 1000), after: page!.lines.at(-1)!.id, text: 'remote add' }],
-      userId: 'u', now: env.clock.t,
+      actorId: 'u', now: env.clock.t,
     });
 
     // 一覧と詳細の pageId を、conflicts から outside への相対パスに差し替える。
@@ -584,7 +588,7 @@ void test('push: 409 は該当ページだけスキップし exitCode 1、--forc
       projectId: env.projectId, pageId: alphaId, commitId: ulid(env.clock.t * 1000),
       baseVersion: page!.version,
       ops: [{ type: 'insert', id: ulid(env.clock.t * 1000), after: page!.lines.at(-1)!.id, text: 'remote add' }],
-      userId: 'u', now: env.clock.t,
+      actorId: 'u', now: env.clock.t,
     });
     // ローカルも両方編集する
     writeFileSync(join(env.dir, 'Alpha.txt'), 'Alpha\nlocal alpha\n');
@@ -723,7 +727,7 @@ void test('pull: ローカルが既にリモートと同内容なら偽の競合
       projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
       baseVersion: page!.version,
       ops: [{ type: 'insert', id: ulid(env.clock.t * 1000), after: page!.lines.at(-1)!.id, text: 'v2 line' }],
-      userId: 'u', now: env.clock.t,
+      actorId: 'u', now: env.clock.t,
     });
     // 直前の pull がファイル書き込み後・state 保存前にクラッシュしていた状況を模す：
     // ローカルファイルは既に新しいリモート内容と一致しているが、state はまだ古いまま。
@@ -753,7 +757,7 @@ void test('push: リモートが既にローカルと同内容なら偽の競合
       projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
       baseVersion: page!.version,
       ops: [{ type: 'update', id: page!.lines[1]!.id, text: 'edited body' }],
-      userId: 'u', now: env.clock.t,
+      actorId: 'u', now: env.clock.t,
     });
     const result = await runSync(['push', '--dir', env.dir]);
     assert.equal(result.exitCode, 0);
@@ -800,7 +804,7 @@ void test('pull: 追跡ファイル名の位置に通常の symlink があれば
       projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
       baseVersion: page!.version,
       ops: [{ type: 'insert', id: ulid(env.clock.t * 1000), after: page!.lines.at(-1)!.id, text: 'v2 line' }],
-      userId: 'u', now: env.clock.t,
+      actorId: 'u', now: env.clock.t,
     });
     const result = await runSync(['pull', '--dir', env.dir]);
     assert.equal(result.exitCode, 1);

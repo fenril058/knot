@@ -24,7 +24,7 @@ async function setup() {
   const id = 'attachment-1';
   await storage.createAttachment({
     id, projectId: project.id, filename: 'hello.txt', contentType: 'text/plain', size: 5,
-    sha256: 'a'.repeat(64), userId: 'u1', created: 1760000000,
+    sha256: 'a'.repeat(64), actorId: 'u1', created: 1760000000,
   });
   await storage.close();
   writeFileSync(join(dataDir, 'files', id), 'hello');

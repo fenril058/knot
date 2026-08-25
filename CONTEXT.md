@@ -3,6 +3,18 @@
 Cosense（旧 Scrapbox）のデータ構造と記法に互換な、セルフホスト可能な wiki。
 この用語集は、knot の中で意味を統一する必要がある語を定義する。
 
+## Identity
+
+**Actor**:
+行、コミット、ページ、添付ファイルなどの作者として表示される identity。
+Account がなくても存続し、Account の名前変更や削除によって変化しない。
+_Avoid_: Author、表示ユーザー
+
+**Account**:
+knot へのログイン、セッション、API token、パスワード、メールアドレス、管理者権限を持つ identity。
+通常の web 編集で使用する Actor への明示的な関連を持つ。
+_Avoid_: User、Principal、認証ユーザー
+
 ## ページとタイトル
 
 **プロジェクト**:

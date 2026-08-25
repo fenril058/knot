@@ -68,7 +68,7 @@ Cosense の添付配信に使われる `storage.googleapis.com/scrapbox-file-dis
 
 ```sh
 # API トークンを作る（サーバのデータディレクトリに対して実行する）
-direnv exec . node src/cli/main.ts token add --data ./data --user ril --label sync
+direnv exec . node src/cli/main.ts token add --data ./data --account ril --label sync
 
 # 同期ディレクトリを初期化して初回 pull（クライアント側。dir は自動で作成される）
 direnv exec . node src/cli/main.ts sync init ./wiki --url http://127.0.0.1:3000 --project notes

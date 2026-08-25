@@ -107,7 +107,7 @@ void test('添付が欠落したプロジェクトを記録して他プロジェ
   const bad = (await storage.getProject('bad'))!;
   const attachment: Attachment = {
     id: 'missing-file', projectId: bad.id, filename: 'missing.txt', contentType: 'text/plain', size: 1,
-    sha256: 'a'.repeat(64), userId: 'user-bad', created: NOW,
+    sha256: 'a'.repeat(64), actorId: 'user-bad', created: NOW,
   };
   await storage.createAttachment(attachment);
   mkdirSync(join(dir, 'bad'));

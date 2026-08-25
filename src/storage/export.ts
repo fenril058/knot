@@ -24,7 +24,7 @@ export async function exportCosense(
   }
 
   // 現在の行だけでなく、履歴上のコミットから参照されるユーザーも含む。
-  const users = await storage.listUsersForProject(project.id);
+  const users = await storage.listActorsForProject(project.id);
   return {
     name: project.name,
     displayName: project.displayName,

@@ -360,7 +360,7 @@ void test('既存の同一内容添付を画像用の MIME type とファイル�
       filename: 'blob',
       contentType: 'application/octet-stream',
       bytes: PNG,
-      userId: 'u',
+      actorId: 'u',
       now: 1_760_000_000,
     });
     const sourceUrl = 'https://scrapbox.io/files/canonical#.png';
@@ -466,7 +466,7 @@ void test('SHA-256 作成競合の勝者が消えても作成を再試行する'
       filename: 'retry.png',
       contentType: 'image/png',
       bytes: PNG,
-      userId: 'u',
+      actorId: 'u',
       now: 1_760_000_000,
       claimOwner: 'loser',
     });
@@ -541,7 +541,7 @@ void test('補償削除は別ページが参照している添付を残す', asy
       filename: 'used.png',
       contentType: 'image/png',
       bytes: PNG,
-      userId: 'u',
+      actorId: 'u',
       now: 1_760_000_000,
       claimOwner,
     });
@@ -549,16 +549,16 @@ void test('補償削除は別ページが参照している添付を残す', asy
       projectId: project.id,
       page: { id: 'referencing-page', title: 'Page', created: 1, updated: 1 },
       lines: [
-        { id: 'reference-title', text: 'Page', created: 1, updated: 1, userId: 'u' },
+        { id: 'reference-title', text: 'Page', created: 1, updated: 1, actorId: 'u' },
         {
           id: 'reference-body',
           text: `[/files/${stored.attachment.id}/used.png]`,
           created: 1,
           updated: 1,
-          userId: 'u',
+          actorId: 'u',
         },
       ],
-      userId: 'u',
+      actorId: 'u',
       now: 1,
       onConflict: 'skip',
       attachmentClaimOwner: claimOwner,
@@ -621,10 +621,10 @@ void test('補償削除は別 import が確定前に再利用した添付を残�
             projectId: project.id,
             page: { id: 'target-winner', title: 'Target', created: 1, updated: 1 },
             lines: [
-              { id: 'winner-title', text: 'Target', created: 1, updated: 1, userId: 'u' },
-              { id: 'winner-body', text: 'winner', created: 1, updated: 1, userId: 'u' },
+              { id: 'winner-title', text: 'Target', created: 1, updated: 1, actorId: 'u' },
+              { id: 'winner-body', text: 'winner', created: 1, updated: 1, actorId: 'u' },
             ],
-            userId: 'u',
+            actorId: 'u',
             now: 1,
             onConflict: 'skip',
           });
@@ -683,7 +683,7 @@ void test('通常アップロードが再利用した暫定添付を補償削除
       filename: 'shared.png',
       contentType: 'image/png',
       bytes: PNG,
-      userId: 'importer',
+      actorId: 'importer',
       now: 1_760_000_000,
       claimOwner,
     });
@@ -694,7 +694,7 @@ void test('通常アップロードが再利用した暫定添付を補償削除
       filename: 'uploaded.png',
       contentType: 'image/png',
       bytes: PNG,
-      userId: 'uploader',
+      actorId: 'uploader',
       now: 1_760_000_001,
     });
 
@@ -722,7 +722,7 @@ void test('通常アップロードの実体修復に失敗しても暫定添付
       filename: 'shared.png',
       contentType: 'image/png',
       bytes: PNG,
-      userId: 'importer',
+      actorId: 'importer',
       now: 1_760_000_000,
       claimOwner: 'pending-import',
     });
@@ -737,7 +737,7 @@ void test('通常アップロードの実体修復に失敗しても暫定添付
       filename: 'uploaded.png',
       contentType: 'image/png',
       bytes: PNG,
-      userId: 'uploader',
+      actorId: 'uploader',
       now: 1_760_000_001,
     }), /EISDIR/);
     assert.deepEqual(await storage.listAttachments(project.id), []);

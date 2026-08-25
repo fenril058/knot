@@ -22,7 +22,7 @@ function openStorage(dataDir: string): SqliteStorage {
   return new SqliteStorage(openDatabase(join(dataDir, 'knot.db')));
 }
 
-const USER_NAME_RE = /^[a-z0-9_-]+$/;
+const ACCOUNT_NAME_RE = /^[a-z0-9_-]+$/;
 const MIN_PASSWORD_LENGTH = 8;
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 
@@ -135,53 +135,59 @@ export async function runReindex(dataDir: string, projectName: string | null): P
   }
 }
 
-export async function runUserAdd(
+export async function runAccountAdd(
   dataDir: string,
   name: string,
   displayName: string | null,
   isAdmin: boolean,
   password: string,
 ): Promise<string> {
-  if (!USER_NAME_RE.test(name)) throw new CliError(`invalid user name: ${name} (must match ${USER_NAME_RE})`);
+  if (!ACCOUNT_NAME_RE.test(name)) {
+    throw new CliError(`invalid account name: ${name} (must match ${ACCOUNT_NAME_RE})`);
+  }
   if (password.length < MIN_PASSWORD_LENGTH) {
     throw new CliError(`password must be at least ${MIN_PASSWORD_LENGTH} characters`);
   }
   const now = Math.floor(Date.now() / 1000);
   const storage = openStorage(dataDir);
   try {
-    const result = await storage.addUser(
-      { id: ulid(now * 1000), name, displayName: displayName ?? name, passwordHash: hashPassword(password), isAdmin },
+    const result = await storage.addAccount(
+      {
+        id: ulid(now * 1000),
+        actor: { id: ulid(now * 1000), name, displayName: displayName ?? name },
+        name,
+        passwordHash: hashPassword(password),
+        isAdmin,
+      },
       now,
     );
-    return result.kind === 'claimed'
-      ? `claimed existing user ${name} (${result.id})`
-      : `created user ${name} (${result.id})`;
+    return `created account ${name} (${result.accountId}) with actor ${result.actorId}`;
   } finally {
     await storage.close();
   }
 }
 
-export async function runTokenAdd(dataDir: string, userName: string, label: string): Promise<string> {
+export async function runTokenAdd(dataDir: string, accountName: string, label: string): Promise<string> {
   const storage = openStorage(dataDir);
   try {
-    const user = await storage.getUserByName(userName);
-    if (user === null) throw new CliError(`unknown user: ${userName}`);
-    if (user.passwordHash === null) throw new CliError(`user cannot log in: ${userName}`);
+    const account = await storage.getAccountByName(accountName);
+    if (account === null) throw new CliError(`unknown account: ${accountName}`);
+    if (account.passwordHash === null) throw new CliError(`account cannot log in: ${accountName}`);
     const now = Math.floor(Date.now() / 1000);
     const { token, tokenHash } = generateApiToken();
-    await storage.createApiToken({ id: ulid(now * 1000), userId: user.id, label, tokenHash, created: now });
+    await storage.createApiToken({ id: ulid(now * 1000), accountId: account.id, label, tokenHash, created: now });
     return token;
   } finally {
     await storage.close();
   }
 }
 
-export async function runTokenList(dataDir: string, userName: string): Promise<string> {
+export async function runTokenList(dataDir: string, accountName: string): Promise<string> {
   const storage = openStorage(dataDir);
   try {
-    const user = await storage.getUserByName(userName);
-    if (user === null) throw new CliError(`unknown user: ${userName}`);
-    const tokens = await storage.listApiTokens(user.id);
+    const account = await storage.getAccountByName(accountName);
+    if (account === null) throw new CliError(`unknown account: ${accountName}`);
+    const tokens = await storage.listApiTokens(account.id);
     return tokens.map((token) => `${token.id}\t${token.label}\t${token.created}`).join('\n');
   } finally {
     await storage.close();
