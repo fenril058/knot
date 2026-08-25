@@ -1,4 +1,5 @@
 import { defaultKeymap, history as historyExtension, historyKeymap } from '@codemirror/commands';
+import { ChangeSet } from '@codemirror/state';
 import { keymap, EditorView } from '@codemirror/view';
 import { applyOps } from '../../core/apply.ts';
 import type { RebaseConflict, RebaseLineState } from '../../core/rebase.ts';
@@ -225,15 +226,12 @@ function syncEditorLocation(previousTitle: string): void {
 function syncDocument(effect: Extract<SyncEffect, { type: 'replace-document' }>): void {
   const next = effect.texts.join('\n');
   if (view.state.doc.toString() === next) return;
-  if (effect.changes !== undefined) {
-    if (effect.changes.length !== view.state.doc.length) {
-      throw new Error('replacement changes do not match the editor document');
-    }
-    if (effect.changes.apply(view.state.doc).toString() !== next) {
-      throw new Error('replacement changes do not produce the expected document');
-    }
+  const changes = effect.changes === undefined
+    ? ChangeSet.of({ from: 0, to: view.state.doc.length, insert: next }, view.state.doc.length)
+    : ChangeSet.of(effect.changes, view.state.doc.length);
+  if (changes.apply(view.state.doc).toString() !== next) {
+    throw new Error('replacement changes do not produce the expected document');
   }
-  const changes = effect.changes ?? { from: 0, to: view.state.doc.length, insert: next };
   suppressChanges = true;
   try {
     view.dispatch({ changes });
@@ -294,7 +292,14 @@ async function executeEffects(effects: readonly SyncEffect[], keepalive = false)
       continue;
     }
     if (effect.type === 'replace-document') {
-      syncDocument(effect);
+      try {
+        syncDocument(effect);
+      } catch (error) {
+        console.error('failed to apply the replacement document', error);
+        statusMessage = 'エラー: 文書の更新に失敗しました。再読み込みしてください';
+        renderStatus();
+        return;
+      }
       continue;
     }
     if (effect.type === 'present-conflict') {

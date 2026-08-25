@@ -163,7 +163,7 @@ test('同一行の並行編集は自動上書きせず、手元の内容を明�
   await other.close();
 });
 
-test('異なる行の並行編集はエディタ表示と caret を最新版へリベースする', async ({ page }) => {
+test('異なる行の並行編集はエディタ表示とカーソルを最新版へリベースする', async ({ page }) => {
   const login = await page.request.post('/api/knot/session', {
     headers: { 'X-Knot-Client': 'e2e' },
     data: { name: 'e2e', password: 'e2e-password' },

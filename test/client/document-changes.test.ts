@@ -1,19 +1,20 @@
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import test from 'node:test';
-import { EditorSelection, EditorState, type SelectionRange } from '@codemirror/state';
-import { documentChanges, type IdentifiedLine } from '../../src/client/editor/documentChanges.ts';
+import { ChangeSet, EditorSelection, EditorState, type SelectionRange } from '@codemirror/state';
+import type { Line } from '../../src/core/ops.ts';
+import { documentChanges } from '../../src/client/editor/documentChanges.ts';
 
-const text = (lines: readonly IdentifiedLine[]) => lines.map((line) => line.text).join('\n');
+const text = (lines: readonly Pick<Line, 'id' | 'text'>[]) => lines.map((line) => line.text).join('\n');
 
-function position(lines: readonly IdentifiedLine[], id: string, column: number): number {
+function position(lines: readonly Pick<Line, 'id' | 'text'>[], id: string, column: number): number {
   const index = lines.findIndex((line) => line.id === id);
   assert.notEqual(index, -1);
   return lines.slice(0, index).reduce((offset, line) => offset + line.text.length + 1, 0) + column;
 }
 
 function mappedSelection(
-  before: readonly IdentifiedLine[],
-  after: readonly IdentifiedLine[],
+  before: readonly Pick<Line, 'id' | 'text'>[],
+  after: readonly Pick<Line, 'id' | 'text'>[],
   selection: EditorSelection | SelectionRange,
 ): EditorSelection {
   const state = EditorState.create({
@@ -21,12 +22,12 @@ function mappedSelection(
     selection: selection instanceof EditorSelection ? selection : EditorSelection.create([selection]),
     extensions: [EditorState.allowMultipleSelections.of(true)],
   });
-  const updated = state.update({ changes: documentChanges(before, after) }).state;
+  const updated = state.update({ changes: ChangeSet.of(documentChanges(before, after), text(before).length) }).state;
   assert.equal(updated.doc.toString(), text(after));
   return updated.selection;
 }
 
-void test('上方へ行を挿入しても caret は同じ行 ID と列に追従する', () => {
+void test('上方へ行を挿入してもカーソルは同じ行 ID と列に追従する', () => {
   const before = [
     { id: 'a', text: 'A' },
     { id: 'b', text: 'B' },
@@ -42,7 +43,23 @@ void test('上方へ行を挿入しても caret は同じ行 ID と列に追従�
   assert.equal(selection.main.head, position(after, 'c', 2));
 });
 
-void test('上方の行を削除しても caret は同じ行 ID と列に追従する', () => {
+void test('行先頭のカーソルも上方への行挿入後に同じ行 ID へ追従する', () => {
+  const before = [
+    { id: 'a', text: 'A' },
+    { id: 'b', text: 'B' },
+    { id: 'c', text: 'Ccc' },
+  ];
+  const after = [before[0]!, { id: 'x', text: 'XXXX' }, before[1]!, before[2]!];
+  const selection = mappedSelection(
+    before,
+    after,
+    EditorSelection.cursor(position(before, 'b', 0)),
+  );
+
+  assert.equal(selection.main.head, position(after, 'b', 0));
+});
+
+void test('上方の行を削除してもカーソルは同じ行 ID と列に追従する', () => {
   const before = [
     { id: 'a', text: 'A' },
     { id: 'b', text: 'B' },
@@ -93,7 +110,7 @@ void test('backward selection の向きと両端を行の削除後も維持す�
   assert.equal(selection.main.anchor > selection.main.head, true);
 });
 
-void test('複数 caret と mainIndex を上方への挿入後も維持する', () => {
+void test('複数カーソルと mainIndex を上方への挿入後も維持する', () => {
   const before = [
     { id: 'a', text: 'alpha' },
     { id: 'b', text: 'bravo' },
@@ -117,7 +134,7 @@ void test('複数 caret と mainIndex を上方への挿入後も維持する', 
   assert.equal(selection.mainIndex, 1);
 });
 
-void test('複数 caret と mainIndex を上方の削除後も維持する', () => {
+void test('複数カーソルと mainIndex を上方の削除後も維持する', () => {
   const before = [
     { id: 'a', text: 'alpha' },
     { id: 'b', text: 'bravo' },
@@ -180,7 +197,7 @@ void test('astral character を含む行の端点を surrogate pair の途中へ
   }
 });
 
-void test('caret のある行自体を削除すると後続行の先頭へ map する', () => {
+void test('カーソルのある行自体を削除すると後続行の先頭へ map する', () => {
   const before = [
     { id: 'a', text: 'A' },
     { id: 'b', text: 'Bbb' },
@@ -196,7 +213,7 @@ void test('caret のある行自体を削除すると後続行の先頭へ map �
   assert.equal(selection.main.head, position(after, 'c', 0));
 });
 
-void test('末尾の caret 行自体を削除すると直前行の末尾へ map する', () => {
+void test('末尾のカーソル行自体を削除すると直前行の末尾へ map する', () => {
   const before = [
     { id: 'a', text: 'Aaa' },
     { id: 'b', text: 'Bbb' },
@@ -211,7 +228,7 @@ void test('末尾の caret 行自体を削除すると直前行の末尾へ map 
   assert.equal(selection.main.head, position(after, 'a', 3));
 });
 
-void test('同文行が複数あっても残存する同じ行 ID へ追従する', () => {
+void test('同文行が複数あってもカーソルは残存する同じ行 ID へ追従する', () => {
   const before = [
     { id: 'first', text: 'same' },
     { id: 'second', text: 'same' },

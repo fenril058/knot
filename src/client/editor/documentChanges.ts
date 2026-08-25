@@ -1,11 +1,9 @@
-import { ChangeSet } from '@codemirror/state';
+import type { Line } from '../../core/ops.ts';
 
-export type IdentifiedLine = { id: string; text: string };
+type LineAlignment = { beforeIndex: number; afterIndex: number };
+export type DocumentChange = { from: number; to: number; insert: string };
 
-type LineMatch = { beforeIndex: number; afterIndex: number };
-type Change = { from: number; to: number; insert: string };
-
-function lineStarts(lines: readonly IdentifiedLine[]): number[] {
+function lineStarts(lines: readonly Pick<Line, 'id' | 'text'>[]): number[] {
   const starts: number[] = [];
   let offset = 0;
   for (const line of lines) {
@@ -15,7 +13,10 @@ function lineStarts(lines: readonly IdentifiedLine[]): number[] {
   return starts;
 }
 
-function matchingLines(before: readonly IdentifiedLine[], after: readonly IdentifiedLine[]): LineMatch[] {
+function alignLinesById(
+  before: readonly Pick<Line, 'id' | 'text'>[],
+  after: readonly Pick<Line, 'id' | 'text'>[],
+): LineAlignment[] {
   const afterIndexById = new Map(after.map((line, index) => [line.id, index]));
   const candidates = before.flatMap((line, beforeIndex) => {
     const afterIndex = afterIndexById.get(line.id);
@@ -39,16 +40,16 @@ function matchingLines(before: readonly IdentifiedLine[], after: readonly Identi
     tails[low] = index;
   }
 
-  const matches: LineMatch[] = [];
+  const alignments: LineAlignment[] = [];
   let index = tails[tails.length - 1]!;
   while (index !== -1) {
-    matches.push(candidates[index]!);
+    alignments.push(candidates[index]!);
     index = previous[index]!;
   }
-  return matches.toReversed();
+  return alignments.toReversed();
 }
 
-function lineTextChange(lineStart: number, before: string, after: string): Change | null {
+function lineTextChange(lineStart: number, before: string, after: string): DocumentChange | null {
   if (before === after) return null;
   const beforeCodePoints = Array.from(before);
   const afterCodePoints = Array.from(after);
@@ -79,32 +80,37 @@ function lineTextChange(lineStart: number, before: string, after: string): Chang
   };
 }
 
-function lineBlockText(lines: readonly IdentifiedLine[], from: number, to: number): string {
+function linesText(lines: readonly Pick<Line, 'id' | 'text'>[], from: number, to: number): string {
   return lines.slice(from, to).map((line) => line.text).join('\n');
 }
 
 export function documentChanges(
-  before: readonly IdentifiedLine[],
-  after: readonly IdentifiedLine[],
-): ChangeSet {
+  before: readonly Pick<Line, 'id' | 'text'>[],
+  after: readonly Pick<Line, 'id' | 'text'>[],
+): DocumentChange[] {
   const beforeStarts = lineStarts(before);
   const beforeTextLength = before.reduce((length, line, index) => length + line.text.length + (index === 0 ? 0 : 1), 0);
-  const matches = matchingLines(before, after);
-  const changes: Change[] = [];
+  const alignments = alignLinesById(before, after);
+  const changes: DocumentChange[] = [];
   let previousBeforeIndex = -1;
   let previousAfterIndex = -1;
 
-  for (let matchIndex = 0; matchIndex <= matches.length; matchIndex++) {
-    const match = matches[matchIndex];
-    const nextBeforeIndex = match?.beforeIndex ?? before.length;
-    const nextAfterIndex = match?.afterIndex ?? after.length;
+  for (let alignmentIndex = 0; alignmentIndex <= alignments.length; alignmentIndex++) {
+    const alignment = alignments[alignmentIndex];
+    const nextBeforeIndex = alignment?.beforeIndex ?? before.length;
+    const nextAfterIndex = alignment?.afterIndex ?? after.length;
     const beforeBlockStart = previousBeforeIndex + 1;
     const afterBlockStart = previousAfterIndex + 1;
 
     if (beforeBlockStart !== nextBeforeIndex || afterBlockStart !== nextAfterIndex) {
-      const insertedLines = lineBlockText(after, afterBlockStart, nextAfterIndex);
-      if (match !== undefined) {
-        const from = beforeStarts[beforeBlockStart] ?? beforeStarts[nextBeforeIndex]!;
+      const insertedLines = linesText(after, afterBlockStart, nextAfterIndex);
+      const isInsertion = beforeBlockStart === nextBeforeIndex && afterBlockStart !== nextAfterIndex;
+      if (alignment !== undefined && isInsertion && previousBeforeIndex !== -1) {
+        const previousLine = before[previousBeforeIndex]!;
+        const from = beforeStarts[previousBeforeIndex]! + previousLine.text.length;
+        changes.push({ from, to: from, insert: `\n${insertedLines}` });
+      } else if (alignment !== undefined) {
+        const from = beforeStarts[beforeBlockStart]!;
         changes.push({
           from,
           to: beforeStarts[nextBeforeIndex]!,
@@ -123,16 +129,16 @@ export function documentChanges(
       }
     }
 
-    if (match === undefined) break;
+    if (alignment === undefined) break;
     const textChange = lineTextChange(
-      beforeStarts[match.beforeIndex]!,
-      before[match.beforeIndex]!.text,
-      after[match.afterIndex]!.text,
+      beforeStarts[alignment.beforeIndex]!,
+      before[alignment.beforeIndex]!.text,
+      after[alignment.afterIndex]!.text,
     );
     if (textChange !== null) changes.push(textChange);
-    previousBeforeIndex = match.beforeIndex;
-    previousAfterIndex = match.afterIndex;
+    previousBeforeIndex = alignment.beforeIndex;
+    previousAfterIndex = alignment.afterIndex;
   }
 
-  return ChangeSet.of(changes, beforeTextLength);
+  return changes;
 }

@@ -3,7 +3,7 @@ import { alignLines, diffLines } from '../../core/diff.ts';
 import { ulid } from '../../core/id.ts';
 import { type Line, type LineOp } from '../../core/ops.ts';
 import { rebase, type RebaseConflict } from '../../core/rebase.ts';
-import { documentChanges } from './documentChanges.ts';
+import { documentChanges, type DocumentChange } from './documentChanges.ts';
 
 export type Snapshot = { version: number; lines: Line[] };
 
@@ -46,7 +46,12 @@ export type EditorRecord = PendingRecord | ConflictDraftRecord | UnsavedDraftRec
 export type SyncEffect =
   | { type: 'send'; commit: { pageId?: string; commitId: string; baseVersion: number; ops: LineOp[] }; title: string }
   | { type: 'persist'; record: EditorRecord | null }
-  | { type: 'replace-document'; texts: string[]; changes?: ReturnType<typeof documentChanges> }
+  | {
+      type: 'replace-document';
+      texts: string[];
+      // 表示中の文書を実際に変える effect では、行 ID への追従に必要な changes を省略しない。
+      changes?: DocumentChange[];
+    }
   | { type: 'present-conflict'; conflicts: RebaseConflict[] }
   | { type: 'schedule' };
 
@@ -250,7 +255,7 @@ export class SyncEngine {
       this.#buffer = candidate.map(({ text }) => text);
       this.#status = 'conflict';
       return [
-        replaceDocument(local, candidate),
+        replaceDocumentEffect(local, candidate),
         { type: 'present-conflict', conflicts: result.conflicts },
         { type: 'persist', record: this.#conflictDraft() },
       ];
@@ -263,7 +268,7 @@ export class SyncEngine {
       this.#hasBufferChanged = false;
       this.#status = 'saved';
       return [
-        replaceDocument(local, latest.lines),
+        replaceDocumentEffect(local, latest.lines),
         { type: 'persist', record: null },
       ];
     }
@@ -271,9 +276,9 @@ export class SyncEngine {
     this.#conflictCandidate = null;
     this.#conflicts = [];
     const effects = this.#startCommit(result.ops);
-    const rebasedLines = this.#requiredInflightLines();
+    const rebasedLines = this.#inflightLines();
     this.#buffer = rebasedLines.map(({ text }) => text);
-    return [replaceDocument(local, rebasedLines), ...effects];
+    return [replaceDocumentEffect(local, rebasedLines), ...effects];
   }
 
   restoredEffects(): SyncEffect[] {
@@ -401,7 +406,7 @@ export class SyncEngine {
     return { userId: this.#userId, now: this.#now(), version };
   }
 
-  #requiredInflightLines(): Line[] {
+  #inflightLines(): Line[] {
     if (this.#inflight === null) throw new Error('inflight commit is missing');
     return this.#inflight.expectedLines;
   }
@@ -455,7 +460,10 @@ export class SyncEngine {
   }
 }
 
-function replaceDocument(before: readonly Line[], after: readonly Line[]): Extract<SyncEffect, { type: 'replace-document' }> {
+function replaceDocumentEffect(
+  before: readonly Line[],
+  after: readonly Line[],
+): Extract<SyncEffect, { type: 'replace-document' }> {
   return {
     type: 'replace-document',
     texts: after.map(({ text }) => text),
