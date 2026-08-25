@@ -1,5 +1,5 @@
 import { defaultKeymap, history as historyExtension, historyKeymap } from '@codemirror/commands';
-import { EditorSelection } from '@codemirror/state';
+import { ChangeSet } from '@codemirror/state';
 import { keymap, EditorView } from '@codemirror/view';
 import { applyOps } from '../../core/apply.ts';
 import type { RebaseConflict, RebaseLineState } from '../../core/rebase.ts';
@@ -223,26 +223,21 @@ function syncEditorLocation(previousTitle: string): void {
   }
 }
 
-function syncDocument(lines: readonly string[]): void {
-  const next = lines.join('\n');
+function syncDocument(effect: Extract<SyncEffect, { type: 'replace-document' }>): void {
+  const next = effect.texts.join('\n');
   if (view.state.doc.toString() === next) return;
-  const previousDocument = view.state.doc;
-  const previousSelection = view.state.selection;
-  const nextLines = lines.length === 0 ? [''] : lines;
-  const mapPosition = (position: number): number => {
-    const previousLine = previousDocument.lineAt(position);
-    const lineIndex = Math.min(previousLine.number - 1, nextLines.length - 1);
-    let lineStart = 0;
-    for (let index = 0; index < lineIndex; index++) lineStart += nextLines[index]!.length + 1;
-    return lineStart + Math.min(position - previousLine.from, nextLines[lineIndex]!.length);
-  };
-  const selection = EditorSelection.create(
-    previousSelection.ranges.map(({ anchor, head }) => EditorSelection.range(mapPosition(anchor), mapPosition(head))),
-    previousSelection.mainIndex,
-  );
+  const changes = effect.changes === undefined
+    ? ChangeSet.of({ from: 0, to: view.state.doc.length, insert: next }, view.state.doc.length)
+    : ChangeSet.of(effect.changes, view.state.doc.length);
+  if (changes.apply(view.state.doc).toString() !== next) {
+    throw new Error('replacement changes do not produce the expected document');
+  }
   suppressChanges = true;
-  view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next }, selection });
-  suppressChanges = false;
+  try {
+    view.dispatch({ changes });
+  } finally {
+    suppressChanges = false;
+  }
 }
 
 function refreshGutter(): void {
@@ -297,7 +292,14 @@ async function executeEffects(effects: readonly SyncEffect[], keepalive = false)
       continue;
     }
     if (effect.type === 'replace-document') {
-      syncDocument(effect.texts);
+      try {
+        syncDocument(effect);
+      } catch (error) {
+        console.error('failed to apply the replacement document', error);
+        statusMessage = 'エラー: 文書の更新に失敗しました。再読み込みしてください';
+        renderStatus();
+        return;
+      }
       continue;
     }
     if (effect.type === 'present-conflict') {

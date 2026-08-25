@@ -163,7 +163,7 @@ test('同一行の並行編集は自動上書きせず、手元の内容を明�
   await other.close();
 });
 
-test('異なる行の並行編集はエディタ表示も最新版へリベースする', async ({ page }) => {
+test('異なる行の並行編集はエディタ表示とカーソルを最新版へリベースする', async ({ page }) => {
   const login = await page.request.post('/api/knot/session', {
     headers: { 'X-Knot-Client': 'e2e' },
     data: { name: 'e2e', password: 'e2e-password' },
@@ -190,7 +190,7 @@ test('異なる行の並行編集はエディタ表示も最新版へリベー�
   await Promise.all([page.goto(`/e2e/${title}`), other.goto(`/e2e/${title}`)]);
   await Promise.all([page.locator('#edit-page-button').click(), other.locator('#edit-page-button').click()]);
 
-  await replaceEditorDocument(page, [title, 'first remote', 'second base', 'tail']);
+  await replaceEditorDocument(page, [title, 'first remote', 'remote inserted', 'second base', 'tail']);
   await expect(page.locator('#save-status')).toHaveText('保存済み');
 
   await other.locator('#editor-root .cm-line').nth(2).click();
@@ -198,6 +198,7 @@ test('異なる行の並行編集はエディタ表示も最新版へリベー�
   await other.keyboard.type(' local');
   await expect(other.locator('#save-status')).toHaveText('保存済み');
   await expect(other.locator('#editor-root .cm-content')).toContainText('first remote');
+  await expect(other.locator('#editor-root .cm-content')).toContainText('remote inserted');
   await expect(other.locator('#editor-root .cm-content')).toContainText('second base local');
 
   await other.keyboard.type(' continued');
@@ -206,6 +207,7 @@ test('異なる行の並行編集はエディタ表示も最新版へリベー�
   expect((await saved.json()).lines.map((line: { text: string }) => line.text)).toEqual([
     title,
     'first remote',
+    'remote inserted',
     'second base local continued',
     'tail',
   ]);
