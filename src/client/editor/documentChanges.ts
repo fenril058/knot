@@ -108,7 +108,7 @@ export function documentChanges(
       if (alignment !== undefined && isInsertion && previousBeforeIndex !== -1) {
         const previousLine = before[previousBeforeIndex]!;
         const from = beforeStarts[previousBeforeIndex]! + previousLine.text.length;
-        changes.push({ from, to: from, insert: `\n${insertedLines}` });
+        changes.push({ from, to: beforeStarts[nextBeforeIndex]!, insert: `\n${insertedLines}\n` });
       } else if (alignment !== undefined) {
         const from = beforeStarts[beforeBlockStart]!;
         changes.push({

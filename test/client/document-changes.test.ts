@@ -59,6 +59,22 @@ void test('行先頭のカーソルも上方への行挿入後に同じ行 ID �
   assert.equal(selection.main.head, position(after, 'b', 0));
 });
 
+void test('前行末尾から始まる forward selection の両端を行の挿入へ追従させる', () => {
+  const before = [
+    { id: 'a', text: 'A' },
+    { id: 'b', text: 'Bbb' },
+  ];
+  const after = [before[0]!, { id: 'x', text: 'X' }, before[1]!];
+  const selection = mappedSelection(
+    before,
+    after,
+    EditorSelection.single(position(before, 'a', 1), position(before, 'b', 2)),
+  );
+
+  assert.equal(selection.main.anchor, position(after, 'a', 1));
+  assert.equal(selection.main.head, position(after, 'b', 2));
+});
+
 void test('上方の行を削除してもカーソルは同じ行 ID と列に追従する', () => {
   const before = [
     { id: 'a', text: 'A' },
