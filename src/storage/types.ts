@@ -162,7 +162,7 @@ export interface Storage {
   listProjects(): Promise<Project[]>;
   /** インポート時にエクスポート元の displayName を反映する。 */
   setProjectDisplayName(projectId: string, displayName: string, now: number): Promise<void>;
-  /** インポート元の Actor は ID だけで照合し、同名の別 Actor を統合しない。 */
+  /** Actor は未登録 ID だけ追加し、同名や ID 衝突を根拠に既存 identity を変更しない。 */
   upsertActor(actor: Actor, now: number): Promise<string>;
   getActorById(id: string): Promise<Actor | null>;
   listActorsForProject(projectId: string): Promise<Actor[]>;

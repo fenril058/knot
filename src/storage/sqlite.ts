@@ -170,7 +170,7 @@ export class SqliteStorage implements Storage {
     this.#db
       .prepare(
         `INSERT INTO actors (id, name, display_name, created) VALUES (?, ?, ?, ?)
-         ON CONFLICT (id) DO UPDATE SET name = excluded.name, display_name = excluded.display_name`,
+         ON CONFLICT (id) DO NOTHING`,
       )
       .run(actor.id, actor.name, actor.displayName, now);
     return actor.id;

@@ -13,12 +13,14 @@ session、API token、ページ訪問は Account を参照し、line、commit、
 
 新規 Account には、Account ID とは異なる ID の新規 Actor を作成する。
 同名の imported Actor が存在しても関連づけず、従来の `claimed` による暗黙の昇格は廃止する。
+インポート中の Actor ID が既存 Actor と衝突しても、import 元を確認できないため既存 Actor の名前と表示名は更新しない。
 既存 Actor との関連変更は、由来を確認できる明示操作として別途設計するまで提供しない。
 
 ## 却下した案
 
 **同名の imported Actor を新規 Account に自動的に関連づける案**。
 現行データには import 元や import 元での identity を一意に確認できる情報がなく、別の import 元にいる同名作者を取得するおそれがあるため採用しない。
+同じ理由で、Actor ID の一致だけを根拠にインポート側の identity で既存 Actor を更新する案も採用しない。
 
 **Actor と Account で常に同じ ID を発行する案**。
 別概念であることを型とデータから区別できず、将来の名前変更や認証方式の変更で再び identity を結合するため採用しない。

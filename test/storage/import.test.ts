@@ -221,6 +221,38 @@ void test('同名別 ID の imported Actor は統合せず、本文の userId �
   await storage.close();
 });
 
+void test('imported Actor の ID が既存 Actor と衝突しても表示 identity を上書きしない', async () => {
+  const { storage } = makeStorage();
+  const now = 1_700_000_000;
+  await storage.addAccount({
+    id: 'local-account',
+    actor: { id: 'local-actor', name: 'local-alice', displayName: 'Local Alice' },
+    name: 'alice',
+    passwordHash: 'hash',
+    isAdmin: false,
+  }, now);
+  const data: CosenseExport = {
+    name: 'proj',
+    displayName: 'Proj',
+    exported: now,
+    users: [{ id: 'local-actor', name: 'imported-alice', displayName: 'Imported Alice' }],
+    pages: [{
+      id: '0'.repeat(24),
+      title: 'P',
+      created: now,
+      updated: now,
+      lines: [{ id: '1'.repeat(24), text: 'P', userId: 'local-actor', created: now, updated: now }],
+    }],
+  };
+
+  await importCosense(storage, data, { projectName: 'proj', now });
+
+  assert.deepEqual(await storage.getActorById('local-actor'), {
+    id: 'local-actor', name: 'local-alice', displayName: 'Local Alice',
+  });
+  await storage.close();
+});
+
 void test('エクスポート元の displayName がプロジェクトに反映される', async () => {
   const { storage } = makeStorage();
   const now = 1700000000;
