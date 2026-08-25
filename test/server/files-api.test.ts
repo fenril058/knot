@@ -9,7 +9,7 @@ const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0
 
 async function setup() {
   const s = await makeServer({ dataDir: mkdtempSync(join(tmpdir(), 'knot-files-')) });
-  await s.addUser('alice', 'pw12345678');
+  const account = await s.addAccount('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
   await s.storage.ensureProject('proj', s.clock.t);
   const upload = (bytes: Uint8Array, filename: string, type: string) => {
@@ -18,11 +18,11 @@ async function setup() {
     form.append('project', 'proj');
     return s.request('/api/knot/files', { method: 'POST', body: form }, cookie);
   };
-  return { s, cookie, upload };
+  return { s, account, cookie, upload };
 }
 
 void test('PNG のアップロードと配信', async () => {
-  const { s, cookie, upload } = await setup();
+  const { s, account, cookie, upload } = await setup();
   const res = await upload(PNG, 'shot.png', 'image/png');
   assert.equal(res.status, 200);
   const body = await res.json();
@@ -30,6 +30,7 @@ void test('PNG のアップロードと配信', async () => {
   assert.equal(body.contentType, 'image/png');
   assert.equal(body.size, PNG.length);
   assert.equal(body.url, `/files/${body.id}/shot.png`);
+  assert.equal((await s.storage.getAttachment(body.id))?.actorId, account.actorId);
 
   const got = await s.request(body.url, {}, cookie);
   assert.equal(got.status, 200);

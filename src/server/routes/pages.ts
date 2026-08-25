@@ -44,8 +44,8 @@ export function registerPageRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     if (project === null) return c.html(projectNotFoundPage(c.req.param('project')), 404);
 
     const rawTitle = safeDecode(c.req.param('title')) ?? c.req.param('title');
-    const userId = c.get('userId');
-    const user = await deps.storage.getUserById(userId);
+    const accountId = c.get('accountId');
+    const actor = await deps.storage.getActorById(c.get('actorId'));
     const styleNonce = randomBytes(16).toString('base64');
     c.set('styleNonce', styleNonce);
     const page = await resolvePage(deps.storage, project.id, c);
@@ -57,17 +57,17 @@ export function registerPageRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     const knownPagesList = titles.map(({ title, image }) => ({ title, image }));
     if (page === null) {
       c.status(404);
-      return c.html(pageNotFoundPage(project, rawTitle, user?.name ?? '', styleNonce, renderConfig, knownPagesList));
+      return c.html(pageNotFoundPage(project, rawTitle, actor?.name ?? '', styleNonce, renderConfig, knownPagesList));
     }
 
-    const previousVisit = await deps.storage.getVisit(userId, page.id);
+    const previousVisit = await deps.storage.getVisit(accountId, page.id);
     const related = await deps.storage.getRelatedPages(project.id, page.id, page.titleLc);
     const knownPages = new Map(titles.map((entry) => [entry.titleLc, { title: entry.title, image: entry.image }]));
     const rendered = renderLines(page.lines, knownPages, project.name, renderConfig);
     const isCrossSite = c.req.header('Sec-Fetch-Site')?.toLowerCase() === 'cross-site';
     const isPrefetch = c.req.header('Sec-Purpose')?.toLowerCase().includes('prefetch') === true;
     if (!isCrossSite && !isPrefetch) {
-      await deps.storage.recordVisit(userId, page.id, now(), page.version);
+      await deps.storage.recordVisit(accountId, page.id, now(), page.version);
     }
     return c.html(
       pageViewPage(
@@ -76,7 +76,7 @@ export function registerPageRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
         rendered,
         previousVisit,
         related,
-        user?.name ?? '',
+        actor?.name ?? '',
         styleNonce,
         renderConfig,
         knownPagesList,

@@ -100,7 +100,7 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     if (!project) return jsonError(c, 404, 'not_found');
     const page = await resolvePage(storage, project.id, c);
     if (!page) return jsonError(c, 404, 'not_found');
-    const { version } = await storage.deletePage(project.id, page.id, c.get('userId'), now());
+    const { version } = await storage.deletePage(project.id, page.id, c.get('actorId'), now());
     return c.json({ deleted: true, version });
   });
 
@@ -123,7 +123,7 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     try {
       const result = await storage.renamePage({
         projectId: project.id, pageId: page.id, baseVersion: body.baseVersion, newTitle: body.newTitle,
-        rewriteLinks, userId: c.get('userId'), now: now(),
+        rewriteLinks, actorId: c.get('actorId'), now: now(),
       });
       if (result.kind === 'conflict') {
         return jsonError(c, 409, 'conflict', { reason: result.reason, page: pageToJson(result.page) });
@@ -171,7 +171,7 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
       if (baseVersion !== 0) return jsonError(c, 404, 'not_found');
       // 新規作成: 適用結果の先頭行タイトルが URL と一致することを純関数で事前検証する
       try {
-        const lines = applyOps([], ops, { userId: c.get('userId'), now: now(), version: 1 });
+        const lines = applyOps([], ops, { userId: c.get('actorId'), now: now(), version: 1 });
         if (lines.length === 0 || titleLc(lines[0]!.text) !== urlTitleLc) {
           return jsonError(c, 400, 'bad_request', { message: 'first line must match the URL title' });
         }
@@ -185,7 +185,7 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     try {
       const result = await storage.commit({
         projectId: project.id, pageId, commitId, baseVersion, ops,
-        userId: c.get('userId'), now: now(),
+        actorId: c.get('actorId'), now: now(),
       });
       if (result.kind === 'applied') return c.json({ version: result.version, pageId });
       return commitResultToResponse(c, result);
@@ -231,7 +231,7 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
       const result = await storage.commit({
         projectId: project.id,
         pageId: page ? page.id : ulid(now() * 1000),
-        commitId, baseVersion, ops, userId: c.get('userId'), now: now(),
+        commitId, baseVersion, ops, actorId: c.get('actorId'), now: now(),
       });
       if (result.kind === 'applied') return c.json({ version: result.version, commitId });
       return commitResultToResponse(c, result);

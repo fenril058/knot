@@ -5,10 +5,10 @@ import { seedPage } from '../helpers/pages.ts';
 
 void test('GET /api/pages/:project/:title が lines / links / relatedPages を返す', async () => {
   const s = await makeServer();
-  await s.addUser('alice', 'pw12345678');
+  await s.addAccount('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
   const project = await s.storage.ensureProject('proj', s.clock.t);
-  await s.storage.upsertDisplayUser({ id: 'u', name: 'editor', displayName: 'Editor' }, s.clock.t);
+  await s.storage.upsertActor({ id: 'u', name: 'editor', displayName: 'Editor' }, s.clock.t);
   const homeId = await seedPage(s.storage, project.id, 'Home', ['see [Sub Page] and [Red]'], s.clock.t);
   const subPageId = await seedPage(s.storage, project.id, 'Sub Page', ['back to [Home]'], s.clock.t + 1);
   await s.storage.recordVisit('u1', homeId, s.clock.t + 10, 1);
@@ -37,7 +37,7 @@ void test('GET /api/pages/:project/:title が lines / links / relatedPages を�
 
 void test('編集用 pageId があれば古い URL タイトルからリネーム後のページを取得できる', async () => {
   const s = await makeServer();
-  const userId = await s.addUser('alice', 'pw12345678');
+  const account = await s.addAccount('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
   const project = await s.storage.ensureProject('proj', s.clock.t);
   const pageId = await seedPage(s.storage, project.id, 'Old', ['body'], s.clock.t);
@@ -48,7 +48,7 @@ void test('編集用 pageId があれば古い URL タイトルからリネー�
     commitId: 'rename-commit',
     baseVersion: page!.version,
     ops: [{ type: 'update', id: page!.lines[0]!.id, text: 'New' }],
-    userId,
+    actorId: account.actorId,
     now: s.clock.t + 1,
   });
 
@@ -60,7 +60,7 @@ void test('編集用 pageId があれば古い URL タイトルからリネー�
 
 void test('GET /api/pages/:project/search/titles', async () => {
   const s = await makeServer();
-  await s.addUser('alice', 'pw12345678');
+  await s.addAccount('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
   const project = await s.storage.ensureProject('proj', s.clock.t);
   await seedPage(s.storage, project.id, 'Page One', ['[Foo Bar]'], s.clock.t);

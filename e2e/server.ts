@@ -17,8 +17,14 @@ mkdirSync(join(dataDir, 'files'), { recursive: true });
 const storage = new SqliteStorage(openDatabase(join(dataDir, 'knot.db')));
 const config = { ...defaultConfig(dataDir), secureCookie: false };
 const now = Math.floor(Date.now() / 1000);
-await storage.addUser(
-  { id: ulid(), name: 'e2e', displayName: 'e2e', passwordHash: hashPassword('e2e-password'), isAdmin: false },
+await storage.addAccount(
+  {
+    id: ulid(),
+    actor: { id: ulid(), name: 'e2e', displayName: 'e2e' },
+    name: 'e2e',
+    passwordHash: hashPassword('e2e-password'),
+    isAdmin: false,
+  },
   now,
 );
 await storage.ensureProject('e2e', now);

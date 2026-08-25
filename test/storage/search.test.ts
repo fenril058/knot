@@ -16,7 +16,7 @@ async function setup() {
         after: i === 0 ? '_head' : `${pageId}-l${i - 1}`,
         text,
       })),
-      userId: 'u1', now: 2000,
+      actorId: 'u1', now: 2000,
     });
   await put('pg1', 'c1', ['knot 設計書', '検索の設計を書く']);
   await put('pg2', 'c2', ['雑記', 'A_B というリテラル', '進捗は100%達成です']);
@@ -91,7 +91,7 @@ void test('空クエリは 0 件、削除済みページはヒットしない', 
       { type: 'delete', id: 'pg1-l0' },
       { type: 'delete', id: 'pg1-l1' },
     ],
-    userId: 'u1', now: 3000,
+    actorId: 'u1', now: 3000,
   });
   assert.deepEqual(await storage.search(project.id, parseSearchQuery('設計書')), []);
   await storage.close();

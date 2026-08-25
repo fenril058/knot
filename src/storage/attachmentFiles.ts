@@ -11,7 +11,7 @@ export type StoreAttachmentInput = {
   filename: string;
   contentType: string;
   bytes: Uint8Array;
-  userId: string;
+  actorId: string;
   now: number;
   replaceGenericMetadata?: boolean;
   claimOwner?: string;
@@ -109,7 +109,7 @@ export async function storeAttachment(input: StoreAttachmentInput): Promise<Stor
     contentType: input.contentType,
     size: input.bytes.length,
     sha256,
-    userId: input.userId,
+    actorId: input.actorId,
     created: input.now,
   };
   const finalPath = join(input.filesDir, attachment.id);

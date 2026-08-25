@@ -10,7 +10,7 @@ import {
   runTokenAdd,
   runTokenList,
   runTokenRevoke,
-  runUserAdd,
+  runAccountAdd,
 } from './commands.ts';
 import { runBackup } from './backup.ts';
 import { runSync } from './sync/commands.ts';
@@ -23,11 +23,11 @@ const USAGE = `usage:
   knot reindex --data <dir> [--project <name>]
   knot backup  --data <dir> --out <destdir>
   knot serve   --data <dir> [--port <n>] [--hostname <s>]
-  knot token add --data <dir> --user <name> [--label <s>]
-  knot token list --data <dir> --user <name>
+  knot token add --data <dir> --account <name> [--label <s>]
+  knot token list --data <dir> --account <name>
   knot token revoke --data <dir> --id <id>
-  knot user add --data <dir> --name <name> [--display-name <name>] [--admin]
-                (パスワードは標準入力から読む: echo -n 'pass' | knot user add ...)
+  knot account add --data <dir> --name <name> [--display-name <name>] [--admin]
+                   (パスワードは標準入力から読む: echo -n 'pass' | knot account add ...)
   knot sync init <dir> --url <base-url> --project <name>
   knot sync pull|push|status [--dir <dir>]   (詳細: knot sync --help 相当は SYNC_USAGE)`;
 
@@ -60,7 +60,7 @@ async function main(argv: string[]): Promise<string> {
       admin: { type: 'boolean' },
       port: { type: 'string' },
       hostname: { type: 'string' },
-      user: { type: 'string' },
+      account: { type: 'string' },
       label: { type: 'string' },
       id: { type: 'string' },
     },
@@ -100,19 +100,19 @@ async function main(argv: string[]): Promise<string> {
       if (!Number.isInteger(port) || port < 0 || port > 65535) throw new CliError(USAGE);
       return runServe(data, port, values.hostname ?? '127.0.0.1');
     }
-    case 'user': {
+    case 'account': {
       if (positionals[0] !== 'add' || positionals.length !== 1 || values.name === undefined) {
         throw new CliError(USAGE);
       }
       const password = (await readStdin()).replace(/\n$/, '');
-      return runUserAdd(data, values.name, values['display-name'] ?? null, values.admin === true, password);
+      return runAccountAdd(data, values.name, values['display-name'] ?? null, values.admin === true, password);
     }
     case 'token':
-      if (positionals[0] === 'add' && positionals.length === 1 && values.user !== undefined) {
-        return runTokenAdd(data, values.user, values.label ?? 'default');
+      if (positionals[0] === 'add' && positionals.length === 1 && values.account !== undefined) {
+        return runTokenAdd(data, values.account, values.label ?? 'default');
       }
-      if (positionals[0] === 'list' && positionals.length === 1 && values.user !== undefined) {
-        return runTokenList(data, values.user);
+      if (positionals[0] === 'list' && positionals.length === 1 && values.account !== undefined) {
+        return runTokenList(data, values.account);
       }
       if (positionals[0] === 'revoke' && positionals.length === 1 && values.id !== undefined) {
         return runTokenRevoke(data, values.id);

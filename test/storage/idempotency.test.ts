@@ -12,7 +12,7 @@ async function setup() {
     commitId: 'c1',
     baseVersion: 0,
     ops: [{ type: 'insert', id: 'l1', after: '_head', text: 'T' }],
-    userId: 'u1',
+    actorId: 'u1',
     now: 2000,
   };
   await storage.commit(first);
@@ -37,7 +37,7 @@ void test('他のコミットが挟まった後の再送でも conflict にな�
   await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c2', baseVersion: 1,
     ops: [{ type: 'insert', id: 'l2', after: 'l1', text: 'x' }],
-    userId: 'u2', now: 3000,
+    actorId: 'u2', now: 3000,
   });
   const replay = await storage.commit(first);
   assert.deepEqual(replay, { kind: 'applied', version: 1 });

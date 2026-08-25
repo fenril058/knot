@@ -9,32 +9,32 @@ export type Project = {
   updated: number;
 };
 
-export type DisplayUser = { id: string; name: string; displayName: string };
+export type Actor = { id: string; name: string; displayName: string };
 
-export type AuthUser = {
+export type Account = {
   id: string;
+  actorId: string;
   name: string;
-  displayName: string;
   email: string | null;
   passwordHash: string | null;
   isAdmin: boolean;
   created: number;
 };
 
-export type NewUser = {
+export type NewAccount = {
   id: string;
+  actor: Actor;
   name: string;
-  displayName: string;
   email?: string;
   passwordHash: string;
   isAdmin: boolean;
 };
 
-export type AddUserResult = { kind: 'created' | 'claimed'; id: string };
+export type AddAccountResult = { accountId: string; actorId: string };
 
-export type Session = { id: string; userId: string; expires: number; created: number };
+export type Session = { id: string; accountId: string; expires: number; created: number };
 
-export type ApiToken = { id: string; userId: string; label: string; created: number };
+export type ApiToken = { id: string; accountId: string; label: string; created: number };
 
 export type Attachment = {
   id: string;
@@ -43,7 +43,7 @@ export type Attachment = {
   contentType: string;
   size: number;
   sha256: string;
-  userId: string;
+  actorId: string;
   created: number;
 };
 
@@ -97,7 +97,7 @@ export type CommitInput = {
   commitId: string;
   baseVersion: number;
   ops: LineOp[];
-  userId: string;
+  actorId: string;
   now: number;
 };
 
@@ -116,7 +116,7 @@ export type RenameInput = {
   baseVersion: number;
   newTitle: string;
   rewriteLinks: boolean;
-  userId: string;
+  actorId: string;
   now: number;
 };
 
@@ -124,13 +124,13 @@ export type RenameResult =
   | { kind: 'applied'; version: number; rewritten: { pageId: string; title: string; version: number }[] }
   | { kind: 'conflict'; reason: 'version' | 'title'; page: PageSnapshot };
 
-export type ImportLine = { id: string; text: string; created: number; updated: number; userId: string };
+export type ImportLine = { id: string; text: string; created: number; updated: number; actorId: string };
 
 export type ImportPageInput = {
   projectId: string;
   page: { id: string; title: string; created: number; updated: number };
   lines: ImportLine[];
-  userId: string;
+  actorId: string;
   now: number;
   onConflict: 'skip' | 'overwrite';
   /** ページ確定まで暫定添付を保持する import 処理の識別子。 */
@@ -162,20 +162,17 @@ export interface Storage {
   listProjects(): Promise<Project[]>;
   /** インポート時にエクスポート元の displayName を反映する。 */
   setProjectDisplayName(projectId: string, displayName: string, now: number): Promise<void>;
-  /** name 一致の既存ユーザーがいればそれを優先し、実際に有効なユーザー ID を返す。 */
-  upsertDisplayUser(user: DisplayUser, now: number): Promise<string>;
-  listUsersForProject(projectId: string): Promise<DisplayUser[]>;
-  /**
-   * ログインユーザーを追加する。同名ユーザーが password_hash なしで存在する場合
-   * （インポートで作られた表示ユーザー）はパスワードを付与して昇格する（claimed）。
-   * password_hash ありの同名ユーザーが既にいれば StorageError。
-   */
-  addUser(user: NewUser, now: number): Promise<AddUserResult>;
-  getUserByName(name: string): Promise<AuthUser | null>;
-  getUserById(id: string): Promise<AuthUser | null>;
-  createApiToken(token: { id: string; userId: string; label: string; tokenHash: string; created: number }): Promise<void>;
-  getUserByApiTokenHash(tokenHash: string): Promise<AuthUser | null>;
-  listApiTokens(userId: string): Promise<ApiToken[]>;
+  /** Actor は未登録 ID だけ追加し、同名や ID 衝突を根拠に既存 identity を変更しない。 */
+  upsertActor(actor: Actor, now: number): Promise<string>;
+  getActorById(id: string): Promise<Actor | null>;
+  listActorsForProject(projectId: string): Promise<Actor[]>;
+  /** Account と、通常の web 編集で使用する専用 Actor を同時に追加する。 */
+  addAccount(account: NewAccount, now: number): Promise<AddAccountResult>;
+  getAccountByName(name: string): Promise<Account | null>;
+  getAccountById(id: string): Promise<Account | null>;
+  createApiToken(token: { id: string; accountId: string; label: string; tokenHash: string; created: number }): Promise<void>;
+  getAccountByApiTokenHash(tokenHash: string): Promise<Account | null>;
+  listApiTokens(accountId: string): Promise<ApiToken[]>;
   deleteApiToken(id: string): Promise<boolean>;
   createSession(session: Session): Promise<void>;
   /** 期限切れ（expires <= now）のセッションは削除して null を返す。 */
@@ -195,7 +192,7 @@ export interface Storage {
   reuseAttachmentBySha256(projectId: string, sha256: string, claimOwner?: string): Promise<Attachment | null>;
   getPageByTitle(projectId: string, titleLcValue: string): Promise<PageSnapshot | null>;
   getPageById(pageId: string): Promise<PageSnapshot | null>;
-  getPageAuthors(pageId: string): Promise<{ user: DisplayUser | null; lastUpdateUser: DisplayUser | null }>;
+  getPageAuthors(pageId: string): Promise<{ user: Actor | null; lastUpdateUser: Actor | null }>;
   listPages(projectId: string): Promise<PageMeta[]>;
   listPageSummaries(
     projectId: string,
@@ -218,15 +215,15 @@ export interface Storage {
   setPinned(pageId: string, pinned: boolean): Promise<void>;
   commit(input: CommitInput): Promise<CommitResult>;
   /** 全行 delete のコミットとしてページを削除する。不在・削除済みは BadCommitError */
-  deletePage(projectId: string, pageId: string, userId: string, now: number): Promise<{ version: number }>;
+  deletePage(projectId: string, pageId: string, actorId: string, now: number): Promise<{ version: number }>;
   /** タイトル変更 + 任意でリンク元書き換え。単一トランザクションで全部成功か全部失敗 */
   renamePage(input: RenameInput): Promise<RenameResult>;
   importPage(input: ImportPageInput): Promise<ImportPageResult>;
   search(projectId: string, query: SearchQuery): Promise<SearchHit[]>;
   reindex(projectId?: string): Promise<{ pages: number }>;
   /** 前回訪問を上書きする前に呼ぶこと。未訪問は null */
-  getVisit(userId: string, pageId: string): Promise<Visit | null>;
+  getVisit(accountId: string, pageId: string): Promise<Visit | null>;
   getPageVisitMetrics(pageId: string): Promise<PageVisitMetrics>;
-  recordVisit(userId: string, pageId: string, visitedAt: number, lastSeenVersion: number): Promise<void>;
+  recordVisit(accountId: string, pageId: string, visitedAt: number, lastSeenVersion: number): Promise<void>;
   close(): Promise<void>;
 }

@@ -15,7 +15,7 @@ async function seedProject(s: Awaited<ReturnType<typeof makeServer>>): Promise<s
     });
     await s.storage.commit({
       projectId: project.id, pageId: ulid(s.clock.t * 1000), commitId: ulid(s.clock.t * 1000),
-      baseVersion: 0, ops, userId: 'u', now: s.clock.t,
+      baseVersion: 0, ops, actorId: 'u', now: s.clock.t,
     });
     s.clock.t += 1;
   };
@@ -26,7 +26,7 @@ async function seedProject(s: Awaited<ReturnType<typeof makeServer>>): Promise<s
 
 void test('GET /api/pages/:project が Cosense 形状で返す', async () => {
   const s = await makeServer();
-  await s.addUser('alice', 'pw12345678');
+  await s.addAccount('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
   const projectId = await seedProject(s);
   const alphaId = (await s.storage.getPageByTitle(projectId, 'alpha'))!.id;
@@ -58,7 +58,7 @@ void test('GET /api/pages/:project が Cosense 形状で返す', async () => {
 
 void test('skip / limit / sort パラメータ', async () => {
   const s = await makeServer();
-  await s.addUser('alice', 'pw12345678');
+  await s.addAccount('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
   const projectId = await seedProject(s);
   const alphaId = (await s.storage.getPageByTitle(projectId, 'alpha'))!.id;
@@ -83,7 +83,7 @@ void test('skip / limit / sort パラメータ', async () => {
 
 void test('text と icon', async () => {
   const s = await makeServer();
-  await s.addUser('alice', 'pw12345678');
+  await s.addAccount('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
   await seedProject(s);
   const text = await s.request('/api/pages/proj/Alpha/text', {}, cookie);
@@ -99,13 +99,13 @@ void test('text と icon', async () => {
 
 void test('タイトルの percent-encoding が解決される', async () => {
   const s = await makeServer();
-  await s.addUser('alice', 'pw12345678');
+  await s.addAccount('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
   const project = await s.storage.ensureProject('proj', s.clock.t);
   const id = ulid(s.clock.t * 1000);
   await s.storage.commit({
     projectId: project.id, pageId: ulid(s.clock.t * 1000), commitId: ulid(s.clock.t * 1000), baseVersion: 0,
-    ops: [{ type: 'insert', id, after: '_head', text: 'A/B?C' }], userId: 'u', now: s.clock.t,
+    ops: [{ type: 'insert', id, after: '_head', text: 'A/B?C' }], actorId: 'u', now: s.clock.t,
   });
   const res = await s.request(`/api/pages/proj/${encodeURIComponent('A/B?C')}/text`, {}, cookie);
   assert.equal(res.status, 200);
@@ -116,7 +116,7 @@ void test('タイトルの percent-encoding が解決される', async () => {
 
 void test('GET /api/pages/:project/ （末尾スラッシュ）も同じ一覧を返す', async () => {
   const s = await makeServer();
-  await s.addUser('alice', 'pw12345678');
+  await s.addAccount('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
   await seedProject(s);
   const [plain, slashed] = await Promise.all([

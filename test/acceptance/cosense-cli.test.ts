@@ -56,20 +56,24 @@ void test(
 
     // seed: プロジェクト・ユーザー・ページ
     const project = await storage.ensureProject('sandbox', at);
-    // seedPage はコミット userId 'u' を使う。実運用同様に user が解決できるよう表示ユーザーを登録する
-    await storage.upsertDisplayUser({ id: 'u', name: 'editor', displayName: 'Editor' }, at);
+    // seedPage は互換形式の userId 'u' を Actor ID として使うため、表示用 Actor を登録する。
+    await storage.upsertActor({ id: 'u', name: 'editor', displayName: 'Editor' }, at);
     await seedPage(storage, project.id, 'Alpha', ['hello from alpha', 'second line'], at);
     await seedPage(storage, project.id, 'Bravo', ['bravo body text'], at + 1);
     await seedPage(storage, project.id, 'SearchTarget', ['this page contains clifulltextprobe here'], at + 2);
 
     // PAT を仕込む
-    const userId = ulid(at * 1000);
-    await storage.addUser(
-      { id: userId, name: 'alice', displayName: 'alice', passwordHash: hashPassword('pw12345678'), isAdmin: false },
+    const accountId = ulid(at * 1000);
+    await storage.addAccount(
+      {
+        id: accountId,
+        actor: { id: ulid(at * 1000), name: 'alice', displayName: 'alice' },
+        name: 'alice', passwordHash: hashPassword('pw12345678'), isAdmin: false,
+      },
       at,
     );
     const { token, tokenHash } = generateApiToken();
-    await storage.createApiToken({ id: ulid(at * 1000), userId, label: 'cli', tokenHash, created: at });
+    await storage.createApiToken({ id: ulid(at * 1000), accountId, label: 'cli', tokenHash, created: at });
 
     // HTTP（TLS 不要）で実 listener を起動。この CLI は http origin を受け付ける
       const listener = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: 0 });

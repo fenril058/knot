@@ -74,7 +74,7 @@ void test('HTTP 応答を返さないサーバでも要求は期限内に失敗�
 void test('knot serve が起動し、未認証 401 → ログイン → ページ作成まで通る', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'knot-serve-'));
   execFileSync(process.execPath, [mainPath, 'init', '--data', dir]);
-  execFileSync(process.execPath, [mainPath, 'user', 'add', '--data', dir, '--name', 'alice'], {
+  execFileSync(process.execPath, [mainPath, 'account', 'add', '--data', dir, '--name', 'alice'], {
     input: 'pw12345678',
   });
   const child = spawn(process.execPath, [mainPath, 'serve', '--data', dir, '--port', '0'], { stdio: 'pipe' });

@@ -84,9 +84,10 @@ export function createApp(deps: AppDeps): Hono<ApiEnv> {
     if (requestClass === 'public') return next();
     const apiToken = requestClass === 'api' ? c.req.header('x-personal-access-token') : undefined;
     if (apiToken !== undefined) {
-      const user = await storage.getUserByApiTokenHash(hashApiToken(apiToken));
-      if (user === null) return jsonError(c, 401, 'unauthorized');
-      c.set('userId', user.id);
+      const account = await storage.getAccountByApiTokenHash(hashApiToken(apiToken));
+      if (account === null) return jsonError(c, 401, 'unauthorized');
+      c.set('accountId', account.id);
+      c.set('actorId', account.actorId);
       return next();
     }
     const sid = getCookie(c, SESSION_COOKIE);
@@ -101,7 +102,10 @@ export function createApp(deps: AppDeps): Hono<ApiEnv> {
       await storage.refreshSession(session.id, now() + config.sessionTtlSeconds);
       setSessionCookie(c, session.id);
     }
-    c.set('userId', session.userId);
+    const account = await storage.getAccountById(session.accountId);
+    if (account === null) return jsonError(c, 401, 'unauthorized');
+    c.set('accountId', account.id);
+    c.set('actorId', account.actorId);
     return next();
   });
 
@@ -120,19 +124,21 @@ export function createApp(deps: AppDeps): Hono<ApiEnv> {
     if (!loginLimiter.allow(`${clientIp(c)}:${body.name}`, now())) {
       return jsonError(c, 429, 'too_many_attempts');
     }
-    const user = await storage.getUserByName(body.name);
-    if (!user || user.passwordHash === null || !verifyPassword(body.password, user.passwordHash)) {
+    const account = await storage.getAccountByName(body.name);
+    if (!account || account.passwordHash === null || !verifyPassword(body.password, account.passwordHash)) {
       return jsonError(c, 401, 'invalid_credentials');
     }
     const session = {
       id: randomBytes(16).toString('hex'),
-      userId: user.id,
+      accountId: account.id,
       expires: now() + config.sessionTtlSeconds,
       created: now(),
     };
     await storage.createSession(session);
     setSessionCookie(c, session.id);
-    return c.json({ id: user.id, name: user.name, displayName: user.displayName, isAdmin: user.isAdmin });
+    const actor = await storage.getActorById(account.actorId);
+    if (actor === null) throw new Error(`account ${account.id} has no actor`);
+    return c.json({ id: account.id, name: account.name, displayName: actor.displayName, isAdmin: account.isAdmin });
   });
 
   app.delete('/api/knot/session', async (c) => {

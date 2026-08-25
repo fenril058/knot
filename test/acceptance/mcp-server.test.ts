@@ -58,17 +58,21 @@ void test('scrapbox-cosense-mcp が knot に対して list_pages / get_page / se
 
   // seed: プロジェクト・ページ・ユーザー・セッション
   const project = await storage.ensureProject('sandbox', t);
-  // seedPage はコミット userId 'u' を使う。実運用同様に user が解決できるよう表示ユーザーを登録する
-  await storage.upsertDisplayUser({ id: 'u', name: 'editor', displayName: 'Editor' }, t);
+  // seedPage は互換形式の userId 'u' を Actor ID として使うため、表示用 Actor を登録する。
+  await storage.upsertActor({ id: 'u', name: 'editor', displayName: 'Editor' }, t);
   await seedPage(storage, project.id, 'Alpha', ['hello from alpha', 'second line'], t);
   await seedPage(storage, project.id, 'SearchTarget', ['this page contains mcpaccepttoken here'], t + 1);
-  const userId = ulid(t * 1000);
-  await storage.addUser(
-    { id: userId, name: 'alice', displayName: 'alice', passwordHash: hashPassword('pw12345678'), isAdmin: false },
+  const accountId = ulid(t * 1000);
+  await storage.addAccount(
+    {
+      id: accountId,
+      actor: { id: ulid(t * 1000), name: 'alice', displayName: 'alice' },
+      name: 'alice', passwordHash: hashPassword('pw12345678'), isAdmin: false,
+    },
     t,
   );
   const sid = randomBytes(16).toString('hex');
-  await storage.createSession({ id: sid, userId, expires: t + 30 * 24 * 60 * 60, created: t });
+  await storage.createSession({ id: sid, accountId, expires: t + 30 * 24 * 60 * 60, created: t });
 
   // HTTPS で実 listener を起動（port 0 → 実ポートを取得）
     const listener = serve({

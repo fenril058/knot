@@ -36,7 +36,7 @@ type UrlOccurrence = { sourceUrl: string; from: number; to: number };
 export type AttachmentImportContext = {
   storage: Storage;
   projectId: string;
-  userId: string;
+  actorId: string;
   now: number;
   options: AttachmentImportOptions;
   cache: Map<string, CachedAttachment>;
@@ -212,7 +212,7 @@ async function importOne(sourceUrl: string, context: AttachmentImportContext): P
     filename,
     contentType: fetched.type,
     bytes: fetched.bytes,
-    userId: context.userId,
+    actorId: context.actorId,
     now: context.now,
     replaceGenericMetadata: true,
     claimOwner: context.claimOwner,

@@ -26,7 +26,7 @@ void test('最初のコミットでページが作られ version 1 になる', a
     commitId: 'c1',
     baseVersion: 0,
     ops: [{ type: 'insert', id: 'l1', after: '_head', text: 'タイトル' }],
-    userId: 'u1',
+    actorId: 'u1',
     now: 2000,
   });
   assert.deepEqual(r, { kind: 'applied', version: 1 });
@@ -44,7 +44,7 @@ void test('逐次コミットで version が増え、行順と ord が ops 適�
   await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c1', baseVersion: 0,
     ops: [{ type: 'insert', id: 'l1', after: '_head', text: 'T' }],
-    userId: 'u1', now: 2000,
+    actorId: 'u1', now: 2000,
   });
   const r = await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c2', baseVersion: 1,
@@ -52,7 +52,7 @@ void test('逐次コミットで version が増え、行順と ord が ops 適�
       { type: 'insert', id: 'l2', after: 'l1', text: 'a' },
       { type: 'insert', id: 'l3', after: 'l2', text: 'b' },
     ],
-    userId: 'u2', now: 3000,
+    actorId: 'u2', now: 3000,
   });
   assert.deepEqual(r, { kind: 'applied', version: 2 });
   const page = await storage.getPageByTitle(project.id, 't');
@@ -71,12 +71,12 @@ void test('先頭行の変更はタイトル変更になり title_history に残
   await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c1', baseVersion: 0,
     ops: [{ type: 'insert', id: 'l1', after: '_head', text: 'Old Title' }],
-    userId: 'u1', now: 2000,
+    actorId: 'u1', now: 2000,
   });
   await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c2', baseVersion: 1,
     ops: [{ type: 'update', id: 'l1', text: 'New Title' }],
-    userId: 'u1', now: 3000,
+    actorId: 'u1', now: 3000,
   });
   assert.equal(await storage.getPageByTitle(project.id, 'old_title'), null);
   const page = await storage.getPageByTitle(project.id, 'new_title');
@@ -98,12 +98,12 @@ void test('_head への insert による先頭行の入れ替えもタイトル�
   await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c1', baseVersion: 0,
     ops: [{ type: 'insert', id: 'l1', after: '_head', text: 'A' }],
-    userId: 'u1', now: 2000,
+    actorId: 'u1', now: 2000,
   });
   await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c2', baseVersion: 1,
     ops: [{ type: 'insert', id: 'l0', after: '_head', text: 'B' }],
-    userId: 'u1', now: 3000,
+    actorId: 'u1', now: 3000,
   });
   const page = await storage.getPageByTitle(project.id, 'b');
   assert.ok(page);
@@ -116,12 +116,12 @@ void test('全行 delete でページが削除され、commits は残る', async
   await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c1', baseVersion: 0,
     ops: [{ type: 'insert', id: 'l1', after: '_head', text: 'T' }],
-    userId: 'u1', now: 2000,
+    actorId: 'u1', now: 2000,
   });
   const r = await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c2', baseVersion: 1,
     ops: [{ type: 'delete', id: 'l1' }],
-    userId: 'u1', now: 3000,
+    actorId: 'u1', now: 3000,
   });
   assert.deepEqual(r, { kind: 'applied', version: 2 });
   assert.equal(await storage.getPageByTitle(project.id, 't'), null);
@@ -142,12 +142,12 @@ void test('baseVersion 不一致は conflict と最新スナップショット�
   await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c1', baseVersion: 0,
     ops: [{ type: 'insert', id: 'l1', after: '_head', text: 'T' }],
-    userId: 'u1', now: 2000,
+    actorId: 'u1', now: 2000,
   });
   const r = await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c2', baseVersion: 0,
     ops: [{ type: 'insert', id: 'l2', after: 'l1', text: 'x' }],
-    userId: 'u2', now: 3000,
+    actorId: 'u2', now: 3000,
   });
   assert.equal(r.kind, 'conflict');
   if (r.kind !== 'conflict') return;
@@ -162,7 +162,7 @@ void test('タイトルの一意制約違反はコミット全体が conflict �
   await storage.commit({
     projectId: project.id, pageId: 'pgA', commitId: 'c1', baseVersion: 0,
     ops: [{ type: 'insert', id: 'a1', after: '_head', text: 'Foo' }],
-    userId: 'u1', now: 2000,
+    actorId: 'u1', now: 2000,
   });
   await storage.commit({
     projectId: project.id, pageId: 'pgB', commitId: 'c2', baseVersion: 0,
@@ -170,13 +170,13 @@ void test('タイトルの一意制約違反はコミット全体が conflict �
       { type: 'insert', id: 'b1', after: '_head', text: 'Bar' },
       { type: 'insert', id: 'b2', after: 'b1', text: 'body' },
     ],
-    userId: 'u1', now: 3000,
+    actorId: 'u1', now: 3000,
   });
   // 先頭行を 'foo' に変えると pgA と title_lc が衝突する
   const r = await storage.commit({
     projectId: project.id, pageId: 'pgB', commitId: 'c3', baseVersion: 1,
     ops: [{ type: 'update', id: 'b1', text: 'foo' }],
-    userId: 'u1', now: 4000,
+    actorId: 'u1', now: 4000,
   });
   assert.equal(r.kind, 'conflict');
   if (r.kind !== 'conflict') return;
@@ -191,7 +191,7 @@ void test('タイトルの一意制約違反はコミット全体が conflict �
   const r2 = await storage.commit({
     projectId: project.id, pageId: 'pgC', commitId: 'c4', baseVersion: 0,
     ops: [{ type: 'insert', id: 'c1x', after: '_head', text: 'FOO' }],
-    userId: 'u1', now: 5000,
+    actorId: 'u1', now: 5000,
   });
   assert.equal(r2.kind, 'conflict');
   await storage.close();
@@ -202,7 +202,7 @@ void test('不正 ops は BadCommitError で、コミット全体がロールバ
   await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c1', baseVersion: 0,
     ops: [{ type: 'insert', id: 'l1', after: '_head', text: 'T' }],
-    userId: 'u1', now: 2000,
+    actorId: 'u1', now: 2000,
   });
   await assert.rejects(
     storage.commit({
@@ -211,7 +211,7 @@ void test('不正 ops は BadCommitError で、コミット全体がロールバ
         { type: 'update', id: 'l1', text: 'changed' },
         { type: 'delete', id: 'missing' },
       ],
-      userId: 'u1', now: 3000,
+      actorId: 'u1', now: 3000,
     }),
     BadCommitError,
   );
@@ -223,7 +223,7 @@ void test('不正 ops は BadCommitError で、コミット全体がロールバ
   await assert.rejects(
     storage.commit({
       projectId: project.id, pageId: 'pg1', commitId: 'c3', baseVersion: 1,
-      ops: [], userId: 'u1', now: 3000,
+      ops: [], actorId: 'u1', now: 3000,
     }),
     BadCommitError,
   );
@@ -235,32 +235,32 @@ void test('存在しないページ・別プロジェクトのページ・削除
   await assert.rejects(
     storage.commit({
       projectId: project.id, pageId: 'nope', commitId: 'c1', baseVersion: 5,
-      ops: [{ type: 'update', id: 'l1', text: 'x' }], userId: 'u1', now: 2000,
+      ops: [{ type: 'update', id: 'l1', text: 'x' }], actorId: 'u1', now: 2000,
     }),
     BadCommitError,
   );
   await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c2', baseVersion: 0,
     ops: [{ type: 'insert', id: 'l1', after: '_head', text: 'T' }],
-    userId: 'u1', now: 2000,
+    actorId: 'u1', now: 2000,
   });
   const other = await storage.ensureProject('other', 1000);
   await assert.rejects(
     storage.commit({
       projectId: other.id, pageId: 'pg1', commitId: 'c3', baseVersion: 1,
-      ops: [{ type: 'update', id: 'l1', text: 'x' }], userId: 'u1', now: 3000,
+      ops: [{ type: 'update', id: 'l1', text: 'x' }], actorId: 'u1', now: 3000,
     }),
     BadCommitError,
   );
   await storage.commit({
     projectId: project.id, pageId: 'pg1', commitId: 'c4', baseVersion: 1,
-    ops: [{ type: 'delete', id: 'l1' }], userId: 'u1', now: 4000,
+    ops: [{ type: 'delete', id: 'l1' }], actorId: 'u1', now: 4000,
   });
   await assert.rejects(
     storage.commit({
       projectId: project.id, pageId: 'pg1', commitId: 'c5', baseVersion: 2,
       ops: [{ type: 'insert', id: 'l2', after: '_head', text: 'again' }],
-      userId: 'u1', now: 5000,
+      actorId: 'u1', now: 5000,
     }),
     BadCommitError,
   );
@@ -276,7 +276,7 @@ void test('新規作成コミットの結果が空になるのは BadCommitError
         { type: 'insert', id: 'x1', after: '_head', text: 'T' },
         { type: 'delete', id: 'x1' },
       ],
-      userId: 'u1', now: 2000,
+      actorId: 'u1', now: 2000,
     }),
     BadCommitError,
   );

@@ -54,13 +54,13 @@ Cosense の添付配信に使われる `storage.googleapis.com/scrapbox-file-dis
 取得に失敗した URL は本文にそのまま残り、import 応答の `attachments.failed` に件数が入ります。
 認証が必要な private プロジェクトの添付取得には対応していません。
 
-## 2. ユーザーとトークン
+## 2. Account とトークン
 
-ユーザーのパスワードは標準入力から渡します。
-ユーザー名には英小文字、数字、アンダースコア、ハイフンを使用でき、パスワードは 8 文字以上必要です。
+Account のパスワードは標準入力から渡します。
+Account 名には英小文字、数字、アンダースコア、ハイフンを使用でき、パスワードは 8 文字以上必要です。
 
 ```sh
-printf '%s' '十分に長いパスワード' | knot user add \
+printf '%s' '十分に長いパスワード' | knot account add \
   --data /srv/knot --name alice --display-name 'Alice' --admin
 ```
 
@@ -68,8 +68,8 @@ printf '%s' '十分に長いパスワード' | knot user add \
 個人アクセストークン（PAT）は次のコマンドで発行、一覧表示、失効します。
 
 ```sh
-knot token add --data /srv/knot --user alice --label cosense-cli
-knot token list --data /srv/knot --user alice
+knot token add --data /srv/knot --account alice --label cosense-cli
+knot token list --data /srv/knot --account alice
 knot token revoke --data /srv/knot --id <id>
 ```
 
@@ -245,14 +245,14 @@ knot 全体の復元には `knot backup` を使います。
 
 ## 8. Docker 運用
 
-named volume を作成し、初期化、ユーザー作成、サーバ起動の順に実行します。
+named volume を作成し、初期化、Account 作成、サーバ起動の順に実行します。
 
 ```sh
 docker build -t knot:latest .
 docker volume create knot-data
 docker run --rm -v knot-data:/data knot:latest init --data /data
 printf '%s' '十分に長いパスワード' | docker run --rm -i \
-  -v knot-data:/data knot:latest user add --data /data --name alice --admin
+  -v knot-data:/data knot:latest account add --data /data --name alice --admin
 docker run -d --name knot --restart unless-stopped \
   -p 127.0.0.1:3000:3000 -v knot-data:/data knot:latest
 ```

@@ -42,11 +42,11 @@ async function populatedData(root: string): Promise<{ dataDir: string; attachmen
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const project = db.prepare('SELECT id FROM projects WHERE name = ?').get('sandbox') as { id: string };
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-    const user = db.prepare('SELECT id FROM users ORDER BY id LIMIT 1').get() as { id: string };
+    const actor = db.prepare('SELECT id FROM actors ORDER BY id LIMIT 1').get() as { id: string };
     db.prepare(
-      `INSERT INTO attachments (id, project_id, filename, content_type, size, sha256, user_id, created)
+      `INSERT INTO attachments (id, project_id, filename, content_type, size, sha256, actor_id, created)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(attachmentId, project.id, 'note.txt', 'text/plain', contents.length, 'test-sha256', user.id, 1_751_000_000);
+    ).run(attachmentId, project.id, 'note.txt', 'text/plain', contents.length, 'test-sha256', actor.id, 1_751_000_000);
   } finally {
     db.close();
   }
@@ -63,8 +63,12 @@ void test('backup からページと添付を復元して配信できる', async
 
   const storage = new SqliteStorage(openDatabase(join(outDir, 'knot.db')));
   t.after(() => storage.close());
-  await storage.addUser(
-    { id: '01BACKUPLOGINUSER000000000', name: 'backup-user', displayName: 'Backup User', passwordHash: hashPassword('pw12345678'), isAdmin: true },
+  await storage.addAccount(
+    {
+      id: '01BACKUPLOGINACCOUNT000000',
+      actor: { id: '01BACKUPLOGINACTOR00000000', name: 'backup-user', displayName: 'Backup User' },
+      name: 'backup-user', passwordHash: hashPassword('pw12345678'), isAdmin: true,
+    },
     1_751_000_001,
   );
   const app = createApp({ storage, config: { ...defaultConfig(outDir), secureCookie: false } });

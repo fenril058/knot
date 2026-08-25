@@ -6,7 +6,7 @@ import { seedPage } from '../helpers/pages.ts';
 
 async function setup() {
   const s = await makeServer();
-  const userId = await s.addUser('alice', 'pw12345678');
+  const account = await s.addAccount('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
   await s.storage.ensureProject('proj', s.clock.t);
   const post = (title: string, body: unknown) =>
@@ -15,11 +15,11 @@ async function setup() {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     }, cookie);
-  return { s, cookie, userId, post };
+  return { s, cookie, account, post };
 }
 
 void test('新規作成 → 編集 → 冪等な再送', async () => {
-  const { s, post, userId } = await setup();
+  const { s, post, account } = await setup();
   const l1 = ulid();
   const create = await post('New Page', {
     commitId: ulid(), baseVersion: 0,
@@ -39,10 +39,14 @@ void test('新規作成 → 編集 → 冪等な再送', async () => {
   assert.equal(resend.status, 200);
   assert.deepEqual(await resend.json(), { version: 2, pageId: created.pageId }); // 冪等: 最初の version
 
-  // 行の userId はセッションユーザー
+  // 行の userId はセッション Account に関連づいた Actor
   const project = await s.storage.getProject('proj');
   const page = await s.storage.getPageByTitle(project!.id, 'new_page!');
-  assert.equal(page!.lines[0]!.userId, userId);
+  assert.equal(page!.lines[0]!.userId, account.actorId);
+  assert.deepEqual(await s.storage.getPageAuthors(page!.id), {
+    user: { id: account.actorId, name: 'alice', displayName: 'alice' },
+    lastUpdateUser: { id: account.actorId, name: 'alice', displayName: 'alice' },
+  });
 });
 
 void test('baseVersion 不一致は 409 reason version で最新状態を返す', async () => {

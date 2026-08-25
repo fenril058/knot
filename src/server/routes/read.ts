@@ -163,7 +163,7 @@ export function registerReadRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
   app.get('/api/projects/:project/users', async (c) => {
     const project = await resolveProject(storage, c);
     if (!project) return jsonError(c, 404, 'not_found');
-    const users = await storage.listUsersForProject(project.id);
+    const users = await storage.listActorsForProject(project.id);
     return c.json({ projectName: project.name, users });
   });
 

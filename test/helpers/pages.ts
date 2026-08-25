@@ -17,6 +17,6 @@ export async function seedPage(
     after = id;
     return op;
   });
-  await storage.commit({ projectId, pageId, commitId: ulid(at * 1000), baseVersion: 0, ops, userId: 'u', now: at });
+  await storage.commit({ projectId, pageId, commitId: ulid(at * 1000), baseVersion: 0, ops, actorId: 'u', now: at });
   return pageId;
 }
