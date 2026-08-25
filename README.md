@@ -23,7 +23,7 @@ direnv exec . npm run watch:client  # バンドルの watch
 ## 起動（クイックスタート）
 
 CLI は `node src/cli/main.ts` で呼ぶ（`knot <command>` と読み替える）。
-初回はデータディレクトリの初期化とユーザー作成が必要。
+初回はデータディレクトリの初期化と Account 作成が必要。
 
 ```sh
 direnv exec . npm run build:client
@@ -31,8 +31,8 @@ direnv exec . npm run build:client
 # 1. データディレクトリを初期化（./data は gitignore 済み）
 direnv exec . node src/cli/main.ts init --data ./data
 
-# 2. ユーザーを作成（パスワードは標準入力から読む）
-echo -n 'パスワード' | direnv exec . node src/cli/main.ts user add --data ./data --name ril
+# 2. Account を作成（パスワードは標準入力から読む）
+echo -n 'パスワード' | direnv exec . node src/cli/main.ts account add --data ./data --name ril
 
 # 3. サーバ起動（既定 http://127.0.0.1:3000）
 direnv exec . node src/cli/main.ts serve --data ./data

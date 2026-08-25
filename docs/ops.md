@@ -245,14 +245,14 @@ knot 全体の復元には `knot backup` を使います。
 
 ## 8. Docker 運用
 
-named volume を作成し、初期化、ユーザー作成、サーバ起動の順に実行します。
+named volume を作成し、初期化、Account 作成、サーバ起動の順に実行します。
 
 ```sh
 docker build -t knot:latest .
 docker volume create knot-data
 docker run --rm -v knot-data:/data knot:latest init --data /data
 printf '%s' '十分に長いパスワード' | docker run --rm -i \
-  -v knot-data:/data knot:latest user add --data /data --name alice --admin
+  -v knot-data:/data knot:latest account add --data /data --name alice --admin
 docker run -d --name knot --restart unless-stopped \
   -p 127.0.0.1:3000:3000 -v knot-data:/data knot:latest
 ```

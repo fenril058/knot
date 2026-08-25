@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # knot Docker イメージのスモークテスト（plan-06 Task 9/10 の単一ソース。CI からもこのまま実行する）。
-# build → init → user add → secureCookie: false 設定 → 起動待機 → 401 →
+# build → init → account add → secureCookie: false 設定 → 起動待機 → 401 →
 # ログイン 200 → 再起動後の volume 書き込み 200 → cleanup。
 set -euo pipefail
 
@@ -22,7 +22,7 @@ trap cleanup EXIT
 docker build -t "$IMAGE" .
 docker volume create "$VOLUME" >/dev/null
 docker run --rm -v "$VOLUME":/data "$IMAGE" init --data /data
-echo -n 'pw12345678' | docker run --rm -i -v "$VOLUME":/data "$IMAGE" user add --data /data --name alice
+echo -n 'pw12345678' | docker run --rm -i -v "$VOLUME":/data "$IMAGE" account add --data /data --name alice
 # 既定 CMD は --hostname 0.0.0.0 で secureCookie: auto が true に解決されるため、
 # HTTP のスモークでは Secure cookie を再送できない。テスト専用に無効化する
 # （本番はリバースプロキシの HTTPS 終端配下で auto のまま使う。docs/ops.md 参照）。
