@@ -13,6 +13,13 @@ async function replaceEditorDocument(target: Page, texts: string[]): Promise<voi
   await target.keyboard.insertText(texts.join('\n'));
 }
 
+async function replaceEditorLine(target: Page, index: number, text: string): Promise<void> {
+  await target.locator('#editor-root .cm-line').nth(index).click();
+  await target.keyboard.press('Home');
+  await target.keyboard.press('Shift+End');
+  await target.keyboard.insertText(text);
+}
+
 // 設計書「エディタのスモークテスト」: 開く、編集する、自動保存される、再読み込みで内容が残る。
 // あわせて全画面で CSP violation が 0 件であることを監視する（style-src nonce 方式の回帰検知）。
 test('エディタで書いて自動保存され、再読み込みで内容が残る', async ({ page }) => {
@@ -106,7 +113,7 @@ test('400 で保存を拒否された後も追加入力して保存できる', a
   await expect(page.locator('.page-body')).toContainText('rejected text corrected');
 });
 
-test('同一行の並行編集は自動上書きせず、手元の内容を明示的に保存できる', async ({ page }) => {
+test('同一行の並行編集はリモート変更を undo せず、手元の内容を明示的に保存できる', async ({ page }) => {
   const login = await page.request.post('/api/knot/session', {
     headers: { 'X-Knot-Client': 'e2e' },
     data: { name: 'e2e', password: 'e2e-password' },
@@ -121,7 +128,8 @@ test('同一行の並行編集は自動上書きせず、手元の内容を明�
       baseVersion: 0,
       ops: [
         { type: 'insert', id: 'same-line-title', after: '_head', text: title },
-        { type: 'insert', id: 'same-line-body', after: 'same-line-title', text: 'base' },
+        { type: 'insert', id: 'same-line-remote', after: 'same-line-title', text: 'remote base' },
+        { type: 'insert', id: 'same-line-body', after: 'same-line-remote', text: 'base' },
       ],
     },
   });
@@ -134,10 +142,10 @@ test('同一行の並行編集は自動上書きせず、手元の内容を明�
     other.locator('#edit-page-button').click(),
   ]);
 
-  await replaceEditorDocument(page, [title, 'server change']);
+  await replaceEditorDocument(page, [title, 'remote updated', 'server change']);
   await expect(page.locator('#save-status')).toHaveText('保存済み');
 
-  await replaceEditorDocument(other, [title, 'local change']);
+  await replaceEditorLine(other, 2, 'local change');
   await expect(other.locator('#edit-conflict')).toBeVisible();
   await expect(other.locator('#save-status')).toContainText('自動保存を停止しました');
   await expect(other.locator('#edit-conflict')).toContainText('base');
@@ -145,10 +153,17 @@ test('同一行の並行編集は自動上書きせず、手元の内容を明�
   await expect(other.locator('#edit-conflict')).toContainText('server change');
   await expect(other.locator('#editor-root .cm-content')).toContainText('local change');
 
-  const beforeResolution = await other.request.get(`/api/pages/e2e/${title}`);
-  expect((await beforeResolution.json()).lines[1].text).toBe('server change');
+  await other.keyboard.press('Control+z');
+  await expect(other.locator('#editor-root .cm-line')).toHaveText([title, 'remote updated', 'base']);
 
-  await replaceEditorDocument(other, [title, 'edited during conflict']);
+  const beforeResolution = await other.request.get(`/api/pages/e2e/${title}`);
+  expect((await beforeResolution.json()).lines.map((line: { text: string }) => line.text)).toEqual([
+    title,
+    'remote updated',
+    'server change',
+  ]);
+
+  await replaceEditorLine(other, 2, 'edited during conflict');
   await other.reload();
   await other.locator('#edit-page-button').click();
   await expect(other.locator('#edit-conflict')).toBeVisible();
@@ -159,7 +174,11 @@ test('同一行の並行編集は自動上書きせず、手元の内容を明�
   await expect(other.locator('#edit-conflict')).toBeHidden();
 
   const resolved = await other.request.get(`/api/pages/e2e/${title}`);
-  expect((await resolved.json()).lines[1].text).toBe('edited during conflict');
+  expect((await resolved.json()).lines.map((line: { text: string }) => line.text)).toEqual([
+    title,
+    'remote updated',
+    'edited during conflict',
+  ]);
   await other.close();
 });
 
