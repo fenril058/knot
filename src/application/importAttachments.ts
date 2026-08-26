@@ -1,7 +1,7 @@
 import { basename } from 'node:path';
 import { parsePageSyntax, type SyntaxNode } from '../core/syntax.ts';
-import { attachmentUrl, storeAttachment } from './attachmentFiles.ts';
-import type { ImportLine, Storage } from './types.ts';
+import { attachmentUrl, storeAttachment } from './attachments.ts';
+import type { AttachmentRepository, ImportLine } from '../storage/types.ts';
 
 const COSENSE_FILES_ORIGIN = 'https://scrapbox.io';
 const COSENSE_FILES_REDIRECT_ORIGIN = 'https://storage.googleapis.com';
@@ -34,7 +34,7 @@ type CachedAttachment = { localUrl: string } | { localUrl: null };
 type UrlOccurrence = { sourceUrl: string; from: number; to: number };
 
 export type AttachmentImportContext = {
-  storage: Storage;
+  storage: AttachmentRepository;
   projectId: string;
   actorId: string;
   now: number;

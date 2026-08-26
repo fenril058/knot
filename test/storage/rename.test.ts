@@ -57,6 +57,35 @@ void test('新タイトルの占有は conflict で全体が失敗する（リ�
   assert.equal(src!.lines[1]!.text, '[Old]');
 });
 
+void test('逆リンクの永続化失敗時はタイトル変更を含めて SQLite transaction を rollback する', async () => {
+  const { db, storage } = makeStorage();
+  const project = await storage.ensureProject('proj', now);
+  const targetId = await seedPage(storage, project.id, 'Old', ['x'], now);
+  const sourceId = await seedPage(storage, project.id, 'Source', ['[Old]'], now + 1);
+  db.exec(`
+    CREATE TRIGGER fail_source_rewrite BEFORE UPDATE ON pages
+    WHEN OLD.id = '${sourceId}' AND NEW.version > OLD.version
+    BEGIN
+      SELECT RAISE(ABORT, 'source persistence failed');
+    END
+  `);
+
+  await assert.rejects(storage.renamePage({
+    projectId: project.id,
+    pageId: targetId,
+    baseVersion: 1,
+    newTitle: 'New',
+    rewriteLinks: true,
+    actorId: 'u',
+    now: now + 10,
+  }), /source persistence failed/);
+
+  assert.equal((await storage.getPageById(targetId))?.title, 'Old');
+  assert.equal((await storage.getPageById(targetId))?.version, 1);
+  assert.equal((await storage.getPageById(sourceId))?.lines[1]?.text, '[Old]');
+  assert.equal((await storage.getPageById(sourceId))?.version, 1);
+});
+
 void test('大文字小文字だけの変更（同じ lc）は衝突しない', async () => {
   const { storage } = makeStorage();
   const project = await storage.ensureProject('proj', now);

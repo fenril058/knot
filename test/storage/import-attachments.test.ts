@@ -4,8 +4,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { renderLines } from '../../src/render/render.ts';
-import { importCosense } from '../../src/storage/import.ts';
-import { releaseAttachmentClaims, storeAttachment } from '../../src/storage/attachmentFiles.ts';
+import { importCosense } from '../../src/application/importCosense.ts';
+import { releaseAttachmentClaims, storeAttachment } from '../../src/application/attachments.ts';
 import { StorageError } from '../../src/storage/types.ts';
 import { makeStorage } from '../helpers/storage.ts';
 
@@ -396,15 +396,15 @@ void test('同一 SHA-256 の作成競合後も画像用の MIME type とファ�
   const { storage } = makeStorage();
   const root = mkdtempSync(join(tmpdir(), 'knot-import-files-'));
   const filesDir = join(root, 'files');
-  const createAttachment = storage.createAttachment.bind(storage);
-  storage.createAttachment = async (attachment) => {
+  const createAttachment = storage.tryCreateAttachment.bind(storage);
+  storage.tryCreateAttachment = async (attachment) => {
     await createAttachment({
       ...attachment,
       id: '01K742SG0009ED8TWDRA2BHH36',
       filename: 'blob',
       contentType: 'application/octet-stream',
     });
-    await createAttachment(attachment);
+    return createAttachment(attachment);
   };
   try {
     const sourceUrl = 'https://scrapbox.io/files/raced#.png';
@@ -442,21 +442,20 @@ void test('SHA-256 作成競合の勝者が消えても作成を再試行する'
   const root = mkdtempSync(join(tmpdir(), 'knot-import-files-'));
   const filesDir = join(root, 'files');
   const project = await storage.ensureProject('sandbox', 1_760_000_000);
-  const createAttachment = storage.createAttachment.bind(storage);
+  const createAttachment = storage.tryCreateAttachment.bind(storage);
   const releaseClaims = storage.releaseAttachmentClaims.bind(storage);
   let first = true;
-  storage.createAttachment = async (attachment, claimOwner) => {
+  storage.tryCreateAttachment = async (attachment, claimOwner) => {
     if (first) {
       first = false;
       await createAttachment({ ...attachment, id: '01K742SG0009ED8TWDRA2BHH37' }, 'winner');
       try {
-        await createAttachment(attachment, claimOwner);
+        return await createAttachment(attachment, claimOwner);
       } finally {
         await releaseClaims('winner');
       }
-      return;
     }
-    await createAttachment(attachment, claimOwner);
+    return createAttachment(attachment, claimOwner);
   };
   try {
     const stored = await storeAttachment({
@@ -788,7 +787,7 @@ void test('添付の永続化に失敗した場合は import 自体を失敗さ�
   const root = mkdtempSync(join(tmpdir(), 'knot-import-files-'));
   const filesDir = join(root, 'files');
   const sourceUrl = 'https://scrapbox.io/files/persist-error#.png';
-  storage.createAttachment = async () => {
+  storage.tryCreateAttachment = async () => {
     throw new Error('attachment persistence failed');
   };
   try {

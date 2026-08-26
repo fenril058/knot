@@ -6,8 +6,8 @@ import { generateApiToken } from '../server/apiToken.ts';
 import { loadConfig as loadServerConfig } from '../server/config.ts';
 import { openDatabase } from '../storage/db.ts';
 import { SqliteStorage } from '../storage/sqlite.ts';
-import { importCosense } from '../storage/import.ts';
-import { ATTACHMENT_IMPORT_TIMEOUT_MS } from '../storage/importAttachments.ts';
+import { importCosense } from '../application/importCosense.ts';
+import { ATTACHMENT_IMPORT_TIMEOUT_MS } from '../application/importAttachments.ts';
 import { exportCosense, type ExportFormat } from '../storage/export.ts';
 import { buildExportZip } from '../storage/exportZip.ts';
 
