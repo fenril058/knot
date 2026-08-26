@@ -1,5 +1,5 @@
 import { defaultKeymap, history as historyExtension, historyKeymap } from '@codemirror/commands';
-import { ChangeSet } from '@codemirror/state';
+import { ChangeSet, Transaction } from '@codemirror/state';
 import { keymap, EditorView } from '@codemirror/view';
 import { applyOps } from '../../core/apply.ts';
 import type { RebaseConflict, RebaseLineState } from '../../core/rebase.ts';
@@ -234,7 +234,12 @@ function syncDocument(effect: Extract<SyncEffect, { type: 'replace-document' }>)
   }
   suppressChanges = true;
   try {
-    view.dispatch({ changes });
+    view.dispatch({
+      changes,
+      ...(effect.excludeFromUndoHistory === true
+        ? { annotations: Transaction.addToHistory.of(false) }
+        : {}),
+    });
   } finally {
     suppressChanges = false;
   }

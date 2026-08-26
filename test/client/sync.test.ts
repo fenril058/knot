@@ -117,6 +117,7 @@ void test('409 の3-way rebase は他者の変更を残して自分の変更だ�
 
   assert.deepEqual(replacement?.texts, ['Title', 'mine changed', 'theirs changed']);
   assert.notEqual(replacement?.changes, undefined);
+  assert.equal(replacement?.excludeFromUndoHistory, true);
   assert.notEqual(send?.commit.commitId, firstCommitId);
   assert.equal(send?.commit.baseVersion, 2);
   assert.deepEqual(send?.commit.ops, [{ type: 'update', id: 'mine', text: 'mine changed' }]);
@@ -190,6 +191,7 @@ void test('同一行の異なる更新は自動再送せず、手元の内容を
   assert.equal(effect(effects, 'send'), undefined);
   assert.equal(sync.status, 'conflict');
   assert.deepEqual(effect(effects, 'replace-document')?.texts, ['Title', 'local']);
+  assert.equal(effect(effects, 'replace-document')?.excludeFromUndoHistory, true);
   assert.deepEqual(conflict?.conflicts, [{
     lineId: 'body',
     base: { kind: 'present', text: 'base' },

@@ -51,6 +51,8 @@ export type SyncEffect =
       texts: string[];
       // 表示中の文書を実際に変える effect では、行 ID への追従に必要な changes を省略しない。
       changes?: DocumentChange[];
+      // サーバ上の最新版を取り込む文書置換だけを undo 履歴から除外する。
+      excludeFromUndoHistory?: true;
     }
   | { type: 'present-conflict'; conflicts: RebaseConflict[] }
   | { type: 'schedule' };
@@ -255,7 +257,7 @@ export class SyncEngine {
       this.#buffer = candidate.map(({ text }) => text);
       this.#status = 'conflict';
       return [
-        replaceDocumentEffect(local, candidate),
+        replaceDocumentEffect(local, candidate, { excludeFromUndoHistory: true }),
         { type: 'present-conflict', conflicts: result.conflicts },
         { type: 'persist', record: this.#conflictDraft() },
       ];
@@ -268,7 +270,7 @@ export class SyncEngine {
       this.#hasBufferChanged = false;
       this.#status = 'saved';
       return [
-        replaceDocumentEffect(local, latest.lines),
+        replaceDocumentEffect(local, latest.lines, { excludeFromUndoHistory: true }),
         { type: 'persist', record: null },
       ];
     }
@@ -278,7 +280,7 @@ export class SyncEngine {
     const effects = this.#startCommit(result.ops);
     const rebasedLines = this.#inflightLines();
     this.#buffer = rebasedLines.map(({ text }) => text);
-    return [replaceDocumentEffect(local, rebasedLines), ...effects];
+    return [replaceDocumentEffect(local, rebasedLines, { excludeFromUndoHistory: true }), ...effects];
   }
 
   restoredEffects(): SyncEffect[] {
@@ -463,11 +465,13 @@ export class SyncEngine {
 function replaceDocumentEffect(
   before: readonly Line[],
   after: readonly Line[],
+  options: { excludeFromUndoHistory?: true } = {},
 ): Extract<SyncEffect, { type: 'replace-document' }> {
   return {
     type: 'replace-document',
     texts: after.map(({ text }) => text),
     changes: documentChanges(before, after),
+    ...options,
   };
 }
 
