@@ -191,7 +191,7 @@ void test('同一行の異なる更新は自動再送せず、手元の内容を
   assert.equal(effect(effects, 'send'), undefined);
   assert.equal(sync.status, 'conflict');
   assert.deepEqual(effect(effects, 'replace-document')?.texts, ['Title', 'local']);
-  assert.equal(effect(effects, 'replace-document')?.excludeFromUndoHistory, undefined);
+  assert.equal(effect(effects, 'replace-document')?.excludeFromUndoHistory, true);
   assert.deepEqual(conflict?.conflicts, [{
     lineId: 'body',
     base: { kind: 'present', text: 'base' },

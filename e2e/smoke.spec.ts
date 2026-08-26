@@ -232,6 +232,15 @@ test('異なる行の並行編集はカーソルと undo 履歴を維持して�
   ]);
   await expect(other.locator('#save-status')).toHaveText('保存済み');
 
+  await other.keyboard.press('Control+z');
+  await expect(other.locator('#editor-root .cm-line')).toHaveText([
+    title,
+    'first remote',
+    'remote inserted',
+    'second base',
+    'tail',
+  ]);
+
   await other.keyboard.press('Control+Shift+z');
   await expect(other.locator('#editor-root .cm-line')).toHaveText([
     title,
