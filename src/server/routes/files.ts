@@ -4,50 +4,10 @@ import type { Context, Hono } from 'hono';
 import { attachmentUrl, storeAttachment } from '../../application/attachments.ts';
 import type { Attachment } from '../../storage/types.ts';
 import type { AppDeps } from '../app.ts';
+import { INLINE_TYPES, MAGIC } from '../fileContentTypes.ts';
 import { jsonError, type ApiEnv } from '../http.ts';
 
 const ULID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/;
-
-const INLINE_TYPES = new Set([
-  'image/png',
-  'image/jpeg',
-  'image/gif',
-  'image/webp',
-  'video/mp4',
-  'video/webm',
-  'audio/mpeg',
-  'audio/ogg',
-  'audio/wav',
-]);
-
-const startsWith = (bytes: Uint8Array, offset: number, expected: number[]): boolean =>
-  bytes.length >= offset + expected.length && expected.every((value, index) => bytes[offset + index] === value);
-
-const MAGIC: Record<string, (bytes: Uint8Array) => boolean> = {
-  'image/png': (bytes) => startsWith(bytes, 0, [0x89, 0x50, 0x4e, 0x47]),
-  'image/jpeg': (bytes) => startsWith(bytes, 0, [0xff, 0xd8, 0xff]),
-  'image/gif': (bytes) => startsWith(bytes, 0, [0x47, 0x49, 0x46, 0x38]),
-  'image/webp': (bytes) =>
-    startsWith(bytes, 0, [0x52, 0x49, 0x46, 0x46]) && startsWith(bytes, 8, [0x57, 0x45, 0x42, 0x50]),
-  'video/mp4': (bytes) => startsWith(bytes, 4, [0x66, 0x74, 0x79, 0x70]),
-  'video/webm': (bytes) => startsWith(bytes, 0, [0x1a, 0x45, 0xdf, 0xa3]),
-  'audio/mpeg': (bytes) =>
-    startsWith(bytes, 0, [0x49, 0x44, 0x33]) ||
-    (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1]! & 0xe0) === 0xe0),
-  'audio/ogg': (bytes) => startsWith(bytes, 0, [0x4f, 0x67, 0x67, 0x53]),
-  'audio/wav': (bytes) =>
-    startsWith(bytes, 0, [0x52, 0x49, 0x46, 0x46]) && startsWith(bytes, 8, [0x57, 0x41, 0x56, 0x45]),
-};
-
-export function getFileContentTypeSets(): {
-  inlineContentTypes: ReadonlySet<string>;
-  magicByteCheckedContentTypes: ReadonlySet<string>;
-} {
-  return {
-    inlineContentTypes: new Set(INLINE_TYPES),
-    magicByteCheckedContentTypes: new Set(Object.keys(MAGIC)),
-  };
-}
 
 function attachmentToJson(attachment: Pick<Attachment, 'id' | 'filename' | 'contentType' | 'size' | 'sha256'>) {
   return {
@@ -117,7 +77,7 @@ export function registerFileRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
       return jsonError(c, 404, 'not_found');
     }
     c.header('Content-Type', attachment.contentType);
-    if (!INLINE_TYPES.has(attachment.contentType)) {
+    if (!INLINE_TYPES.includes(attachment.contentType)) {
       c.header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(attachment.filename)}`);
     }
     return c.body(new Uint8Array(bytes));
