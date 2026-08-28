@@ -49,6 +49,41 @@ void test('新規作成 → 編集 → 冪等な再送', async () => {
   });
 });
 
+void test('commit API の 409 応答が並べ替えられた line ID を返す', async () => {
+  const { post } = await setup();
+  const titleId = ulid();
+  const firstId = ulid();
+  const secondId = ulid();
+  await post('P', {
+    commitId: ulid(),
+    baseVersion: 0,
+    ops: [
+      { type: 'insert', id: titleId, after: '_head', text: 'P' },
+      { type: 'insert', id: firstId, after: titleId, text: 'first' },
+      { type: 'insert', id: secondId, after: firstId, text: 'second' },
+    ],
+  });
+
+  const reordered = await post('P', {
+    commitId: ulid(),
+    baseVersion: 1,
+    ops: [
+      { type: 'delete', id: firstId },
+      { type: 'insert', id: firstId, after: secondId, text: 'first' },
+    ],
+  });
+  assert.equal(reordered.status, 200);
+
+  const stale = await post('P', {
+    commitId: ulid(),
+    baseVersion: 1,
+    ops: [{ type: 'update', id: secondId, text: 'local' }],
+  });
+  assert.equal(stale.status, 409);
+  const body = await stale.json();
+  assert.deepEqual(body.page.lines.map((line: { id: string }) => line.id), [titleId, secondId, firstId]);
+});
+
 void test('baseVersion 不一致は 409 reason version で最新状態を返す', async () => {
   const { post } = await setup();
   const l1 = ulid();
