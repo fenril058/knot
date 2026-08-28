@@ -87,6 +87,7 @@ void test('セキュリティヘッダが全応答に付く', async () => {
   assert.match(csp, /default-src 'self'/);
   assert.match(csp, /img-src 'self' i\.gyazo\.com gyazo\.com/);
   assert.match(csp, /frame-src 'none'/);
+  assert.match(csp, /frame-ancestors 'none'/);
 });
 
 void test('期限が近いセッションはアクセスで延長される（スライディング）', async () => {

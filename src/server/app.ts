@@ -42,6 +42,7 @@ function cspValue(config: ServerConfig): string {
     `img-src 'self'${hosts(config.allowedImageHosts)}`,
     `media-src 'self'${hosts(config.allowedMediaHosts)}`,
     `frame-src ${frame}`,
+    "frame-ancestors 'none'",
   ].join('; ');
 }
 
