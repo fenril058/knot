@@ -8,7 +8,7 @@ import { jsonError, type ApiEnv } from '../http.ts';
 
 const ULID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
-const INLINE_TYPES = new Set([
+export const INLINE_TYPES = new Set([
   'image/png',
   'image/jpeg',
   'image/gif',
@@ -23,7 +23,7 @@ const INLINE_TYPES = new Set([
 const startsWith = (bytes: Uint8Array, offset: number, expected: number[]): boolean =>
   bytes.length >= offset + expected.length && expected.every((value, index) => bytes[offset + index] === value);
 
-const MAGIC: Record<string, (bytes: Uint8Array) => boolean> = {
+export const MAGIC: Record<string, (bytes: Uint8Array) => boolean> = {
   'image/png': (bytes) => startsWith(bytes, 0, [0x89, 0x50, 0x4e, 0x47]),
   'image/jpeg': (bytes) => startsWith(bytes, 0, [0xff, 0xd8, 0xff]),
   'image/gif': (bytes) => startsWith(bytes, 0, [0x47, 0x49, 0x46, 0x38]),
