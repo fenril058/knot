@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { INLINE_TYPES, MAGIC } from '../../src/server/routes/files.ts';
+import { getFileContentTypeSets } from '../../src/server/routes/files.ts';
 import { makeServer } from '../helpers/server.ts';
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
 
-void test('インライン配信する Content-Type はすべてマジックバイトを検査する', () => {
-  assert.deepEqual(INLINE_TYPES, new Set(Object.keys(MAGIC)));
+void test('インライン配信する Content-Type とマジックバイトを検査する Content-Type の集合は一致する', () => {
+  const { inlineContentTypes, magicByteCheckedContentTypes } = getFileContentTypeSets();
+  assert.deepEqual(inlineContentTypes, magicByteCheckedContentTypes);
 });
 
 async function setup() {
