@@ -51,6 +51,11 @@ export type SyncEffect =
       texts: string[];
       // 表示中の文書を実際に変える effect では、行 ID への追従に必要な changes を省略しない。
       changes?: DocumentChange[];
+      // ChangeSet の単調な位置写像では行の並べ替えに追従できないため、selection 用に行の同一性を渡す。
+      selectionLines?: {
+        before: Array<Pick<Line, 'id' | 'text'>>;
+        after: Array<Pick<Line, 'id' | 'text'>>;
+      };
       // サーバ上の最新版を取り込む文書置換だけを undo 履歴から除外する。
       excludeFromUndoHistory?: true;
     }
@@ -471,6 +476,10 @@ function replaceDocumentEffect(
     type: 'replace-document',
     texts: after.map(({ text }) => text),
     changes: documentChanges(before, after),
+    selectionLines: {
+      before: before.map(({ id, text }) => ({ id, text })),
+      after: after.map(({ id, text }) => ({ id, text })),
+    },
     ...options,
   };
 }

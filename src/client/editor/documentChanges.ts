@@ -1,3 +1,4 @@
+import { ChangeSet, EditorSelection, type ChangeDesc, type SelectionRange } from '@codemirror/state';
 import type { Line } from '../../core/ops.ts';
 
 type LineAlignment = { beforeIndex: number; afterIndex: number };
@@ -11,6 +12,23 @@ function lineStarts(lines: readonly Pick<Line, 'id' | 'text'>[]): number[] {
     offset += line.text.length + 1;
   }
   return starts;
+}
+
+function lineAtPosition(
+  lines: readonly Pick<Line, 'id' | 'text'>[],
+  starts: readonly number[],
+  position: number,
+): { line: Pick<Line, 'id' | 'text'>; column: number } | undefined {
+  let low = 0;
+  let high = starts.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (starts[middle]! <= position) low = middle + 1;
+    else high = middle;
+  }
+  const index = low - 1;
+  const line = lines[index];
+  return line === undefined ? undefined : { line, column: position - starts[index]! };
 }
 
 function alignLinesById(
@@ -141,4 +159,90 @@ export function documentChanges(
   }
 
   return changes;
+}
+
+function mapLineColumn(before: string, after: string, column: number, assoc: number): number {
+  const change = lineTextChange(0, before, after);
+  return change === null
+    ? column
+    : ChangeSet.of(change, before.length).mapPos(column, assoc);
+}
+
+function mapSelectionPosition(
+  before: readonly Pick<Line, 'id' | 'text'>[],
+  after: readonly Pick<Line, 'id' | 'text'>[],
+  beforeStarts: readonly number[],
+  afterStarts: readonly number[],
+  afterIndexById: ReadonlyMap<string, number>,
+  position: number,
+  assoc: number,
+  fallback: number,
+): number {
+  const located = lineAtPosition(before, beforeStarts, position);
+  if (located === undefined) return fallback;
+  const afterIndex = afterIndexById.get(located.line.id);
+  if (afterIndex === undefined) return fallback;
+  const afterLine = after[afterIndex]!;
+  return afterStarts[afterIndex]!
+    + mapLineColumn(located.line.text, afterLine.text, located.column, assoc);
+}
+
+function mappedRange(
+  before: readonly Pick<Line, 'id' | 'text'>[],
+  after: readonly Pick<Line, 'id' | 'text'>[],
+  beforeStarts: readonly number[],
+  afterStarts: readonly number[],
+  afterIndexById: ReadonlyMap<string, number>,
+  range: SelectionRange,
+  changes: ChangeDesc,
+): SelectionRange {
+  const fallback = range.map(changes);
+  const anchorAssoc = range.empty ? -1 : range.anchor === range.from ? 1 : -1;
+  const headAssoc = range.empty ? -1 : range.head === range.from ? 1 : -1;
+  const anchor = mapSelectionPosition(
+    before,
+    after,
+    beforeStarts,
+    afterStarts,
+    afterIndexById,
+    range.anchor,
+    anchorAssoc,
+    fallback.anchor,
+  );
+  const head = mapSelectionPosition(
+    before,
+    after,
+    beforeStarts,
+    afterStarts,
+    afterIndexById,
+    range.head,
+    headAssoc,
+    fallback.head,
+  );
+  if (range.empty) {
+    return EditorSelection.cursor(anchor, range.assoc, range.bidiLevel ?? undefined, range.goalColumn);
+  }
+  if (range.undirectional) return EditorSelection.undirectionalRange(Math.min(anchor, head), Math.max(anchor, head));
+  return EditorSelection.range(anchor, head, range.goalColumn, range.bidiLevel ?? undefined, range.assoc);
+}
+
+// 残存行の端点は同じ行 ID へ写し、削除された行の端点だけを ChangeSet の位置写像へ委ねる。
+export function mapSelectionByLineId(
+  before: readonly Pick<Line, 'id' | 'text'>[],
+  after: readonly Pick<Line, 'id' | 'text'>[],
+  selection: EditorSelection,
+  changes: ChangeDesc,
+): EditorSelection {
+  const beforeStarts = lineStarts(before);
+  const afterStarts = lineStarts(after);
+  const afterIndexById = new Map(after.map((line, index) => [line.id, index]));
+  return EditorSelection.create(selection.ranges.map((range) => mappedRange(
+    before,
+    after,
+    beforeStarts,
+    afterStarts,
+    afterIndexById,
+    range,
+    changes,
+  )), selection.mainIndex);
 }
