@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { loginAs, makeServer } from '../helpers/server.ts';
 import { seedPage } from '../helpers/pages.ts';
 
-const BASE_CSP = "default-src 'self'; img-src 'self' i.gyazo.com gyazo.com scrapbox.io; media-src 'self'; frame-src 'none'";
+const BASE_CSP = "default-src 'self'; img-src 'self' i.gyazo.com gyazo.com scrapbox.io; media-src 'self'; frame-src 'none'; frame-ancestors 'none'";
 
 function dataAttribute(body: string, name: string): string {
   const match = body.match(new RegExp(`data-${name}="([^"]*)"`));
@@ -56,7 +56,7 @@ void test('不在ページの正規 URL は同じ場所で作成を始める SSR
   assert.match(body, /<script type="module" src="\/assets\/build\/editor\.js"><\/script>/);
 });
 
-void test('一覧・ログインの CSP は既存値から 1 バイトも変わらない', async () => {
+void test('一覧・ログインの CSP には style-src を追加しない', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);

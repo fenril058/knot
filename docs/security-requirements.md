@@ -107,21 +107,9 @@ DB 内の値をそのまま `scryptSync` に渡すと、巨大な `N` を仕込�
 Content Security Policy は、エスケープや URL 検証が破られた場合の被害を抑える追加の防御です。
 CSP を出力時の安全化の代わりにしません。
 
-現在の CSP は `default-src 'self'` を基点に、`img-src`・`media-src` へ設定の許可ホストを、`frame-src` へ `allowedFrameHosts`（空なら `'none'`）を足したものです。
+現在の CSP は `default-src 'self'` を基点に、`img-src`・`media-src` へ設定の許可ホストを、`frame-src` へ `allowedFrameHosts`（空なら `'none'`）を足し、`frame-ancestors 'none'` で knot 自身の埋め込みを禁止したものです。
 編集画面の応答では `style-src 'self' 'nonce-...'` を追加します。
 この nonce は SSR の出力ではなく、CodeMirror がクライアント側で生成する style のためのものです。
-
-`frame-ancestors` と `X-Frame-Options` は**現在ありません**。
-これは既知の不足です。
-
-`SameSite=Lax` は、対応ブラウザで**クロスサイト**の iframe にセッション cookie が送られることを防ぎます。
-しかし `SameSite` の単位は origin ではなく site（登録可能ドメイン）です。
-ポートが違うだけの別 origin、同じ登録可能ドメイン配下の別ホストからの埋め込みには cookie が送られ、認証済みの編集 UI がそのまま描画されます。
-実測でも、別ポートから認証済みページの iframe 埋め込みが成功しています。
-
-したがって `SameSite=Lax` はクリックジャッキングの完全な防御ではありません。
-knot を他所へ埋め込む要件が無いなら `frame-ancestors 'none'` を追加してください。
-ログイン画面自体も枠に嵌められるため、資格情報入力に対する UI 偽装の余地も残ります。
 
 すべての応答に `X-Content-Type-Options: nosniff` を付けます。
 
@@ -176,7 +164,7 @@ HTML や SVG が最上位で描画されないのはこの一段だけに依存�
 
 - 経路の分類と認証範囲、PAT 認証
 - `X-Knot-Client` の要求。**有効な PAT を持つ要求でもヘッダ欠落を拒否すること**（現在この組み合わせを直接検証するテストは無い）
-- 外部 URL スキームの制限と、CSP の `frame-src`
+- 外部 URL スキームの制限と、CSP の `frame-src`・`frame-ancestors`
 - 添付のマジックバイト検査、インライン配信・添付配信の切り分け、**`INLINE_TYPES` と `MAGIC` の集合一致**
 - パスワードハッシュの照合（保存パラメータを差し替えた値を拒否すること）
 
