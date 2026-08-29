@@ -219,11 +219,13 @@ function mappedRange(
     headAssoc,
     fallback.head,
   );
+  // 位置を補正しない範囲では CodeMirror が保持した assoc などの情報もそのまま返す。
+  if (anchor === fallback.anchor && head === fallback.head) return fallback;
   if (range.empty) {
     return EditorSelection.cursor(anchor, range.assoc, range.bidiLevel ?? undefined, range.goalColumn);
   }
   if (range.undirectional) return EditorSelection.undirectionalRange(Math.min(anchor, head), Math.max(anchor, head));
-  return EditorSelection.range(anchor, head, range.goalColumn, range.bidiLevel ?? undefined, range.assoc);
+  return EditorSelection.range(anchor, head, range.goalColumn, range.bidiLevel ?? undefined);
 }
 
 // 残存行の端点は同じ行 ID へ写し、削除された行の端点だけを ChangeSet の位置写像へ委ねる。

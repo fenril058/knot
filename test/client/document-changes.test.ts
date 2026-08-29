@@ -280,3 +280,39 @@ void test('行 ID の順序が入れ替わってもカーソルは同じ行 ID �
 
   assert.equal(selection.main.head, position(after, 'c', 1));
 });
+
+void test('行 ID の順序変更で範囲の向きが反転したら head の関連も新しい向きに合わせる', () => {
+  const before = [
+    { id: 'a', text: 'Aaa' },
+    { id: 'b', text: 'B' },
+    { id: 'c', text: 'Ccc' },
+  ];
+  const after = [before[2]!, before[0]!, before[1]!];
+  const selection = mappedSelection(
+    before,
+    after,
+    EditorSelection.single(position(before, 'a', 1), position(before, 'c', 2)),
+  );
+
+  assert.equal(selection.main.anchor, position(after, 'a', 1));
+  assert.equal(selection.main.head, position(after, 'c', 2));
+  assert.equal(selection.main.anchor > selection.main.head, true);
+  assert.equal(selection.main.assoc, 1);
+});
+
+void test('削除行だけにある選択範囲は CodeMirror mapping の関連情報も維持する', () => {
+  const before = [
+    { id: 'a', text: 'A' },
+    { id: 'b', text: 'Bbb' },
+    { id: 'c', text: 'C' },
+  ];
+  const after = [before[0]!, before[2]!];
+  const initial = EditorSelection.single(position(before, 'b', 1), position(before, 'b', 2));
+  const state = EditorState.create({ doc: text(before), selection: initial });
+  const changes = ChangeSet.of(documentChanges(before, after), state.doc.length);
+  const expected = state.update({ changes }).state.selection;
+
+  const actual = mappedSelection(before, after, initial);
+
+  assert.equal(actual.eq(expected, true), true);
+});
