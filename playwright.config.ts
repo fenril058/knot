@@ -4,9 +4,6 @@ const port = Number(process.env.E2E_PORT ?? 4173);
 
 export default defineConfig({
   testDir: 'e2e',
-  // GitHub-hosted runners have limited resources; serialize browser processes
-  // in CI so WebKit page creation does not compete with Chromium.
-  workers: process.env.CI ? 1 : undefined,
   projects: [
     {
       name: 'chromium',
