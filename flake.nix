@@ -14,7 +14,7 @@
         nodejs = pkgs.nodejs_26;
         playwrightBrowsers = pkgs.playwright-driver.browsers.override {
           withFirefox = false;
-          withWebkit = false;
+          withWebkit = true;
         };
       in
       {
@@ -43,6 +43,9 @@
           '';
 
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
+          # Nix provides browser runtime libraries through patched RPATHs, which the
+          # npm Playwright host-package validator cannot discover.
+          PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "1";
           PLAYWRIGHT_BROWSERS_PATH = "${playwrightBrowsers}";
         };
 

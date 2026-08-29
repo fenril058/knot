@@ -1,27 +1,39 @@
-import { devices, test, expect } from '@playwright/test';
-import { loginProjectE2e, replaceEditorLine } from './helpers.ts';
+import { test, expect, type Page } from '@playwright/test';
+import { loginProjectE2e } from './helpers.ts';
 
-const mobileDevice = devices['Pixel 5'];
-// Pixel 5 represents a common smartphone portrait viewport (393 × 727 CSS px)
-// and adds Chromium-compatible touch/mobile emulation instead of resizing a desktop page alone.
-test.use({ ...mobileDevice });
+const expectedViewportWidths: Record<string, number> = {
+  'mobile-chromium': 360,
+  'mobile-webkit': 393,
+};
 
-test('mobile viewport でページを探して編集し、再読み込み後も内容が残る', async ({ page }) => {
-  expect(page.viewportSize()).toEqual(mobileDevice.viewport);
+async function expectMobileLayout(target: Page, expectedWidth: number): Promise<void> {
+  const dimensions = await target.evaluate(() => ({
+    innerWidth: window.innerWidth,
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+  }));
+  expect(dimensions.innerWidth).toBe(expectedWidth);
+  expect(dimensions.clientWidth).toBe(expectedWidth);
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(expectedWidth);
+}
+
+test('mobile browser でページを探して編集し、再読み込み後も内容が残る', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
   await loginProjectE2e(page);
 
-  const title = 'mobile-basic-flow';
+  const title = `mobile-basic-flow-${testInfo.project.name}-${testInfo.repeatEachIndex}`;
   const created = await page.request.post(`/api/knot/pages/e2e/${title}/commits`, {
     headers: { 'X-Knot-Client': 'e2e' },
     data: {
-      commitId: 'mobile-basic-flow-create',
+      commitId: `${title}-create`,
       baseVersion: 0,
       ops: [
-        { type: 'insert', id: 'mobile-basic-flow-title', after: '_head', text: title },
+        { type: 'insert', id: `${title}-title`, after: '_head', text: title },
         {
           type: 'insert',
-          id: 'mobile-basic-flow-existing',
-          after: 'mobile-basic-flow-title',
+          id: `${title}-existing`,
+          after: `${title}-title`,
           text: '変更前の既存行',
         },
       ],
@@ -30,27 +42,47 @@ test('mobile viewport でページを探して編集し、再読み込み後も�
   expect(created.ok()).toBe(true);
 
   await page.goto('/');
-  await page.getByRole('link', { name: 'e2e', exact: true }).click();
+  await expectMobileLayout(page, expectedWidth);
+  const projectLink = page.getByRole('link', { name: 'e2e', exact: true });
+  await expect(projectLink).toBeInViewport();
+  await projectLink.tap();
   await expect(page).toHaveURL('/e2e');
+  await expectMobileLayout(page, expectedWidth);
 
   const search = page.getByRole('searchbox');
+  await expect(search).toBeInViewport();
+  const fullTextSearch = page.waitForResponse((response) =>
+    response.url().includes(`/api/pages/e2e/search/query?q=${title}`)
+    && response.ok()
+  );
   await search.fill(title);
-  const searchHit = page.getByRole('link', { name: title, exact: true });
+  await fullTextSearch;
+  const searchHit = page.locator(`#search-results a.search-hit[href="/e2e/${title}"]`);
+  await expect(searchHit).toHaveText(`${title}: ${title}`);
   await expect(searchHit).toBeVisible();
-  await searchHit.click();
+  await expect(searchHit).toBeInViewport();
+  await searchHit.tap();
   await expect(page).toHaveURL(`/e2e/${title}`);
+  await expectMobileLayout(page, expectedWidth);
   await expect(page.locator('.page-body')).toContainText('変更前の既存行');
 
-  await page.getByRole('button', { name: '編集', exact: true }).click();
+  const editButton = page.getByRole('button', { name: '編集', exact: true });
+  await expect(editButton).toBeInViewport();
+  await editButton.tap();
   const editor = page.locator('#editor-root .cm-content');
   await expect(editor).toBeFocused();
+  await expect(editor).toBeInViewport();
+  await expectMobileLayout(page, expectedWidth);
 
   const saveResponse = page.waitForResponse((response) =>
     response.url().endsWith(`/api/knot/pages/e2e/${title}/commits`)
     && response.request().method() === 'POST'
     && response.ok()
   );
-  await page.locator('#editor-root .cm-line').nth(1).click();
+  const existingLine = page.locator('.cm-wysiwyg-line[data-line-number="2"]');
+  await expect(existingLine).toBeInViewport();
+  await existingLine.tap();
+  await expect(editor).toBeFocused();
   await page.keyboard.press('End');
   // Playwright does not open a software keyboard; insertText dispatches the input event
   // that adds the newline and text to CodeMirror's contenteditable element.
@@ -60,7 +92,11 @@ test('mobile viewport でページを探して編集し、再読み込み後も�
     '変更前の既存行',
     'mobile で追加した行',
   ]);
-  await replaceEditorLine(page, 1, 'mobile で変更した既存行');
+  await existingLine.tap();
+  await expect(editor).toBeFocused();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await page.keyboard.insertText('mobile で変更した既存行');
 
   await saveResponse;
   await expect(page.locator('#save-status')).toHaveText('保存済み');
@@ -71,6 +107,11 @@ test('mobile viewport でページを探して編集し、再読み込み後も�
   ]);
 
   await page.reload();
-  await expect(page.locator('.page-body')).toContainText('mobile で変更した既存行');
-  await expect(page.locator('.page-body')).toContainText('mobile で追加した行');
+  await expectMobileLayout(page, expectedWidth);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);
+  await expect(page.locator('.page-body .line-row')).toHaveText([
+    '',
+    'mobile で変更した既存行',
+    'mobile で追加した行',
+  ]);
 });
