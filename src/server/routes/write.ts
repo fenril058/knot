@@ -45,7 +45,11 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
 
   app.post('/api/knot/projects/:project', async (c) => {
     try {
-      const project = await storage.ensureProject(c.req.param('project'), now());
+      const result = await storage.createProject(c.req.param('project'), now());
+      if (result.kind === 'existing') {
+        return jsonError(c, 409, 'conflict', { reason: 'project_exists' });
+      }
+      const { project } = result;
       return c.json({ id: project.id, name: project.name, displayName: project.displayName });
     } catch (e) {
       if (e instanceof StorageError) return jsonError(c, 400, 'bad_request', { message: e.message });

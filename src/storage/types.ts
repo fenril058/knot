@@ -9,6 +9,10 @@ export type Project = {
   updated: number;
 };
 
+export type CreateProjectResult =
+  | { kind: 'created'; project: Project }
+  | { kind: 'existing'; project: Project };
+
 export type Actor = { id: string; name: string; displayName: string };
 
 export type Account = {
@@ -171,6 +175,7 @@ export interface AttachmentRepository {
 }
 
 export interface Storage extends AttachmentRepository {
+  createProject(name: string, now: number): Promise<CreateProjectResult>;
   ensureProject(name: string, now: number): Promise<Project>;
   getProject(name: string): Promise<Project | null>;
   listProjects(): Promise<Project[]>;

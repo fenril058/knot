@@ -20,6 +20,42 @@ async function replaceEditorLine(target: Page, index: number, text: string): Pro
   await target.keyboard.insertText(text);
 }
 
+async function loginE2e(target: Page): Promise<void> {
+  const response = await target.request.post('/api/knot/session', {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: { name: 'project-e2e', password: 'project-e2e-password' },
+  });
+  expect(response.ok()).toBe(true);
+}
+
+test('プロジェクト一覧から keyboard で作成し、入力エラーと重複を理解できる', async ({ page }) => {
+  await loginE2e(page);
+  await page.goto('/');
+
+  const name = page.locator('#create-project-name');
+  const error = page.locator('#create-project-error');
+  await name.focus();
+  await page.keyboard.type('browser-created');
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/browser-created$/);
+  await expect(page.getByRole('heading', { name: 'browser-created' })).toBeVisible();
+
+  for (const [projectName, message] of [
+    ['bad_NAME!', '小文字の英数字とハイフン'],
+    ['api', '予約済みの名前'],
+    ['a'.repeat(65), '小文字の英数字とハイフン'],
+    ['browser-created', 'すでに存在します'],
+  ] as const) {
+    await page.goto('/');
+    await name.fill(projectName);
+    await name.press('Enter');
+    await expect(error).toContainText(message);
+    await expect(name).toBeFocused();
+    await expect(name).toHaveAttribute('aria-invalid', 'true');
+    await expect(page).toHaveURL(/\/$/);
+  }
+});
+
 // 設計書「エディタのスモークテスト」: 開く、編集する、自動保存される、再読み込みで内容が残る。
 // あわせて全画面で CSP violation が 0 件であることを監視する（style-src nonce 方式の回帰検知）。
 test('エディタで書いて自動保存され、再読み込みで内容が残る', async ({ page }) => {
