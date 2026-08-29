@@ -61,6 +61,7 @@ createForm.addEventListener('submit', (event) => {
       }
       window.location.assign(`/${encodeURIComponent(project.name)}`);
     } catch {
+      if (submittedInputVersion !== inputVersion) return;
       showError('通信に失敗しました。接続を確認して、もう一度お試しください。');
     } finally {
       createButton.disabled = false;

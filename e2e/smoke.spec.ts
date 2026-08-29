@@ -67,6 +67,18 @@ test('プロジェクト一覧から keyboard で作成し、入力エラーと�
   await staleResponse;
   await expect(error).toBeHidden();
   await expect(name).not.toHaveAttribute('aria-invalid', 'true');
+
+  await page.route('**/api/knot/projects/stale-network-error', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await route.abort('failed');
+  });
+  await name.fill('stale-network-error');
+  await name.press('Enter');
+  await expect(page.getByRole('button', { name: 'プロジェクトを作成' })).toBeDisabled();
+  await name.fill('corrected-after-network-error');
+  await expect(page.getByRole('button', { name: 'プロジェクトを作成' })).toBeEnabled();
+  await expect(error).toBeHidden();
+  await expect(name).not.toHaveAttribute('aria-invalid', 'true');
 });
 
 // 設計書「エディタのスモークテスト」: 開く、編集する、自動保存される、再読み込みで内容が残る。
