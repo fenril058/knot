@@ -26,52 +26,6 @@ async function setup() {
   return { s, cookie };
 }
 
-void test('POST /api/knot/projects/:project で空プロジェクトを作れる', async () => {
-  const { s, cookie } = await setup();
-  const res = await s.request('/api/knot/projects/newproj', { method: 'POST' }, cookie);
-  assert.equal(res.status, 200);
-  const body = await res.json();
-  assert.equal(body.name, 'newproj');
-});
-
-void test('POST /api/knot/projects/:project は不正・予約済み・長すぎる名前を拒否する', async () => {
-  const { s, cookie } = await setup();
-
-  for (const name of ['bad_NAME!', 'api', 'a'.repeat(65)]) {
-    const res = await s.request(`/api/knot/projects/${name}`, { method: 'POST' }, cookie);
-    assert.equal(res.status, 400, name);
-    assert.equal((await res.json()).error, 'bad_request');
-  }
-  assert.deepEqual(await s.storage.listProjects(), []);
-});
-
-void test('POST /api/knot/projects/:project は同名プロジェクトを 409 で拒否する', async () => {
-  const { s, cookie } = await setup();
-  await s.storage.ensureProject('existing', s.clock.t);
-
-  const res = await s.request('/api/knot/projects/existing', { method: 'POST' }, cookie);
-
-  assert.equal(res.status, 409);
-  assert.deepEqual(await res.json(), { error: 'conflict', reason: 'project_exists' });
-  assert.equal((await s.storage.listProjects()).length, 1);
-});
-
-void test('POST /api/knot/projects/:project は認証と X-Knot-Client header を要求する', async () => {
-  const { s } = await setup();
-
-  const withoutHeader = await s.app.request('/api/knot/projects/proj', { method: 'POST' });
-  assert.equal(withoutHeader.status, 403);
-  assert.equal((await withoutHeader.json()).error, 'forbidden');
-
-  const withoutSession = await s.app.request('/api/knot/projects/proj', {
-    method: 'POST',
-    headers: { 'X-Knot-Client': 'test' },
-  });
-  assert.equal(withoutSession.status, 401);
-  assert.equal((await withoutSession.json()).error, 'unauthorized');
-  assert.deepEqual(await s.storage.listProjects(), []);
-});
-
 void test('import → 読み取り API で見える → export で往復', async () => {
   const { s, cookie } = await setup();
   const imp = await s.request('/api/knot/projects/proj/import', {

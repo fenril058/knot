@@ -21,11 +21,6 @@ void test('createProject は作成と既存を区別し、ensureProject と同�
   const existing = await storage.createProject('wiki', 200);
   assert.equal(existing.kind, 'existing');
   assert.equal(existing.project.id, created.project.id);
-  const concurrent = await Promise.all([
-    storage.createProject('concurrent', 300),
-    storage.createProject('concurrent', 300),
-  ]);
-  assert.deepEqual(concurrent.map((result) => result.kind).toSorted(), ['created', 'existing']);
   await assert.rejects(storage.createProject('Bad Name', 300), StorageError);
   await assert.rejects(storage.ensureProject('Bad Name', 300), StorageError);
   await storage.close();

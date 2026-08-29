@@ -20,7 +20,7 @@ async function replaceEditorLine(target: Page, index: number, text: string): Pro
   await target.keyboard.insertText(text);
 }
 
-async function loginE2e(target: Page): Promise<void> {
+async function loginProjectE2e(target: Page): Promise<void> {
   const response = await target.request.post('/api/knot/session', {
     headers: { 'X-Knot-Client': 'e2e' },
     data: { name: 'project-e2e', password: 'project-e2e-password' },
@@ -29,7 +29,7 @@ async function loginE2e(target: Page): Promise<void> {
 }
 
 test('プロジェクト一覧から keyboard で作成し、入力エラーと重複を理解できる', async ({ page }) => {
-  await loginE2e(page);
+  await loginProjectE2e(page);
   await page.goto('/');
 
   const name = page.locator('#create-project-name');
@@ -44,6 +44,7 @@ test('プロジェクト一覧から keyboard で作成し、入力エラーと�
     ['bad_NAME!', '小文字の英数字とハイフン'],
     ['api', '予約済みの名前'],
     ['a'.repeat(65), '小文字の英数字とハイフン'],
+    ['..', '小文字の英数字とハイフン'],
     ['browser-created', 'すでに存在します'],
   ] as const) {
     await page.goto('/');
@@ -54,6 +55,18 @@ test('プロジェクト一覧から keyboard で作成し、入力エラーと�
     await expect(name).toHaveAttribute('aria-invalid', 'true');
     await expect(page).toHaveURL(/\/$/);
   }
+
+  await page.route('**/api/knot/projects/stale-invalid', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await route.fulfill({ status: 400, contentType: 'application/json', body: '{"error":"bad_request"}' });
+  });
+  await name.fill('stale-invalid');
+  const staleResponse = page.waitForResponse('**/api/knot/projects/stale-invalid');
+  await name.press('Enter');
+  await name.fill('corrected-name');
+  await staleResponse;
+  await expect(error).toBeHidden();
+  await expect(name).not.toHaveAttribute('aria-invalid', 'true');
 });
 
 // 設計書「エディタのスモークテスト」: 開く、編集する、自動保存される、再読み込みで内容が残る。
