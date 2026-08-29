@@ -6,6 +6,7 @@ import type { RebaseConflict, RebaseLineState } from '../../core/rebase.ts';
 import { titleLc, pageHref } from '../../core/title.ts';
 import type { KnownPage } from '../../render/presentation.ts';
 import { fetchPage, postCommit, uploadFile } from './api.ts';
+import { mapSelectionByLineId } from './documentChanges.ts';
 import { titleAutocompletion } from './cm/complete.ts';
 import { syntaxHighlighting } from './cm/decorations.ts';
 import { editorKeymap } from './cm/keymap.ts';
@@ -225,17 +226,28 @@ function syncEditorLocation(previousTitle: string): void {
 
 function syncDocument(effect: Extract<SyncEffect, { type: 'replace-document' }>): void {
   const next = effect.texts.join('\n');
-  if (view.state.doc.toString() === next) return;
+  const current = view.state.doc.toString();
+  const beforeText = effect.selectionLines?.before.map(({ text }) => text).join('\n');
+  if (current === next && beforeText !== current) return;
   const changes = effect.changes === undefined
     ? ChangeSet.of({ from: 0, to: view.state.doc.length, insert: next }, view.state.doc.length)
     : ChangeSet.of(effect.changes, view.state.doc.length);
   if (changes.apply(view.state.doc).toString() !== next) {
     throw new Error('replacement changes do not produce the expected document');
   }
+  const selection = effect.selectionLines === undefined
+    ? undefined
+    : mapSelectionByLineId(
+        effect.selectionLines.before,
+        effect.selectionLines.after,
+        view.state.selection,
+        changes,
+      );
   suppressChanges = true;
   try {
     view.dispatch({
       changes,
+      ...(selection === undefined ? {} : { selection }),
       ...(effect.excludeFromUndoHistory === true
         ? { annotations: Transaction.addToHistory.of(false) }
         : {}),

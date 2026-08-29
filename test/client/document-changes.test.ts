@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ChangeSet, EditorSelection, EditorState, type SelectionRange } from '@codemirror/state';
 import type { Line } from '../../src/core/ops.ts';
-import { documentChanges } from '../../src/client/editor/documentChanges.ts';
+import { documentChanges, mapSelectionByLineId } from '../../src/client/editor/documentChanges.ts';
 
 const text = (lines: readonly Pick<Line, 'id' | 'text'>[]) => lines.map((line) => line.text).join('\n');
 
@@ -22,7 +22,11 @@ function mappedSelection(
     selection: selection instanceof EditorSelection ? selection : EditorSelection.create([selection]),
     extensions: [EditorState.allowMultipleSelections.of(true)],
   });
-  const updated = state.update({ changes: ChangeSet.of(documentChanges(before, after), text(before).length) }).state;
+  const changes = ChangeSet.of(documentChanges(before, after), text(before).length);
+  const updated = state.update({
+    changes,
+    selection: mapSelectionByLineId(before, after, state.selection, changes),
+  }).state;
   assert.equal(updated.doc.toString(), text(after));
   return updated.selection;
 }
@@ -258,4 +262,57 @@ void test('同文行が複数あってもカーソルは残存する同じ行 ID
   );
 
   assert.equal(selection.main.head, position(after, 'third', 2));
+});
+
+void test('行 ID の順序が入れ替わってもカーソルは同じ行 ID と列に追従する', () => {
+  const before = [
+    { id: 'a', text: 'A' },
+    { id: 'b', text: 'B' },
+    { id: 'c', text: 'Ccc' },
+    { id: 'd', text: 'D' },
+  ];
+  const after = [before[2]!, before[0]!, before[1]!, before[3]!];
+  const selection = mappedSelection(
+    before,
+    after,
+    EditorSelection.cursor(position(before, 'c', 1)),
+  );
+
+  assert.equal(selection.main.head, position(after, 'c', 1));
+});
+
+void test('行 ID の順序変更で範囲の向きが反転したら head の関連も新しい向きに合わせる', () => {
+  const before = [
+    { id: 'a', text: 'Aaa' },
+    { id: 'b', text: 'B' },
+    { id: 'c', text: 'Ccc' },
+  ];
+  const after = [before[2]!, before[0]!, before[1]!];
+  const selection = mappedSelection(
+    before,
+    after,
+    EditorSelection.single(position(before, 'a', 1), position(before, 'c', 2)),
+  );
+
+  assert.equal(selection.main.anchor, position(after, 'a', 1));
+  assert.equal(selection.main.head, position(after, 'c', 2));
+  assert.equal(selection.main.anchor > selection.main.head, true);
+  assert.equal(selection.main.assoc, 1);
+});
+
+void test('削除行だけにある選択範囲は CodeMirror mapping の関連情報も維持する', () => {
+  const before = [
+    { id: 'a', text: 'A' },
+    { id: 'b', text: 'Bbb' },
+    { id: 'c', text: 'C' },
+  ];
+  const after = [before[0]!, before[2]!];
+  const initial = EditorSelection.single(position(before, 'b', 1), position(before, 'b', 2));
+  const state = EditorState.create({ doc: text(before), selection: initial });
+  const changes = ChangeSet.of(documentChanges(before, after), state.doc.length);
+  const expected = state.update({ changes }).state.selection;
+
+  const actual = mappedSelection(before, after, initial);
+
+  assert.equal(actual.eq(expected, true), true);
 });

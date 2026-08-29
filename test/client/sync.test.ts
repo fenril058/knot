@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { ChangeSet, EditorSelection, EditorState } from '@codemirror/state';
 import { applyOps } from '../../src/core/apply.ts';
 import { type Line } from '../../src/core/ops.ts';
+import { mapSelectionByLineId } from '../../src/client/editor/documentChanges.ts';
 import {
   lineMeta,
   parseEditorRecord,
@@ -35,6 +37,14 @@ const engine = (lines: Line[], title = lines[0]?.text ?? 'Title') => new SyncEng
 
 const effect = <T extends SyncEffect['type']>(effects: SyncEffect[], type: T) =>
   effects.find((candidate): candidate is Extract<SyncEffect, { type: T }> => candidate.type === type);
+
+const documentText = (lines: readonly Pick<Line, 'text'>[]) => lines.map(({ text }) => text).join('\n');
+
+function linePosition(lines: readonly Pick<Line, 'id' | 'text'>[], id: string, column: number): number {
+  const index = lines.findIndex((candidate) => candidate.id === id);
+  assert.notEqual(index, -1);
+  return lines.slice(0, index).reduce((offset, candidate) => offset + candidate.text.length + 1, 0) + column;
+}
 
 void test('基本往復: 編集を送信して成功すると確認済み snapshot と永続化が進む', () => {
   const sync = engine([line('title', 'Title'), line('body', 'old')]);
@@ -123,6 +133,41 @@ void test('409 の3-way rebase は他者の変更を残して自分の変更だ�
   assert.deepEqual(send?.commit.ops, [{ type: 'update', id: 'mine', text: 'mine changed' }]);
   const merged = applyOps(latest, send?.commit.ops ?? [], { userId: 'self', now: 100, version: 3 });
   assert.deepEqual(merged.map(({ text }) => text), ['Title', 'mine changed', 'theirs changed']);
+});
+
+void test('409 の最新版で行 ID が並べ替わっても移動行のカーソルを同じ列へ写す', () => {
+  const base = [
+    line('title', 'Title'),
+    line('a', 'A'),
+    line('b', 'B'),
+    line('c', 'Ccc'),
+    line('d', 'D'),
+  ];
+  const sync = engine(base);
+  sync.bufferChanged(['Title', 'A local', 'B', 'Ccc', 'D']);
+  sync.flush();
+  const latest = [base[0]!, base[3]!, base[1]!, base[2]!, base[4]!];
+
+  const replacement = effect(sync.ackConflict({ version: 2, title: 'Title', lines: latest }), 'replace-document');
+  assert.notEqual(replacement?.changes, undefined);
+  assert.notEqual(replacement?.selectionLines, undefined);
+  if (replacement?.changes === undefined || replacement.selectionLines === undefined) {
+    throw new Error('replacement mapping is missing');
+  }
+  const before = replacement.selectionLines.before;
+  const after = replacement.selectionLines.after;
+  const state = EditorState.create({
+    doc: documentText(before),
+    selection: EditorSelection.cursor(linePosition(before, 'c', 1)),
+  });
+  const changes = ChangeSet.of(replacement.changes, state.doc.length);
+  const updated = state.update({
+    changes,
+    selection: mapSelectionByLineId(before, after, state.selection, changes),
+  }).state;
+
+  assert.equal(updated.doc.toString(), documentText(after));
+  assert.equal(updated.selection.main.head, linePosition(after, 'c', 1));
 });
 
 void test('競合草稿は表示直後と解消中の編集後に永続化できる', () => {
