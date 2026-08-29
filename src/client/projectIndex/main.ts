@@ -11,6 +11,7 @@ const projectName = nameInput;
 const errorMessage = error;
 const createButton = submitButton;
 let inputVersion = 0;
+let activeRequest: AbortController | null = null;
 
 function showError(message: string): void {
   errorMessage.textContent = message;
@@ -28,14 +29,19 @@ function clearError(): void {
 createForm.addEventListener('submit', (event) => {
   event.preventDefault();
   clearError();
+  activeRequest?.abort();
+  const request = new AbortController();
+  activeRequest = request;
   createButton.disabled = true;
   const submittedInputVersion = inputVersion;
+  const submittedName = projectName.value;
 
   void (async () => {
     try {
-      const response = await fetch(`/api/knot/projects/${encodeURIComponent(projectName.value)}`, {
+      const response = await fetch(`/api/knot/projects/${encodeURIComponent(submittedName)}`, {
         method: 'POST',
         headers: { 'X-Knot-Client': 'browser' },
+        signal: request.signal,
       });
       if (submittedInputVersion !== inputVersion) return;
       if (response.status === 409) {
@@ -61,10 +67,14 @@ createForm.addEventListener('submit', (event) => {
       }
       window.location.assign(`/${encodeURIComponent(project.name)}`);
     } catch {
+      if (request.signal.aborted) return;
       if (submittedInputVersion !== inputVersion) return;
       showError('通信に失敗しました。接続を確認して、もう一度お試しください。');
     } finally {
-      createButton.disabled = false;
+      if (activeRequest === request) {
+        activeRequest = null;
+        createButton.disabled = false;
+      }
     }
   })();
 });
@@ -72,4 +82,10 @@ createForm.addEventListener('submit', (event) => {
 projectName.addEventListener('input', () => {
   inputVersion += 1;
   clearError();
+  if (activeRequest !== null) {
+    const request = activeRequest;
+    activeRequest = null;
+    request.abort();
+    createButton.disabled = false;
+  }
 });

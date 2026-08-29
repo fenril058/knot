@@ -28,6 +28,20 @@ async function loginProjectE2e(target: Page): Promise<void> {
   expect(response.ok()).toBe(true);
 }
 
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolver: (() => void) | undefined;
+  const promise = new Promise<void>((resolve) => {
+    resolver = resolve;
+  });
+  return {
+    promise,
+    resolve: () => {
+      if (resolver === undefined) throw new Error('deferred promise resolver is missing');
+      resolver();
+    },
+  };
+}
+
 test('プロジェクト一覧から keyboard で作成し、入力エラーと重複を理解できる', async ({ page }) => {
   await loginProjectE2e(page);
   await page.goto('/');
@@ -56,29 +70,67 @@ test('プロジェクト一覧から keyboard で作成し、入力エラーと�
     await expect(page).toHaveURL(/\/$/);
   }
 
+  const staleInvalidHandled = deferred();
   await page.route('**/api/knot/projects/stale-invalid', async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 100));
-    await route.fulfill({ status: 400, contentType: 'application/json', body: '{"error":"bad_request"}' });
+    await route.fulfill({ status: 400, contentType: 'application/json', body: '{"error":"bad_request"}' }).catch(() => undefined);
+    staleInvalidHandled.resolve();
   });
   await name.fill('stale-invalid');
-  const staleResponse = page.waitForResponse('**/api/knot/projects/stale-invalid');
+  const staleRequest = page.waitForRequest('**/api/knot/projects/stale-invalid');
   await name.press('Enter');
+  await staleRequest;
   await name.fill('corrected-name');
-  await staleResponse;
+  await staleInvalidHandled.promise;
   await expect(error).toBeHidden();
   await expect(name).not.toHaveAttribute('aria-invalid', 'true');
 
+  const staleNetworkHandled = deferred();
   await page.route('**/api/knot/projects/stale-network-error', async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 100));
-    await route.abort('failed');
+    await route.abort('failed').catch(() => undefined);
+    staleNetworkHandled.resolve();
   });
   await name.fill('stale-network-error');
+  const staleNetworkRequest = page.waitForRequest('**/api/knot/projects/stale-network-error');
   await name.press('Enter');
   await expect(page.getByRole('button', { name: 'プロジェクトを作成' })).toBeDisabled();
+  await staleNetworkRequest;
   await name.fill('corrected-after-network-error');
   await expect(page.getByRole('button', { name: 'プロジェクトを作成' })).toBeEnabled();
+  await staleNetworkHandled.promise;
   await expect(error).toBeHidden();
   await expect(name).not.toHaveAttribute('aria-invalid', 'true');
+});
+
+test('作成中に名前を変更すると古い request を待たずに再送信できる', async ({ page }) => {
+  await loginProjectE2e(page);
+  await page.goto('/');
+
+  const staleRequestGate = deferred();
+  const staleRequestStarted = deferred();
+  await page.route('**/api/knot/projects/pending-name', async (route) => {
+    staleRequestStarted.resolve();
+    await staleRequestGate.promise;
+    await route.fulfill({ status: 400, contentType: 'application/json', body: '{"error":"bad_request"}' }).catch(() => undefined);
+  });
+
+  const name = page.locator('#create-project-name');
+  const createButton = page.getByRole('button', { name: 'プロジェクトを作成' });
+  await name.fill('pending-name');
+  await name.press('Enter');
+  await staleRequestStarted.promise;
+  await expect(createButton).toBeDisabled();
+
+  try {
+    await name.fill('resubmitted-name');
+    await expect(createButton).toBeEnabled();
+    await name.press('Enter');
+  } finally {
+    staleRequestGate.resolve();
+  }
+  await expect(page).toHaveURL(/\/resubmitted-name$/);
+  await expect(page.getByRole('heading', { name: 'resubmitted-name' })).toBeVisible();
 });
 
 // 設計書「エディタのスモークテスト」: 開く、編集する、自動保存される、再読み込みで内容が残る。
