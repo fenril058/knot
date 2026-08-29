@@ -40,19 +40,9 @@ direnv exec . node src/cli/main.ts serve --data ./data
 
 ブラウザで http://127.0.0.1:3000/login からログインする。
 
-プロジェクト作成の UI はまだ無いので、初回は API で作るか import で取り込む。
+ログイン後のプロジェクト一覧で名前を入力し、「プロジェクトを作成」を押す。
 
-```sh
-# ログインしてセッション cookie を保存
-curl -c /tmp/knot-cookies -H 'Content-Type: application/json' -H 'X-Knot-Client: cli' \
-  -d '{"name":"ril","password":"パスワード"}' http://127.0.0.1:3000/api/knot/session
-
-# プロジェクト "notes" を作成
-curl -b /tmp/knot-cookies -X POST -H 'X-Knot-Client: cli' \
-  http://127.0.0.1:3000/api/knot/projects/notes
-```
-
-Cosense のエクスポート JSON がある場合は、curl の代わりに `knot import --data ./data --project notes <file.json>` でプロジェクトごと作成できる。
+Cosense のエクスポート JSON がある場合は、`knot import --data ./data --project notes <file.json>` でプロジェクトごと作成できる。
 プロジェクト名には、予約語 `api`、`login`、`files`、`assets` を除き、64文字以内の半角英小文字、数字、ハイフンを使用する。
 本文中の `https://scrapbox.io/files/…` 画像は取得して `data/files/` に保存し、本文を knot の `/files/…` URL に書き換える。
 画像取得は 10 秒で打ち切り、`maxUploadBytes` を超える応答と画像以外の応答を拒否する。

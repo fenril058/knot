@@ -22,6 +22,7 @@ import {
   type CommitInput,
   type CommitResult,
   type CreateAttachmentResult,
+  type CreateProjectResult,
   type ImportPageInput,
   type ImportPageResult,
   type ListPageSummariesOptions,
@@ -136,13 +137,13 @@ export class SqliteStorage implements Storage {
     return r ? { id: r.id, name: r.name, displayName: r.display_name, created: r.created, updated: r.updated } : null;
   }
 
-  async ensureProject(name: string, now: number): Promise<Project> {
+  async createProject(name: string, now: number): Promise<CreateProjectResult> {
     if (!PROJECT_NAME_RE.test(name) || RESERVED_PROJECT_NAMES.has(name)) {
       throw new StorageError(`invalid project name: ${name}`);
     }
     return this.#tx(() => {
       const existing = this.#getProjectRow(name);
-      if (existing) return existing;
+      if (existing) return { kind: 'existing', project: existing };
       if (name.length > MAX_PROJECT_NAME_LENGTH) {
         throw new StorageError(`invalid project name: ${name}`);
       }
@@ -150,8 +151,12 @@ export class SqliteStorage implements Storage {
       this.#db
         .prepare('INSERT INTO projects (id, name, display_name, created, updated) VALUES (?, ?, ?, ?, ?)')
         .run(id, name, name, now, now);
-      return { id, name, displayName: name, created: now, updated: now };
+      return { kind: 'created', project: { id, name, displayName: name, created: now, updated: now } };
     });
+  }
+
+  async ensureProject(name: string, now: number): Promise<Project> {
+    return (await this.createProject(name, now)).project;
   }
 
   async getProject(name: string): Promise<Project | null> {

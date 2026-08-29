@@ -26,17 +26,6 @@ async function setup() {
   return { s, cookie };
 }
 
-void test('POST /api/knot/projects/:project で空プロジェクトを作れる', async () => {
-  const { s, cookie } = await setup();
-  const res = await s.request('/api/knot/projects/newproj', { method: 'POST' }, cookie);
-  assert.equal(res.status, 200);
-  const body = await res.json();
-  assert.equal(body.name, 'newproj');
-  assert.equal((await s.request('/api/knot/projects/bad_NAME!', { method: 'POST' }, cookie)).status, 400);
-  // 既存プロジェクトへの再 POST は冪等（ensureProject の意味論）
-  assert.equal((await s.request('/api/knot/projects/newproj', { method: 'POST' }, cookie)).status, 200);
-});
-
 void test('import → 読み取り API で見える → export で往復', async () => {
   const { s, cookie } = await setup();
   const imp = await s.request('/api/knot/projects/proj/import', {

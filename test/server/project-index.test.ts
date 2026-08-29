@@ -16,7 +16,11 @@ void test('GET /: 認証済みユーザーにプロジェクト一覧とリン�
   assert.match(body, /href="\/alpha"/);
   assert.match(body, /href="\/zeta"/);
   assert.ok(body.indexOf('/alpha') < body.indexOf('/zeta'));
-  assert.doesNotMatch(body, /<script|<style|\son[a-z]+=/i);
+  assert.match(body, /<form[^>]*id="create-project-form"/);
+  assert.match(body, /<input[^>]*id="create-project-name"[^>]*required/);
+  assert.match(body, /<p[^>]*id="create-project-error"[^>]*role="alert"[^>]*hidden/);
+  assert.match(body, /<script type="module" src="\/assets\/build\/project-index\.js"><\/script>/);
+  assert.doesNotMatch(body, /<script>|<style|\son[a-z]+=/i);
 });
 
 void test('GET /: プロジェクトが0件なら案内文を表示する', async () => {
