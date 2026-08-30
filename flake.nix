@@ -14,22 +14,25 @@
         nodejs = pkgs.nodejs_26;
         playwrightBrowsers = pkgs.playwright-driver.browsers.override {
           withFirefox = false;
-          withWebkit = false;
+          withWebkit = true;
         };
       in
       {
         devShells.default = pkgs.mkShell {
-          packages = with pkgs; [
-            jdk
-            just
-            zizmor
-            actionlint
-            typescript-language-server
-            biome
-            npm-check-updates
-            nodejs
-            importNpmLock.hooks.linkNodeModulesHook
-          ];
+          packages =
+            (with pkgs; [
+              jdk
+              just
+              zizmor
+              actionlint
+              typescript-language-server
+              biome
+              npm-check-updates
+              nodejs
+              importNpmLock.hooks.linkNodeModulesHook
+            ])
+            # WebKit/WPE needs an EGL vendor even on GPU-less CI runners.
+            ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.mesa.llvmpipeHook ];
 
           npmDeps = importNpmLock.buildNodeModules {
             npmRoot = ./.;
@@ -43,6 +46,9 @@
           '';
 
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
+          # Nix provides browser runtime libraries through patched RPATHs, which the
+          # npm Playwright host-package validator cannot discover.
+          PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "1";
           PLAYWRIGHT_BROWSERS_PATH = "${playwrightBrowsers}";
         };
 

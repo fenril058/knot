@@ -1,31 +1,10 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
+import { loginProjectE2e, replaceEditorDocument, replaceEditorLine } from './helpers.ts';
 
 declare global {
   interface Window {
     cspViolationLog: string[];
   }
-}
-
-async function replaceEditorDocument(target: Page, texts: string[]): Promise<void> {
-  const editor = target.locator('#editor-root .cm-content');
-  await editor.click();
-  await target.keyboard.press('Control+A');
-  await target.keyboard.insertText(texts.join('\n'));
-}
-
-async function replaceEditorLine(target: Page, index: number, text: string): Promise<void> {
-  await target.locator('#editor-root .cm-line').nth(index).click();
-  await target.keyboard.press('Home');
-  await target.keyboard.press('Shift+End');
-  await target.keyboard.insertText(text);
-}
-
-async function loginProjectE2e(target: Page): Promise<void> {
-  const response = await target.request.post('/api/knot/session', {
-    headers: { 'X-Knot-Client': 'e2e' },
-    data: { name: 'project-e2e', password: 'project-e2e-password' },
-  });
-  expect(response.ok()).toBe(true);
 }
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
