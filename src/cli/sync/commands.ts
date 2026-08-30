@@ -388,7 +388,9 @@ function localContentHash(path: string): string | undefined {
   }
 }
 
-function recoverPendingPullRename(dir: string, state: SyncState): PageOutcome | undefined {
+type PullRenameRecovery = { outcome: PageOutcome; skipPageId?: string };
+
+function recoverPendingPullRename(dir: string, state: SyncState): PullRenameRecovery | undefined {
   const pending = loadPendingPullRename(dir);
   if (pending === undefined) return undefined;
   const current = state.pages[pending.pageId];
@@ -406,17 +408,26 @@ function recoverPendingPullRename(dir: string, state: SyncState): PageOutcome | 
     return undefined;
   }
 
-  if (currentIsFrom
-    && pending.from.filename !== pending.to.filename
-    && localContentHash(join(dir, pending.from.filename)) === pending.from.contentHash) {
-    if (!removeAfterSymlinkPrecheck(dir, join(dir, pending.from.filename))) {
-      return warn(`skipped (refusing to delete through symlink): ${pending.from.filename}`);
+  if (currentIsFrom && pending.from.filename !== pending.to.filename) {
+    const fromPath = join(dir, pending.from.filename);
+    if (hasSymlinkWithin(dir, fromPath)) {
+      return {
+        outcome: warn(`skipped (refusing to delete through symlink): ${pending.from.filename}`),
+        skipPageId: pending.pageId,
+      };
+    }
+    if (localContentHash(fromPath) === pending.from.contentHash
+      && !removeAfterSymlinkPrecheck(dir, fromPath)) {
+      return {
+        outcome: warn(`skipped (refusing to delete through symlink): ${pending.from.filename}`),
+        skipPageId: pending.pageId,
+      };
     }
   }
   state.pages[pending.pageId] = pending.to;
   saveState(dir, state);
   clearPendingPullRename(dir);
-  return ok(`reconciled: ${pending.to.filename}`);
+  return { outcome: ok(`reconciled: ${pending.to.filename}`) };
 }
 
 function pullDeleteLocal(ctx: PullContext, pageId: string): PageOutcome {
@@ -538,11 +549,15 @@ async function runPull(values: SyncValues, deps: SyncDeps): Promise<SyncResult> 
     writePullRenameContents: deps.writePullRenameContents,
   };
   const localHashes = new Map([...local].map(([name, f]) => [name, f.contentHash]));
-  const result = await foldOutcomes(planPull({ state, remote, localHashes }), (a) => applyPullAction(ctx, a));
+  const actions = planPull({ state, remote, localHashes })
+    .filter((action) => action.pageId !== recovered?.skipPageId);
+  const result = await foldOutcomes(actions, (a) => applyPullAction(ctx, a));
   if (recovered === undefined || result.exitCode === 2) return result;
   return {
-    exitCode: recovered.kind === 'warn' || result.exitCode === 1 ? 1 : 0,
-    output: result.output === 'up to date' ? recovered.message : `${recovered.message}\n${result.output}`,
+    exitCode: recovered.outcome.kind === 'warn' || result.exitCode === 1 ? 1 : 0,
+    output: result.output === 'up to date'
+      ? recovered.outcome.message
+      : `${recovered.outcome.message}\n${result.output}`,
   };
 }
 

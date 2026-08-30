@@ -205,6 +205,49 @@ void test('pull: リネーム中断記録から新ファイルを追跡し直し
   } finally { env.close(); }
 });
 
+void test('pull: リネーム中断回復は旧ファイルの末端 symlink を拒否し state と記録を維持する', async () => {
+  const env = await makeEnv();
+  const outside = mkdtempSync(join(tmpdir(), 'knot-sync-recovery-symlink-'));
+  try {
+    const pageId = await seedPage(env.storage, env.projectId, 'Alpha', ['body'], env.clock.t);
+    await runSync(['pull', '--dir', env.dir]);
+    const beforeState = loadState(env.dir);
+    const before = beforeState.pages[pageId]!;
+    const page = await env.storage.getPageById(pageId);
+    env.clock.t += 10;
+    await env.storage.commit({
+      projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
+      baseVersion: page!.version,
+      ops: [{ type: 'update', id: page!.lines[0]!.id, text: 'Alpha2' }],
+      actorId: 'u', now: env.clock.t,
+    });
+    const renamed = await env.storage.getPageById(pageId);
+    const text = 'Alpha2\nbody';
+    const pendingPath = join(env.dir, '.knot', 'pending-pull-rename.json');
+    const pendingRecord = `${JSON.stringify({
+      pageId,
+      from: before,
+      to: { title: 'Alpha2', filename: 'Alpha2.txt', version: renamed!.version, contentHash: contentHash(text) },
+    }, null, 2)}\n`;
+    writeFileSync(pendingPath, pendingRecord);
+    writeFileSync(join(env.dir, 'Alpha2.txt'), `${text}\n`);
+    const outsideFile = join(outside, 'Alpha.txt');
+    writeFileSync(outsideFile, 'Alpha\nbody\n');
+    rmSync(join(env.dir, 'Alpha.txt'));
+    symlinkSync(outsideFile, join(env.dir, 'Alpha.txt'));
+
+    const result = await runSync(['pull', '--dir', env.dir]);
+
+    assert.equal(readFileSync(outsideFile, 'utf8'), 'Alpha\nbody\n');
+    assert.equal(lstatSync(join(env.dir, 'Alpha.txt')).isSymbolicLink(), true);
+    assert.equal(readFileSync(join(env.dir, 'Alpha2.txt'), 'utf8'), `${text}\n`);
+    assert.deepEqual(loadState(env.dir), beforeState);
+    assert.equal(readFileSync(pendingPath, 'utf8'), pendingRecord);
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.output, 'skipped (refusing to delete through symlink): Alpha.txt');
+  } finally { rmSync(outside, { recursive: true }); env.close(); }
+});
+
 void test('pull: 一覧取得失敗時はリネーム中断回復を確定しない', async () => {
   const env = await makeEnv();
   try {
