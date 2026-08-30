@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
@@ -440,6 +440,86 @@ void test('pull: リモート削除はローカル未変更なら削除、変更
     assert.ok(!existsSync(join(env.dir, 'Gone.txt')));
     assert.equal(readFileSync(join(env.dir, 'Kept.txt'), 'utf8'), 'Kept\nlocal edit\n');
   } finally { env.close(); }
+});
+
+void test('pull: リモート削除で追跡先の祖先 symlink を辿って同期ディレクトリ外を削除しない', async () => {
+  const env = await makeEnv();
+  const outside = mkdtempSync(join(tmpdir(), 'knot-sync-delete-ancestor-'));
+  try {
+    const pageId = await seedPage(env.storage, env.projectId, 'Alpha', ['body'], env.clock.t);
+    await runSync(['pull', '--dir', env.dir]);
+    const state = loadState(env.dir);
+    state.pages[pageId]!.filename = join('nested', 'Alpha.txt');
+    saveState(env.dir, state);
+    writeFileSync(join(outside, 'Alpha.txt'), 'OUTSIDE\n');
+    symlinkSync(outside, join(env.dir, 'nested'), 'dir');
+    env.clock.t += 10;
+    await env.storage.deletePage(env.projectId, pageId, 'u', env.clock.t);
+
+    const result = await runSync(['pull', '--dir', env.dir]);
+
+    assert.equal(readFileSync(join(outside, 'Alpha.txt'), 'utf8'), 'OUTSIDE\n');
+    assert.deepEqual(loadState(env.dir), state);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.output, /skipped \(refusing to delete through symlink\): nested[\\/]Alpha\.txt/);
+  } finally { rmSync(outside, { recursive: true }); env.close(); }
+});
+
+for (const dangling of [false, true]) {
+  void test(`pull: リモート削除で${dangling ? 'ダングリング' : '通常の'} symlink を削除せず state を維持する`, async () => {
+    const env = await makeEnv();
+    const outside = mkdtempSync(join(tmpdir(), 'knot-sync-delete-target-'));
+    try {
+      const pageId = await seedPage(env.storage, env.projectId, 'Alpha', ['body'], env.clock.t);
+      await runSync(['pull', '--dir', env.dir]);
+      const state = loadState(env.dir);
+      const target = join(outside, dangling ? 'missing.txt' : 'target.txt');
+      if (!dangling) writeFileSync(target, 'OUTSIDE\n');
+      rmSync(join(env.dir, 'Alpha.txt'));
+      symlinkSync(target, join(env.dir, 'Alpha.txt'));
+      env.clock.t += 10;
+      await env.storage.deletePage(env.projectId, pageId, 'u', env.clock.t);
+
+      const result = await runSync(['pull', '--dir', env.dir]);
+
+      assert.equal(lstatSync(join(env.dir, 'Alpha.txt')).isSymbolicLink(), true);
+      if (!dangling) assert.equal(readFileSync(target, 'utf8'), 'OUTSIDE\n');
+      assert.deepEqual(loadState(env.dir), state);
+      assert.equal(result.exitCode, 1);
+      assert.match(result.output, /skipped \(refusing to delete through symlink\): Alpha\.txt/);
+    } finally { rmSync(outside, { recursive: true }); env.close(); }
+  });
+}
+
+void test('pull: リモート rename で旧追跡先の祖先 symlink を辿って同期ディレクトリ外を削除しない', async () => {
+  const env = await makeEnv();
+  const outside = mkdtempSync(join(tmpdir(), 'knot-sync-rename-ancestor-'));
+  try {
+    const pageId = await seedPage(env.storage, env.projectId, 'Alpha', ['body'], env.clock.t);
+    await runSync(['pull', '--dir', env.dir]);
+    const state = loadState(env.dir);
+    state.pages[pageId]!.filename = join('nested', 'Alpha.txt');
+    saveState(env.dir, state);
+    writeFileSync(join(outside, 'Alpha.txt'), 'OUTSIDE\n');
+    symlinkSync(outside, join(env.dir, 'nested'), 'dir');
+    const page = await env.storage.getPageById(pageId);
+    env.clock.t += 10;
+    await env.storage.commit({
+      projectId: env.projectId, pageId, commitId: ulid(env.clock.t * 1000),
+      baseVersion: page!.version,
+      ops: [{ type: 'update', id: page!.lines[0]!.id, text: 'Alpha2' }],
+      actorId: 'u', now: env.clock.t,
+    });
+
+    const result = await runSync(['pull', '--dir', env.dir]);
+
+    assert.equal(readFileSync(join(outside, 'Alpha.txt'), 'utf8'), 'OUTSIDE\n');
+    assert.equal(existsSync(join(env.dir, 'Alpha2.txt')), false);
+    assert.equal(existsSync(join(env.dir, '.knot', 'pending-pull-rename.json')), false);
+    assert.deepEqual(loadState(env.dir), state);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.output, /skipped \(refusing to delete through symlink\): nested[\\/]Alpha\.txt/);
+  } finally { rmSync(outside, { recursive: true }); env.close(); }
 });
 
 // 詳細取得（GET /api/pages/<project>/<title>）のパスを返す。一覧（?sort= 付き）は除く。
