@@ -136,6 +136,14 @@ function writeWithoutSymlinks(root: string, target: string, contents: string): b
   return true;
 }
 
+// Node.js の path-based API では検査と unlink を不可分にはできない。
+// 少なくとも削除直前に同期 root 外の path と、検査時点で存在する祖先・末端 symlink を拒否する。
+function removeAfterSymlinkPrecheck(root: string, target: string): boolean {
+  if (hasSymlinkWithin(root, target)) return false;
+  rmSync(target, { force: true });
+  return true;
+}
+
 function writeAtomicallyWithoutSymlinks(
   root: string, target: string, contents: string,
   writeContents: FileDescriptorWriter = writeFileSync,
@@ -380,7 +388,9 @@ function localContentHash(path: string): string | undefined {
   }
 }
 
-function recoverPendingPullRename(dir: string, state: SyncState): string | undefined {
+type PullRenameRecovery = { outcome: PageOutcome; skipPageId?: string };
+
+function recoverPendingPullRename(dir: string, state: SyncState): PullRenameRecovery | undefined {
   const pending = loadPendingPullRename(dir);
   if (pending === undefined) return undefined;
   const current = state.pages[pending.pageId];
@@ -398,20 +408,33 @@ function recoverPendingPullRename(dir: string, state: SyncState): string | undef
     return undefined;
   }
 
-  if (currentIsFrom
-    && pending.from.filename !== pending.to.filename
-    && localContentHash(join(dir, pending.from.filename)) === pending.from.contentHash) {
-    rmSync(join(dir, pending.from.filename), { force: true });
+  if (currentIsFrom && pending.from.filename !== pending.to.filename) {
+    const fromPath = join(dir, pending.from.filename);
+    if (hasSymlinkWithin(dir, fromPath)) {
+      return {
+        outcome: warn(`skipped (refusing to delete through symlink): ${pending.from.filename}`),
+        skipPageId: pending.pageId,
+      };
+    }
+    if (localContentHash(fromPath) === pending.from.contentHash
+      && !removeAfterSymlinkPrecheck(dir, fromPath)) {
+      return {
+        outcome: warn(`skipped (refusing to delete through symlink): ${pending.from.filename}`),
+        skipPageId: pending.pageId,
+      };
+    }
   }
   state.pages[pending.pageId] = pending.to;
   saveState(dir, state);
   clearPendingPullRename(dir);
-  return `reconciled: ${pending.to.filename}`;
+  return { outcome: ok(`reconciled: ${pending.to.filename}`) };
 }
 
 function pullDeleteLocal(ctx: PullContext, pageId: string): PageOutcome {
   const st = ctx.state.pages[pageId]!;
-  rmSync(join(ctx.dir, st.filename), { force: true });
+  if (!removeAfterSymlinkPrecheck(ctx.dir, join(ctx.dir, st.filename))) {
+    return warn(`skipped (refusing to delete through symlink): ${st.filename}`);
+  }
   delete ctx.state.pages[pageId];
   saveState(ctx.dir, ctx.state);
   return ok(`deleted: ${st.filename}`);
@@ -449,9 +472,13 @@ function pullWrite(ctx: PullContext, pageId: string, detail: RemotePage): PageOu
   const next: PageState = {
     title: detail.title, filename, version: detail.version, contentHash: contentHash(detail.text),
   };
-  const pending: PendingPullRename | undefined = prev !== undefined && prev.filename !== filename
-    ? { pageId, from: prev, to: next }
-    : undefined;
+  const renameFrom = prev !== undefined && prev.filename !== filename ? prev : undefined;
+  const pending: PendingPullRename | undefined = renameFrom === undefined
+    ? undefined
+    : { pageId, from: renameFrom, to: next };
+  if (renameFrom !== undefined && hasSymlinkWithin(ctx.dir, join(ctx.dir, renameFrom.filename))) {
+    return warn(`skipped (refusing to delete through symlink): ${renameFrom.filename}`);
+  }
   // ファイル操作より先に記録し、どの段階で停止しても次回 pull で同じ新ファイルを追跡し直せるようにする。
   if (pending !== undefined) savePendingPullRename(ctx.dir, pending);
   const targetPath = join(ctx.dir, filename);
@@ -466,7 +493,10 @@ function pullWrite(ctx: PullContext, pageId: string, detail: RemotePage): PageOu
     if (pending !== undefined) clearPendingPullRename(ctx.dir);
     return warn(`skipped (refusing to write through symlink): ${filename}`);
   }
-  if (prev !== undefined && prev.filename !== filename) rmSync(join(ctx.dir, prev.filename), { force: true });
+  if (renameFrom !== undefined
+    && !removeAfterSymlinkPrecheck(ctx.dir, join(ctx.dir, renameFrom.filename))) {
+    return warn(`skipped (refusing to delete through symlink): ${renameFrom.filename}`);
+  }
   ctx.state.pages[pageId] = next;
   saveState(ctx.dir, ctx.state);
   if (pending !== undefined) clearPendingPullRename(ctx.dir);
@@ -519,9 +549,16 @@ async function runPull(values: SyncValues, deps: SyncDeps): Promise<SyncResult> 
     writePullRenameContents: deps.writePullRenameContents,
   };
   const localHashes = new Map([...local].map(([name, f]) => [name, f.contentHash]));
-  const result = await foldOutcomes(planPull({ state, remote, localHashes }), (a) => applyPullAction(ctx, a));
+  const actions = planPull({ state, remote, localHashes })
+    .filter((action) => action.pageId !== recovered?.skipPageId);
+  const result = await foldOutcomes(actions, (a) => applyPullAction(ctx, a));
   if (recovered === undefined || result.exitCode === 2) return result;
-  return { ...result, output: result.output === 'up to date' ? recovered : `${recovered}\n${result.output}` };
+  return {
+    exitCode: recovered.outcome.kind === 'warn' || result.exitCode === 1 ? 1 : 0,
+    output: result.output === 'up to date'
+      ? recovered.outcome.message
+      : `${recovered.outcome.message}\n${result.output}`,
+  };
 }
 
 type PushContext = {
