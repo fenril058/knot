@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type Response } from '@playwright/test';
 import { loginProjectE2e } from './helpers.ts';
 
 const expectedViewportWidths: Record<string, number> = {
@@ -15,6 +15,39 @@ async function expectMobileLayout(target: Page, expectedWidth: number): Promise<
   expect(dimensions.innerWidth).toBe(expectedWidth);
   expect(dimensions.clientWidth).toBe(expectedWidth);
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(expectedWidth);
+}
+
+function hasLineUpdate(body: unknown, lineId: string, text: string): boolean {
+  if (typeof body !== 'object' || body === null || !('ops' in body) || !Array.isArray(body.ops)) return false;
+  return body.ops.some((op: unknown) =>
+    typeof op === 'object'
+    && op !== null
+    && 'type' in op
+    && op.type === 'update'
+    && 'id' in op
+    && op.id === lineId
+    && 'text' in op
+    && op.text === text
+  );
+}
+
+function isSuccessfulCommitWithLineUpdate(
+  response: Response,
+  commitUrl: string,
+  lineId: string,
+  text: string,
+): boolean {
+  if (
+    !response.url().endsWith(commitUrl)
+    || response.request().method() !== 'POST'
+    || !response.ok()
+  ) return false;
+
+  try {
+    return hasLineUpdate(response.request().postDataJSON(), lineId, text);
+  } catch {
+    return false;
+  }
 }
 
 test('mobile browser でページを探して編集し、再読み込み後も内容が残る', async ({ page }, testInfo) => {
@@ -74,10 +107,15 @@ test('mobile browser でページを探して編集し、再読み込み後も�
   await expect(editor).toBeInViewport();
   await expectMobileLayout(page, expectedWidth);
 
-  const saveResponse = page.waitForResponse((response) =>
-    response.url().endsWith(`/api/knot/pages/e2e/${title}/commits`)
-    && response.request().method() === 'POST'
-    && response.ok()
+  const finalLineText = 'mobile で変更した既存行';
+  const finalDocument = [title, finalLineText, 'mobile で追加した行'];
+  const finalSaveResponse = page.waitForResponse((response) =>
+    isSuccessfulCommitWithLineUpdate(
+      response,
+      `/api/knot/pages/e2e/${title}/commits`,
+      `${title}-existing`,
+      finalLineText,
+    )
   );
   const existingLine = page.locator('.cm-wysiwyg-line[data-line-number="2"]');
   await expect(existingLine).toBeInViewport();
@@ -96,15 +134,16 @@ test('mobile browser でページを探して編集し、再読み込み後も�
   await expect(editor).toBeFocused();
   await page.keyboard.press('Home');
   await page.keyboard.press('Shift+End');
-  await page.keyboard.insertText('mobile で変更した既存行');
+  await page.keyboard.insertText(finalLineText);
 
-  await saveResponse;
+  // The existing-line update is the last user mutation. SyncEngine sends one
+  // commit at a time, so its successful response also follows any split insert.
+  await finalSaveResponse;
   await expect(page.locator('#save-status')).toHaveText('保存済み');
-  await expect(page.locator('#editor-root .cm-line')).toHaveText([
-    title,
-    'mobile で変更した既存行',
-    'mobile で追加した行',
-  ]);
+  await expect(page.locator('#editor-root .cm-line')).toHaveText(finalDocument);
+  const persisted = await page.request.get(`/api/pages/e2e/${title}`);
+  expect(persisted.ok()).toBe(true);
+  expect((await persisted.json()).lines.map((line: { text: string }) => line.text)).toEqual(finalDocument);
 
   await page.reload();
   await expectMobileLayout(page, expectedWidth);
