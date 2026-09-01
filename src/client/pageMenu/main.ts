@@ -113,9 +113,14 @@ remove.form.addEventListener('submit', (event) => {
     try {
       const response = await fetch(`/api/knot/pages/${encodeURIComponent(project)}/${encodeTitleForUrl(title)}`, {
         method: 'DELETE',
-        headers: { 'X-Knot-Client': 'page-menu' },
+        headers: { 'Content-Type': 'application/json', 'X-Knot-Client': 'page-menu' },
+        body: JSON.stringify({ baseVersion: version }),
       });
-      if (!response.ok) return showError(remove, await errorMessage(response));
+      if (!response.ok) {
+        return showError(remove, response.status === 409
+          ? '他の編集と競合しました。ページを再読み込みしてください'
+          : await errorMessage(response));
+      }
       window.location.assign(`/${encodeURIComponent(project)}`);
     } catch {
       showError(remove, '通信に失敗しました。もう一度お試しください');

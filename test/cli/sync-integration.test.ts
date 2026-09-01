@@ -474,9 +474,15 @@ void test('pull: リモート削除はローカル未変更なら削除、変更
     await runSync(['pull', '--dir', env.dir]);
     writeFileSync(join(env.dir, 'Kept.txt'), 'Kept\nlocal edit\n');
     const state = loadState(env.dir);
-    for (const [pageId] of Object.entries(state.pages)) {
+    for (const [pageId, pageState] of Object.entries(state.pages)) {
       env.clock.t += 10;
-      await env.storage.deletePage(env.projectId, pageId, 'u', env.clock.t);
+      await env.storage.deletePage({
+        projectId: env.projectId,
+        pageId,
+        baseVersion: pageState.version,
+        actorId: 'u',
+        now: env.clock.t,
+      });
     }
     const result = await runSync(['pull', '--dir', env.dir]);
     assert.equal(result.exitCode, 1); // Kept の温存を報告
@@ -497,7 +503,13 @@ void test('pull: リモート削除で追跡先の祖先 symlink を辿って同
     writeFileSync(join(outside, 'Alpha.txt'), 'OUTSIDE\n');
     symlinkSync(outside, join(env.dir, 'nested'), 'dir');
     env.clock.t += 10;
-    await env.storage.deletePage(env.projectId, pageId, 'u', env.clock.t);
+    await env.storage.deletePage({
+      projectId: env.projectId,
+      pageId,
+      baseVersion: state.pages[pageId]!.version,
+      actorId: 'u',
+      now: env.clock.t,
+    });
 
     const result = await runSync(['pull', '--dir', env.dir]);
 
@@ -521,7 +533,13 @@ for (const dangling of [false, true]) {
       rmSync(join(env.dir, 'Alpha.txt'));
       symlinkSync(target, join(env.dir, 'Alpha.txt'));
       env.clock.t += 10;
-      await env.storage.deletePage(env.projectId, pageId, 'u', env.clock.t);
+      await env.storage.deletePage({
+        projectId: env.projectId,
+        pageId,
+        baseVersion: state.pages[pageId]!.version,
+        actorId: 'u',
+        now: env.clock.t,
+      });
 
       const result = await runSync(['pull', '--dir', env.dir]);
 

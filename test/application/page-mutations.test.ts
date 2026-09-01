@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   commitPage,
+  deletePage,
   derivePageData,
   importPage,
   renamePage,
@@ -23,8 +24,10 @@ class FakePageRepository implements PageRepository {
   mutations: PageMutation[] = [];
   failOnSave: number | null = null;
   finalizeError: Error | null = null;
+  transactionCount = 0;
 
   transaction<T>(operation: (tx: PageTransaction) => T): T {
+    this.transactionCount++;
     const snapshot = {
       pages: structuredClone(this.pages),
       commits: structuredClone(this.commits),
@@ -118,6 +121,51 @@ void test('commit の適用と version conflict を SQLite なしで判定する
   assert.equal(conflict.kind, 'conflict');
   assert.equal(conflict.kind === 'conflict' ? conflict.reason : '', 'version');
   assert.equal(repository.pages.get('page')?.lines[1]?.text, '[Target]');
+});
+
+void test('delete は同じ application transaction 内で baseVersion を検証して全行を削除する', () => {
+  const repository = new FakePageRepository();
+  createPage(repository, 'page', 'Page', ['version 1']);
+  const version1 = repository.pages.get('page')!;
+  const updated = commitPage(repository, {
+    projectId: 'project',
+    pageId: 'page',
+    commitId: 'version-2',
+    baseVersion: 1,
+    ops: [{ type: 'update', id: version1.lines[1]!.id, text: 'version 2' }],
+    actorId: 'actor',
+    now: now + 1,
+  });
+  assert.equal(updated.kind, 'applied');
+  const transactionCount = repository.transactionCount;
+  const mutationCount = repository.mutations.length;
+
+  const stale = deletePage(repository, {
+    projectId: 'project',
+    pageId: 'page',
+    baseVersion: 1,
+    actorId: 'actor',
+    now: now + 2,
+  });
+
+  assert.equal(repository.transactionCount, transactionCount + 1);
+  assert.equal(stale.kind, 'conflict');
+  assert.equal(stale.kind === 'conflict' ? stale.page.version : 0, 2);
+  assert.equal(repository.mutations.length, mutationCount);
+  assert.equal(repository.pages.get('page')?.deleted, false);
+  assert.equal(repository.pages.get('page')?.lines[1]?.text, 'version 2');
+
+  const deleted = deletePage(repository, {
+    projectId: 'project',
+    pageId: 'page',
+    baseVersion: 2,
+    actorId: 'actor',
+    now: now + 3,
+  });
+  assert.deepEqual(deleted, { kind: 'applied', version: 3 });
+  assert.equal(repository.pages.get('page')?.deleted, true);
+  assert.deepEqual(repository.pages.get('page')?.lines, []);
+  assert.deepEqual(repository.mutations.at(-1)?.commit.ops.map((op) => op.type), ['delete', 'delete']);
 });
 
 void test('rename と逆リンク書き換えを一つの application transaction で適用する', () => {

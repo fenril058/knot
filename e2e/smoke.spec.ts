@@ -159,6 +159,53 @@ test('エディタで書いて自動保存され、再読み込みで内容が�
   expect(violations).toEqual([]);
 });
 
+test('page menu は表示時の version を送り、stale delete の競合を表示する', async ({ page }) => {
+  await loginProjectE2e(page);
+  const title = 'stale-delete-page-menu';
+  const created = await page.request.post(`/api/knot/pages/e2e/${title}/commits`, {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: {
+      commitId: 'stale-delete-create',
+      baseVersion: 0,
+      ops: [
+        { type: 'insert', id: 'stale-delete-title', after: '_head', text: title },
+        { type: 'insert', id: 'stale-delete-body', after: 'stale-delete-title', text: 'version 1' },
+      ],
+    },
+  });
+  expect(created.ok()).toBe(true);
+
+  await page.goto(`/e2e/${title}`);
+  const updated = await page.request.post(`/api/knot/pages/e2e/${title}/commits`, {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: {
+      commitId: 'stale-delete-update',
+      baseVersion: 1,
+      ops: [{ type: 'update', id: 'stale-delete-body', text: 'version 2' }],
+    },
+  });
+  expect(updated.ok()).toBe(true);
+
+  const deleteResponse = page.waitForResponse((response) =>
+    response.url().endsWith(`/api/knot/pages/e2e/${title}`)
+    && response.request().method() === 'DELETE'
+  );
+  await page.locator('#page-actions > summary').click();
+  await page.getByRole('button', { name: '削除', exact: true }).first().click();
+  const dialog = page.locator('#delete-dialog');
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: '削除', exact: true }).click();
+
+  const response = await deleteResponse;
+  expect(response.status()).toBe(409);
+  expect(response.request().postDataJSON()).toEqual({ baseVersion: 1 });
+  await expect(page.locator('#delete-error')).toHaveText('他の編集と競合しました。ページを再読み込みしてください');
+  await expect(page).toHaveURL(`/e2e/${title}`);
+  const current = await page.request.get(`/api/pages/e2e/${title}`);
+  expect(current.ok()).toBe(true);
+  expect((await current.json()).lines.map((line: { text: string }) => line.text)).toEqual([title, 'version 2']);
+});
+
 test('400 で保存を拒否された後も追加入力して保存できる', async ({ page }) => {
   const login = await page.request.post('/api/knot/session', {
     headers: { 'X-Knot-Client': 'e2e' },
