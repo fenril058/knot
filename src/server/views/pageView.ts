@@ -73,7 +73,7 @@ export function pageViewPage(
 <button type="button" id="edit-page-button">編集</button>
 <div id="save-status" aria-live="polite" hidden></div>
 ${editConflictPanel()}
-<div id="page-menu-root" data-project="${project.name}" data-title="${page.title}" data-version="${page.version}">
+<div id="page-menu-root" data-project="${project.name}" data-title="${page.title}" data-page-id="${page.id}" data-version="${page.version}">
 <details id="page-actions" class="page-actions">
 <summary>操作</summary>
 <div class="page-actions-menu">

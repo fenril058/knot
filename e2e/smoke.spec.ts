@@ -176,6 +176,8 @@ test('page menu は表示時の version を送り、stale delete の競合を表
   expect(created.ok()).toBe(true);
 
   await page.goto(`/e2e/${title}`);
+  const pageId = await page.locator('#page-menu-root').getAttribute('data-page-id');
+  if (pageId === null) throw new Error('page menu pageId is missing');
   const updated = await page.request.post(`/api/knot/pages/e2e/${title}/commits`, {
     headers: { 'X-Knot-Client': 'e2e' },
     data: {
@@ -198,7 +200,7 @@ test('page menu は表示時の version を送り、stale delete の競合を表
 
   const response = await deleteResponse;
   expect(response.status()).toBe(409);
-  expect(response.request().postDataJSON()).toEqual({ baseVersion: 1 });
+  expect(response.request().postDataJSON()).toEqual({ pageId, baseVersion: 1 });
   await expect(page.locator('#delete-error')).toHaveText('他の編集と競合しました。ページを再読み込みしてください');
   await expect(page).toHaveURL(`/e2e/${title}`);
   const current = await page.request.get(`/api/pages/e2e/${title}`);

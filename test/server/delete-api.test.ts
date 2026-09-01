@@ -9,11 +9,11 @@ void test('DELETE でページが消え、以後の GET は 404', async () => {
   await s.addAccount('alice', 'pw12345678');
   const cookie = await s.login('alice', 'pw12345678');
   const project = await s.storage.ensureProject('proj', s.clock.t);
-  await seedPage(s.storage, project.id, 'Doomed', ['x'], s.clock.t);
+  const pageId = await seedPage(s.storage, project.id, 'Doomed', ['x'], s.clock.t);
   const res = await s.request('/api/knot/pages/proj/Doomed', {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ baseVersion: 1 }),
+    body: JSON.stringify({ pageId, baseVersion: 1 }),
   }, cookie);
   assert.equal(res.status, 200);
   const body = await res.json();
@@ -22,7 +22,7 @@ void test('DELETE でページが消え、以後の GET は 404', async () => {
   assert.equal((await s.request('/api/knot/pages/proj/Doomed', {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ baseVersion: 2 }),
+    body: JSON.stringify({ pageId, baseVersion: 2 }),
   }, cookie)).status, 404);
 });
 
@@ -48,7 +48,7 @@ void test('stale な baseVersion の DELETE は 409 になり最新ページを�
   const stale = await s.request('/api/knot/pages/proj/Doomed', {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ baseVersion: 1 }),
+    body: JSON.stringify({ pageId, baseVersion: 1 }),
   }, cookie);
 
   assert.equal(stale.status, 409);
@@ -62,6 +62,45 @@ void test('stale な baseVersion の DELETE は 409 になり最新ページを�
   assert.deepEqual(current!.lines.map((line) => line.text), ['Doomed', 'version 2']);
 });
 
+void test('旧タイトルの再利用後も pageId で元ページを追跡し、別ページを削除しない', async () => {
+  const s = await makeServer();
+  await s.addAccount('alice', 'pw12345678');
+  const cookie = await s.login('alice', 'pw12345678');
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  const originalId = await seedPage(s.storage, project.id, 'Old', ['original'], s.clock.t);
+  const renamed = await s.storage.renamePage({
+    projectId: project.id,
+    pageId: originalId,
+    baseVersion: 1,
+    newTitle: 'New',
+    rewriteLinks: false,
+    actorId: 'u',
+    now: s.clock.t + 1,
+  });
+  assert.equal(renamed.kind, 'applied');
+  const replacementId = await seedPage(s.storage, project.id, 'Old', ['replacement'], s.clock.t + 2);
+
+  const stale = await s.request('/api/knot/pages/proj/Old', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pageId: originalId, baseVersion: 1 }),
+  }, cookie);
+
+  assert.equal(stale.status, 409);
+  const conflict = await stale.json();
+  assert.equal(conflict.reason, 'version');
+  assert.equal(conflict.page.id, originalId);
+  assert.equal(conflict.page.title, 'New');
+  assert.equal(conflict.page.version, 2);
+  const original = await s.storage.getPageById(originalId);
+  assert.equal(original!.deleted, false);
+  assert.equal(original!.version, 2);
+  const replacement = await s.storage.getPageById(replacementId);
+  assert.equal(replacement!.deleted, false);
+  assert.equal(replacement!.version, 1);
+  assert.deepEqual(replacement!.lines.map((line) => line.text), ['Old', 'replacement']);
+});
+
 void test('DELETE は非負整数の baseVersion を必須にする', async () => {
   const s = await makeServer();
   await s.addAccount('alice', 'pw12345678');
@@ -69,7 +108,17 @@ void test('DELETE は非負整数の baseVersion を必須にする', async () =
   const project = await s.storage.ensureProject('proj', s.clock.t);
   const pageId = await seedPage(s.storage, project.id, 'Doomed', ['keep me'], s.clock.t);
 
-  for (const body of [undefined, {}, { baseVersion: '1' }, { baseVersion: -1 }, { baseVersion: 1.5 }]) {
+  for (const body of [
+    undefined,
+    {},
+    { baseVersion: 1 },
+    { pageId },
+    { pageId: '', baseVersion: 1 },
+    { pageId: 1, baseVersion: 1 },
+    { pageId, baseVersion: '1' },
+    { pageId, baseVersion: -1 },
+    { pageId, baseVersion: 1.5 },
+  ]) {
     const response = await s.request('/api/knot/pages/proj/Doomed', {
       method: 'DELETE',
       headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },

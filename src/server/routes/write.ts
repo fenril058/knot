@@ -104,26 +104,31 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
   app.delete('/api/knot/pages/:project/:title', async (c) => {
     const body = await readJson(c);
     if (
-      !body || typeof body.baseVersion !== 'number' ||
+      !body || typeof body.pageId !== 'string' || body.pageId === '' ||
+      typeof body.baseVersion !== 'number' ||
       !Number.isInteger(body.baseVersion) || body.baseVersion < 0
     ) {
-      return jsonError(c, 400, 'bad_request', { message: 'baseVersion required' });
+      return jsonError(c, 400, 'bad_request', { message: 'pageId and baseVersion required' });
     }
     const project = await resolveProject(storage, c);
     if (!project) return jsonError(c, 404, 'not_found');
-    const page = await resolvePage(storage, project.id, c);
-    if (!page) return jsonError(c, 404, 'not_found');
-    const result = await storage.deletePage({
-      projectId: project.id,
-      pageId: page.id,
-      baseVersion: body.baseVersion,
-      actorId: c.get('actorId'),
-      now: now(),
-    });
-    if (result.kind === 'conflict') {
-      return jsonError(c, 409, 'conflict', { reason: result.reason, page: pageToJson(result.page) });
+    if (safeDecode(c.req.param('title')) === null) return jsonError(c, 404, 'not_found');
+    try {
+      const result = await storage.deletePage({
+        projectId: project.id,
+        pageId: body.pageId,
+        baseVersion: body.baseVersion,
+        actorId: c.get('actorId'),
+        now: now(),
+      });
+      if (result.kind === 'conflict') {
+        return jsonError(c, 409, 'conflict', { reason: result.reason, page: pageToJson(result.page) });
+      }
+      return c.json({ deleted: true, version: result.version });
+    } catch (e) {
+      if (e instanceof BadCommitError) return jsonError(c, 404, 'not_found');
+      throw e;
     }
-    return c.json({ deleted: true, version: result.version });
   });
 
   app.post('/api/knot/pages/:project/:title/rename', async (c) => {
