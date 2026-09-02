@@ -102,6 +102,10 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
   });
 
   app.delete('/api/knot/pages/:project/:title', async (c) => {
+    const project = await resolveProject(storage, c);
+    if (!project) return jsonError(c, 404, 'not_found');
+    // title は route 形状と percent-encoding の検証にだけ使い、削除対象は body の pageId で識別する。
+    if (safeDecode(c.req.param('title')) === null) return jsonError(c, 404, 'not_found');
     const body = await readJson(c);
     if (
       !body || typeof body.pageId !== 'string' || body.pageId === '' ||
@@ -110,9 +114,6 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     ) {
       return jsonError(c, 400, 'bad_request', { message: 'pageId and baseVersion required' });
     }
-    const project = await resolveProject(storage, c);
-    if (!project) return jsonError(c, 404, 'not_found');
-    if (safeDecode(c.req.param('title')) === null) return jsonError(c, 404, 'not_found');
     try {
       const result = await storage.deletePage({
         projectId: project.id,

@@ -166,6 +166,17 @@ void test('delete は同じ application transaction 内で baseVersion を検証
   assert.equal(repository.pages.get('page')?.deleted, true);
   assert.deepEqual(repository.pages.get('page')?.lines, []);
   assert.deepEqual(repository.mutations.at(-1)?.commit.ops.map((op) => op.type), ['delete', 'delete']);
+
+  const deletedConflict = deletePage(repository, {
+    projectId: 'project',
+    pageId: 'page',
+    baseVersion: 2,
+    actorId: 'actor',
+    now: now + 4,
+  });
+  assert.equal(deletedConflict.kind, 'conflict');
+  assert.equal(deletedConflict.kind === 'conflict' ? deletedConflict.page.version : 0, 3);
+  assert.equal(deletedConflict.kind === 'conflict' ? deletedConflict.page.deleted : false, true);
 });
 
 void test('rename と逆リンク書き換えを一つの application transaction で適用する', () => {

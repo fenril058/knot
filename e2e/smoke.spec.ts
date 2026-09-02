@@ -193,7 +193,7 @@ test('page menu は表示時の version を送り、stale delete の競合を表
     && response.request().method() === 'DELETE'
   );
   await page.locator('#page-actions > summary').click();
-  await page.getByRole('button', { name: '削除', exact: true }).first().click();
+  await page.locator('#delete-button').click();
   const dialog = page.locator('#delete-dialog');
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: '削除', exact: true }).click();

@@ -19,11 +19,16 @@ void test('DELETE でページが消え、以後の GET は 404', async () => {
   const body = await res.json();
   assert.equal(body.deleted, true);
   assert.equal((await s.request('/api/pages/proj/Doomed', {}, cookie)).status, 404);
-  assert.equal((await s.request('/api/knot/pages/proj/Doomed', {
+  const stale = await s.request('/api/knot/pages/proj/Doomed', {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pageId, baseVersion: 2 }),
-  }, cookie)).status, 404);
+    body: JSON.stringify({ pageId, baseVersion: 1 }),
+  }, cookie);
+  assert.equal(stale.status, 409);
+  const conflict = await stale.json();
+  assert.equal(conflict.reason, 'version');
+  assert.equal(conflict.page.id, pageId);
+  assert.equal(conflict.page.version, 2);
 });
 
 void test('stale な baseVersion の DELETE は 409 になり最新ページを残す', async () => {
@@ -130,4 +135,16 @@ void test('DELETE は非負整数の baseVersion を必須にする', async () =
   const current = await s.storage.getPageById(pageId);
   assert.equal(current!.deleted, false);
   assert.equal(current!.version, 1);
+});
+
+void test('存在しない project は DELETE body より先に 404 になる', async () => {
+  const s = await makeServer();
+  await s.addAccount('alice', 'pw12345678');
+  const cookie = await s.login('alice', 'pw12345678');
+
+  const response = await s.request('/api/knot/pages/missing/Doomed', {
+    method: 'DELETE',
+  }, cookie);
+
+  assert.equal(response.status, 404);
 });

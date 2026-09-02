@@ -160,9 +160,10 @@ export function deletePage(
   const { projectId, pageId, baseVersion, actorId, now } = input;
   return repository.transaction((tx) => {
     const page = tx.getPageById(pageId);
-    if (page === null || page.deleted) throw new BadCommitError(`unknown page: ${pageId}`);
+    if (page === null) throw new BadCommitError(`unknown page: ${pageId}`);
     if (page.projectId !== projectId) throw new BadCommitError(`page ${pageId} is not in project ${projectId}`);
     if (baseVersion !== page.version) return { kind: 'conflict', reason: 'version', page };
+    if (page.deleted) throw new BadCommitError(`unknown page: ${pageId}`);
     const ops: LineOp[] = page.lines.map((line) => ({ type: 'delete', id: line.id }));
     const result = applyCommit(tx, {
       projectId,
