@@ -116,6 +116,18 @@ export type CommitResult =
   | { kind: 'applied'; version: number }
   | { kind: 'conflict'; reason: 'version' | 'title'; page: PageSnapshot };
 
+export type DeleteInput = {
+  projectId: string;
+  pageId: string;
+  baseVersion: number;
+  actorId: string;
+  now: number;
+};
+
+export type DeleteResult =
+  | { kind: 'applied'; version: number }
+  | { kind: 'conflict'; reason: 'version'; page: PageSnapshot };
+
 export type RenameInput = {
   projectId: string;
   pageId: string;
@@ -226,8 +238,8 @@ export interface Storage extends AttachmentRepository {
   listKnownPages(projectId: string): Promise<{ titleLc: string; title: string; image: string | null }[]>;
   setPinned(pageId: string, pinned: boolean): Promise<void>;
   commit(input: CommitInput): Promise<CommitResult>;
-  /** 全行 delete のコミットとしてページを削除する。不在・削除済みは BadCommitError */
-  deletePage(projectId: string, pageId: string, actorId: string, now: number): Promise<{ version: number }>;
+  /** baseVersion が current version と一致するとき、全行 delete のコミットとしてページを削除する */
+  deletePage(input: DeleteInput): Promise<DeleteResult>;
   /** タイトル変更 + 任意でリンク元書き換え。単一トランザクションで全部成功か全部失敗 */
   renamePage(input: RenameInput): Promise<RenameResult>;
   importPage(input: ImportPageInput): Promise<ImportPageResult>;

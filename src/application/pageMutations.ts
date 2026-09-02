@@ -10,6 +10,8 @@ import {
   StorageError,
   type CommitInput,
   type CommitResult,
+  type DeleteInput,
+  type DeleteResult,
   type ImportPageInput,
   type ImportPageResult,
   type PageSnapshot,
@@ -153,27 +155,27 @@ export function commitPage(repository: PageRepository, input: CommitInput): Comm
 
 export function deletePage(
   repository: PageRepository,
-  projectId: string,
-  pageId: string,
-  actorId: string,
-  now: number,
-): { version: number } {
+  input: DeleteInput,
+): DeleteResult {
+  const { projectId, pageId, baseVersion, actorId, now } = input;
   return repository.transaction((tx) => {
     const page = tx.getPageById(pageId);
-    if (page === null || page.deleted) throw new BadCommitError(`unknown page: ${pageId}`);
+    if (page === null) throw new BadCommitError(`unknown page: ${pageId}`);
     if (page.projectId !== projectId) throw new BadCommitError(`page ${pageId} is not in project ${projectId}`);
+    if (baseVersion !== page.version) return { kind: 'conflict', reason: 'version', page };
+    if (page.deleted) throw new BadCommitError(`unknown page: ${pageId}`);
     const ops: LineOp[] = page.lines.map((line) => ({ type: 'delete', id: line.id }));
     const result = applyCommit(tx, {
       projectId,
       pageId,
       commitId: ulid(now * 1000),
-      baseVersion: page.version,
+      baseVersion,
       ops,
       actorId,
       now,
     });
     if (result.kind !== 'applied') throw new StorageError('unexpected conflict in deletePage');
-    return { version: result.version };
+    return result;
   });
 }
 

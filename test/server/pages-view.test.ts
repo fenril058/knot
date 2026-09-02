@@ -90,7 +90,10 @@ void test('閲覧画面に操作メニューと複製・リネーム・削除 di
   const res = await s.request('/proj/Alpha', {}, cookie);
   const body = await res.text();
 
-  assert.match(body, /id="page-menu-root"[^>]*data-project="proj"[^>]*data-title="Alpha"[^>]*data-version="1"/);
+  assert.match(
+    body,
+    /id="page-menu-root"[^>]*data-project="proj"[^>]*data-title="Alpha"[^>]*data-page-id="[^"]+"[^>]*data-version="1"/,
+  );
   assert.match(body, /<details[^>]*id="page-actions"/);
   assert.match(body, /<dialog[^>]*id="duplicate-dialog"/);
   assert.match(body, /<dialog[^>]*id="rename-dialog"/);

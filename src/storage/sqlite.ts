@@ -23,6 +23,8 @@ import {
   type CommitResult,
   type CreateAttachmentResult,
   type CreateProjectResult,
+  type DeleteInput,
+  type DeleteResult,
   type ImportPageInput,
   type ImportPageResult,
   type ListPageSummariesOptions,
@@ -921,8 +923,8 @@ export class SqliteStorage implements Storage {
     return commitPage(this.#pageRepository(), input);
   }
 
-  async deletePage(projectId: string, pageId: string, actorId: string, now: number): Promise<{ version: number }> {
-    return deletePageApplication(this.#pageRepository(), projectId, pageId, actorId, now);
+  async deletePage(input: DeleteInput): Promise<DeleteResult> {
+    return deletePageApplication(this.#pageRepository(), input);
   }
 
   async renamePage(input: RenameInput): Promise<RenameResult> {
