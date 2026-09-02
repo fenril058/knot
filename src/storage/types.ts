@@ -167,6 +167,14 @@ export class BadCommitError extends Error {
   }
 }
 
+/** 呼び出し元が指定した pageId のページがそのプロジェクトに無い。HTTP では 404 に対応する。 */
+export class UnknownPageError extends BadCommitError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UnknownPageError';
+  }
+}
+
 export class StorageError extends Error {
   constructor(message: string) {
     super(message);
