@@ -119,7 +119,9 @@ void test('旧タイトルの再利用後も pageId で元ページを追跡し�
 
 void test('形式不正は 400', async () => {
   const { put } = await setup();
-  assert.equal((await put('Doc', { baseVersion: 0, text: '' })).status, 400);
+  const emptyCreate = await put('Doc', { baseVersion: 0, text: '' });
+  assert.equal(emptyCreate.status, 400);
+  assert.equal((await emptyCreate.json()).message, 'baseVersion and non-empty text required');
   assert.equal((await put('Doc', { baseVersion: 0 })).status, 400);
   assert.equal((await put('Doc', { baseVersion: -1, text: 'Doc' })).status, 400);
   assert.equal((await put('Doc', { pageId: '', baseVersion: 1, text: 'Doc' })).status, 400);
@@ -127,7 +129,9 @@ void test('形式不正は 400', async () => {
   // 新規作成で先頭行が URL タイトルと不一致
   assert.equal((await put('Doc', { baseVersion: 0, text: 'Other\nbody' })).status, 400);
   // 既存更新は pageId 必須
-  assert.equal((await put('Ghost', { baseVersion: 2, text: 'Ghost' })).status, 400);
+  const missingPageId = await put('Ghost', { baseVersion: 2, text: 'Ghost' });
+  assert.equal(missingPageId.status, 400);
+  assert.equal((await missingPageId.json()).message, 'pageId required for existing page');
 });
 
 void test('不在と別プロジェクトの pageId は 404', async () => {

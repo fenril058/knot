@@ -230,13 +230,17 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     const body = await readJson(c);
     if (!body) return jsonError(c, 400, 'bad_request', { message: 'invalid JSON' });
     const { pageId, baseVersion, text } = body;
+    if (pageId !== undefined && (typeof pageId !== 'string' || pageId === '')) {
+      return jsonError(c, 400, 'bad_request', { message: 'pageId must be a non-empty string' });
+    }
     if (
-      (pageId !== undefined && (typeof pageId !== 'string' || pageId === '')) ||
       typeof baseVersion !== 'number' || !Number.isInteger(baseVersion) || baseVersion < 0 ||
-      typeof text !== 'string' || text === '' ||
-      (baseVersion !== 0 && pageId === undefined)
+      typeof text !== 'string' || text === ''
     ) {
-      return jsonError(c, 400, 'bad_request', { message: 'pageId, baseVersion and non-empty text required' });
+      return jsonError(c, 400, 'bad_request', { message: 'baseVersion and non-empty text required' });
+    }
+    if (baseVersion !== 0 && pageId === undefined) {
+      return jsonError(c, 400, 'bad_request', { message: 'pageId required for existing page' });
     }
 
     const rawTitle = safeDecode(c.req.param('title'));
