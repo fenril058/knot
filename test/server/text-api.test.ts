@@ -127,7 +127,9 @@ void test('形式不正は 400', async () => {
   assert.equal((await put('Doc', { pageId: '', baseVersion: 1, text: 'Doc' })).status, 400);
   assert.equal((await put('Doc', { pageId: 1, baseVersion: 1, text: 'Doc' })).status, 400);
   // 新規作成で先頭行が URL タイトルと不一致
-  assert.equal((await put('Doc', { baseVersion: 0, text: 'Other\nbody' })).status, 400);
+  const titleMismatch = await put('Doc', { baseVersion: 0, text: 'Other\nbody' });
+  assert.equal(titleMismatch.status, 400);
+  assert.equal((await titleMismatch.json()).error, 'bad_commit');
   // 既存更新は pageId 必須
   const missingPageId = await put('Ghost', { baseVersion: 2, text: 'Ghost' });
   assert.equal(missingPageId.status, 400);

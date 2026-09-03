@@ -181,7 +181,10 @@ export function replacePageText(
     }
 
     const ops = diffLines(page?.lines ?? [], newTexts, () => ulid(now * 1000));
-    if (ops.length === 0) return { kind: 'applied', version: page!.version, commitId: null };
+    if (ops.length === 0) {
+      if (page === null) throw new StorageError('new page unexpectedly produced no operations');
+      return { kind: 'applied', version: page.version, commitId: null };
+    }
 
     const commitId = ulid(now * 1000);
     const result = applyCommit(tx, {

@@ -259,7 +259,7 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
       return commitResultToResponse(c, result);
     } catch (e) {
       if (e instanceof UnknownPageError) return jsonError(c, 404, 'not_found');
-      if (e instanceof BadCommitError) return jsonError(c, 400, 'bad_request', { message: e.message });
+      if (e instanceof BadCommitError) return jsonError(c, 400, 'bad_commit', { message: e.message });
       throw e;
     }
   });
