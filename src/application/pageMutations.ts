@@ -8,6 +8,7 @@ import { validateImportLines } from './importValidation.ts';
 import {
   BadCommitError,
   StorageError,
+  UnknownPageError,
   type CommitInput,
   type CommitResult,
   type DeleteInput,
@@ -182,12 +183,15 @@ export function deletePage(
 export function renamePage(repository: PageRepository, input: RenameInput): RenameResult {
   const { projectId, pageId, baseVersion, newTitle, rewriteLinks, actorId, now } = input;
   return repository.transaction((tx) => {
+    // URL のタイトルではなく呼び出し元が指定した pageId で対象を固定し、version 照合まで同じ transaction で行う。
     const page = tx.getPageById(pageId);
-    if (page === null || page.deleted) throw new BadCommitError(`unknown page: ${pageId}`);
-    if (page.projectId !== projectId) throw new BadCommitError(`page ${pageId} is not in project ${projectId}`);
+    if (page === null) throw new UnknownPageError(`unknown page: ${pageId}`);
+    if (page.projectId !== projectId) throw new UnknownPageError(`page ${pageId} is not in project ${projectId}`);
     if (newTitle === '') throw new BadCommitError('title must not be empty');
-    if (newTitle === page.title) throw new BadCommitError('title is unchanged');
+    // 他クライアントの削除で version が進んだ場合も、利用者には未確認の変更との競合として返す。
     if (baseVersion !== page.version) return { kind: 'conflict', reason: 'version', page };
+    if (page.deleted) throw new UnknownPageError(`unknown page: ${pageId}`);
+    if (newTitle === page.title) throw new BadCommitError('title is unchanged');
 
     const titleCommit = applyCommit(tx, {
       projectId,

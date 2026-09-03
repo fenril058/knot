@@ -92,7 +92,7 @@ rename.form.addEventListener('submit', (event) => {
       const response = await fetch(`/api/knot/pages/${encodeURIComponent(project)}/${encodeTitleForUrl(title)}/rename`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Knot-Client': 'page-menu' },
-        body: JSON.stringify({ newTitle, baseVersion: version, rewriteLinks: rewriteLinks.checked }),
+        body: JSON.stringify({ pageId, newTitle, baseVersion: version, rewriteLinks: rewriteLinks.checked }),
       });
       if (!response.ok) {
         return showError(rename, response.status === 409

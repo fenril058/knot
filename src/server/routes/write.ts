@@ -10,9 +10,9 @@ import { InvalidExportError } from '../../core/cosense.ts';
 import { exportCosense } from '../../storage/export.ts';
 import { importCosense } from '../../application/importCosense.ts';
 import { ATTACHMENT_IMPORT_TIMEOUT_MS } from '../../application/importAttachments.ts';
-import { BadCommitError, StorageError, type CommitResult } from '../../storage/types.ts';
+import { BadCommitError, StorageError, UnknownPageError, type CommitResult } from '../../storage/types.ts';
 import type { AppDeps } from '../app.ts';
-import { jsonError, pageToJson, resolvePage, resolveProject, safeDecode, type ApiEnv } from '../http.ts';
+import { jsonError, pageToJson, resolveProject, safeDecode, type ApiEnv } from '../http.ts';
 
 function isLineOp(op: unknown): op is LineOp {
   if (typeof op !== 'object' || op === null) return false;
@@ -135,14 +135,15 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
   app.post('/api/knot/pages/:project/:title/rename', async (c) => {
     const project = await resolveProject(storage, c);
     if (!project) return jsonError(c, 404, 'not_found');
-    const page = await resolvePage(storage, project.id, c);
-    if (!page) return jsonError(c, 404, 'not_found');
+    // title は route 形状と percent-encoding の検証にだけ使い、rename 対象は body の pageId で識別する。
+    if (safeDecode(c.req.param('title')) === null) return jsonError(c, 404, 'not_found');
     const body = await readJson(c);
     if (
-      !body || typeof body.newTitle !== 'string' ||
+      !body || typeof body.pageId !== 'string' || body.pageId === '' ||
+      typeof body.newTitle !== 'string' ||
       typeof body.baseVersion !== 'number' || !Number.isInteger(body.baseVersion) || body.baseVersion < 0
     ) {
-      return jsonError(c, 400, 'bad_request', { message: 'baseVersion and newTitle required' });
+      return jsonError(c, 400, 'bad_request', { message: 'pageId, baseVersion and newTitle required' });
     }
     if (body.rewriteLinks !== undefined && typeof body.rewriteLinks !== 'boolean') {
       return jsonError(c, 400, 'bad_request', { message: 'rewriteLinks must be a boolean' });
@@ -150,7 +151,7 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     const rewriteLinks = body.rewriteLinks === true;
     try {
       const result = await storage.renamePage({
-        projectId: project.id, pageId: page.id, baseVersion: body.baseVersion, newTitle: body.newTitle,
+        projectId: project.id, pageId: body.pageId, baseVersion: body.baseVersion, newTitle: body.newTitle,
         rewriteLinks, actorId: c.get('actorId'), now: now(),
       });
       if (result.kind === 'conflict') {
@@ -162,6 +163,7 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
         rewritten: result.rewritten.map((r) => ({ id: r.pageId, title: r.title, version: r.version })),
       });
     } catch (e) {
+      if (e instanceof UnknownPageError) return jsonError(c, 404, 'not_found');
       if (e instanceof BadCommitError) return jsonError(c, 400, 'bad_request', { message: e.message });
       throw e;
     }

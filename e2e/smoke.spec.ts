@@ -208,6 +208,71 @@ test('page menu は表示時の version を送り、stale delete の競合を表
   expect((await current.json()).lines.map((line: { text: string }) => line.text)).toEqual([title, 'version 2']);
 });
 
+test('page menu は表示時の pageId を送り、旧タイトルが再利用された stale rename を拒否する', async ({ page }) => {
+  await loginProjectE2e(page);
+  const oldTitle = 'stale-rename-menu-old';
+  const newTitle = 'stale-rename-menu-new';
+  const created = await page.request.post(`/api/knot/pages/e2e/${oldTitle}/commits`, {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: {
+      commitId: 'stale-rename-create',
+      baseVersion: 0,
+      ops: [{ type: 'insert', id: 'stale-rename-title', after: '_head', text: oldTitle }],
+    },
+  });
+  expect(created.ok()).toBe(true);
+
+  await page.goto(`/e2e/${oldTitle}`);
+  const pageId = await page.locator('#page-menu-root').getAttribute('data-page-id');
+  if (pageId === null) throw new Error('page menu pageId is missing');
+
+  const renamed = await page.request.post(`/api/knot/pages/e2e/${oldTitle}/rename`, {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: { pageId, baseVersion: 1, newTitle, rewriteLinks: false },
+  });
+  expect(renamed.ok()).toBe(true);
+  const reused = await page.request.post(`/api/knot/pages/e2e/${oldTitle}/commits`, {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: {
+      commitId: 'stale-rename-reuse',
+      baseVersion: 0,
+      ops: [
+        { type: 'insert', id: 'stale-rename-reused-title', after: '_head', text: oldTitle },
+        { type: 'insert', id: 'stale-rename-reused-body', after: 'stale-rename-reused-title', text: 'reused' },
+      ],
+    },
+  });
+  expect(reused.ok()).toBe(true);
+
+  const renameResponse = page.waitForResponse((response) =>
+    response.url().endsWith(`/api/knot/pages/e2e/${oldTitle}/rename`)
+    && response.request().method() === 'POST'
+  );
+  await page.locator('#page-actions > summary').click();
+  await page.locator('#rename-button').click();
+  const dialog = page.locator('#rename-dialog');
+  await expect(dialog).toBeVisible();
+  await page.locator('#rename-title').fill('stale-rename-menu-hijacked');
+  await dialog.getByRole('button', { name: 'リネーム', exact: true }).click();
+
+  const response = await renameResponse;
+  expect(response.status()).toBe(409);
+  expect(response.request().postDataJSON()).toEqual({
+    pageId,
+    newTitle: 'stale-rename-menu-hijacked',
+    baseVersion: 1,
+    rewriteLinks: false,
+  });
+  await expect(page.locator('#rename-error')).toHaveText('他の編集と競合しました。ページを再読み込みしてください');
+  await expect(page).toHaveURL(`/e2e/${oldTitle}`);
+  const reusedPage = await page.request.get(`/api/pages/e2e/${oldTitle}`);
+  expect(reusedPage.ok()).toBe(true);
+  expect((await reusedPage.json()).lines.map((line: { text: string }) => line.text)).toEqual([oldTitle, 'reused']);
+  const renamedPage = await page.request.get(`/api/pages/e2e/${newTitle}`);
+  expect(renamedPage.ok()).toBe(true);
+  expect((await renamedPage.json()).title).toBe(newTitle);
+});
+
 test('400 で保存を拒否された後も追加入力して保存できる', async ({ page }) => {
   const login = await page.request.post('/api/knot/session', {
     headers: { 'X-Knot-Client': 'e2e' },

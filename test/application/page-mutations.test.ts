@@ -200,6 +200,48 @@ void test('rename と逆リンク書き換えを一つの application transactio
   assert.equal(repository.pages.get('source')?.version, 2);
 });
 
+void test('stale な rename は旧タイトルを再利用した別ページも逆リンクも変更しない', () => {
+  const repository = new FakePageRepository();
+  createPage(repository, 'target', 'Old', ['body']);
+  createPage(repository, 'source', 'Source', ['[Old]']);
+  const applied = renamePage(repository, {
+    projectId: 'project',
+    pageId: 'target',
+    baseVersion: 1,
+    newTitle: 'New',
+    rewriteLinks: false,
+    actorId: 'actor',
+    now: now + 1,
+  });
+  assert.equal(applied.kind, 'applied');
+  createPage(repository, 'replacement', 'Old', ['replacement body']);
+  const transactionCount = repository.transactionCount;
+  const mutationCount = repository.mutations.length;
+
+  const stale = renamePage(repository, {
+    projectId: 'project',
+    pageId: 'target',
+    baseVersion: 1,
+    newTitle: 'Renamed',
+    rewriteLinks: true,
+    actorId: 'actor',
+    now: now + 2,
+  });
+
+  assert.equal(stale.kind, 'conflict');
+  assert.equal(stale.kind === 'conflict' ? stale.reason : '', 'version');
+  assert.equal(stale.kind === 'conflict' ? stale.page.id : '', 'target');
+  assert.equal(stale.kind === 'conflict' ? stale.page.title : '', 'New');
+  assert.equal(stale.kind === 'conflict' ? stale.page.version : 0, 2);
+  assert.equal(repository.transactionCount, transactionCount + 1);
+  assert.equal(repository.mutations.length, mutationCount);
+  assert.equal(repository.pages.get('target')?.title, 'New');
+  assert.equal(repository.pages.get('replacement')?.title, 'Old');
+  assert.equal(repository.pages.get('replacement')?.version, 1);
+  assert.equal(repository.pages.get('source')?.lines[1]?.text, '[Old]');
+  assert.equal(repository.pages.get('source')?.version, 1);
+});
+
 void test('逆リンク commit の失敗時は rename 全体を rollback する', () => {
   const repository = new FakePageRepository();
   createPage(repository, 'target', 'Old', ['body']);
