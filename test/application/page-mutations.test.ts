@@ -6,6 +6,7 @@ import {
   deletePage,
   derivePageData,
   importPage,
+  replacePageText,
   renamePage,
   type AppliedCommit,
   type PageMutation,
@@ -240,6 +241,46 @@ void test('stale な rename は旧タイトルを再利用した別ページも�
   assert.equal(repository.pages.get('replacement')?.version, 1);
   assert.equal(repository.pages.get('source')?.lines[1]?.text, '[Old]');
   assert.equal(repository.pages.get('source')?.version, 1);
+});
+
+void test('全文置換は pageId の取得と version 照合から保存までを一つの transaction で行う', () => {
+  const repository = new FakePageRepository();
+  createPage(repository, 'target', 'Old', ['original']);
+  const renamed = renamePage(repository, {
+    projectId: 'project',
+    pageId: 'target',
+    baseVersion: 1,
+    newTitle: 'New',
+    rewriteLinks: false,
+    actorId: 'actor',
+    now: now + 1,
+  });
+  assert.equal(renamed.kind, 'applied');
+  createPage(repository, 'replacement', 'Old', ['replacement']);
+  const transactionCount = repository.transactionCount;
+  const mutationCount = repository.mutations.length;
+
+  const stale = replacePageText(repository, {
+    projectId: 'project',
+    pageId: 'target',
+    urlTitleLc: 'old',
+    baseVersion: 1,
+    newTexts: ['Old', 'stale client overwrote this'],
+    actorId: 'actor',
+    now: now + 2,
+  });
+
+  assert.equal(repository.transactionCount, transactionCount + 1);
+  assert.equal(stale.kind, 'conflict');
+  assert.equal(stale.kind === 'conflict' ? stale.reason : '', 'version');
+  assert.equal(stale.kind === 'conflict' ? stale.page.id : '', 'target');
+  assert.equal(stale.kind === 'conflict' ? stale.page.title : '', 'New');
+  assert.equal(stale.kind === 'conflict' ? stale.page.version : 0, 2);
+  assert.equal(repository.mutations.length, mutationCount);
+  assert.deepEqual(repository.pages.get('target')?.lines.map((line) => line.text), ['New', 'original']);
+  assert.equal(repository.pages.get('target')?.version, 2);
+  assert.deepEqual(repository.pages.get('replacement')?.lines.map((line) => line.text), ['Old', 'replacement']);
+  assert.equal(repository.pages.get('replacement')?.version, 1);
 });
 
 void test('逆リンク commit の失敗時は rename 全体を rollback する', () => {

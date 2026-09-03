@@ -622,7 +622,7 @@ async function retryWithLease(
   }
   if (detail === null || detail.id !== target.pageId) return { result: { kind: 'conflict' } };
   try {
-    return { result: await ctx.client.putText(target.title, detail.version, target.canonical) };
+    return { result: await ctx.client.putText(target.title, target.pageId, detail.version, target.canonical) };
   } catch (e) {
     if (is401(e)) throw e;
     // 再試行 PUT の通信断: サーバには届いたが応答が失われた可能性があるため、
@@ -690,7 +690,12 @@ async function pushPage(ctx: PushContext, action: PushWriteAction): Promise<Page
   };
   let result;
   try {
-    result = await ctx.client.putText(target.title, action.kind === 'update' ? action.baseVersion : 0, target.canonical);
+    result = await ctx.client.putText(
+      target.title,
+      target.pageId,
+      action.kind === 'update' ? action.baseVersion : 0,
+      target.canonical,
+    );
   } catch (e) {
     if (is401(e)) throw e;
     // 通信断など結果不明: 再送せず本文一致で確認する

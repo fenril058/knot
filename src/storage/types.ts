@@ -116,6 +116,21 @@ export type CommitResult =
   | { kind: 'applied'; version: number }
   | { kind: 'conflict'; reason: 'version' | 'title'; page: PageSnapshot };
 
+export type ReplacePageTextInput = {
+  projectId: string;
+  /** null は、まだ pageId の無い新規作成を表す。 */
+  pageId: string | null;
+  urlTitleLc: string;
+  baseVersion: number;
+  newTexts: string[];
+  actorId: string;
+  now: number;
+};
+
+export type ReplacePageTextResult =
+  | { kind: 'applied'; version: number; commitId: string | null }
+  | { kind: 'conflict'; reason: 'version' | 'title'; page: PageSnapshot };
+
 export type DeleteInput = {
   projectId: string;
   pageId: string;
@@ -246,6 +261,8 @@ export interface Storage extends AttachmentRepository {
   listKnownPages(projectId: string): Promise<{ titleLc: string; title: string; image: string | null }[]>;
   setPinned(pageId: string, pinned: boolean): Promise<void>;
   commit(input: CommitInput): Promise<CommitResult>;
+  /** 既存ページは pageId で識別し、全文差分の作成から保存までを一つの transaction で行う。 */
+  replacePageText(input: ReplacePageTextInput): Promise<ReplacePageTextResult>;
   /** baseVersion が current version と一致するとき、全行 delete のコミットとしてページを削除する */
   deletePage(input: DeleteInput): Promise<DeleteResult>;
   /** タイトル変更 + 任意でリンク元書き換え。単一トランザクションで全部成功か全部失敗 */

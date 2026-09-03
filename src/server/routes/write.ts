@@ -3,7 +3,6 @@ import type { Hono } from 'hono';
 import type { Context } from 'hono';
 import { ulid } from '../../core/id.ts';
 import { applyOps } from '../../core/apply.ts';
-import { diffLines } from '../../core/diff.ts';
 import { OpsError, type LineOp } from '../../core/ops.ts';
 import { titleLc } from '../../core/title.ts';
 import { InvalidExportError } from '../../core/cosense.ts';
@@ -230,43 +229,33 @@ export function registerWriteRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     if (!project) return jsonError(c, 404, 'not_found');
     const body = await readJson(c);
     if (!body) return jsonError(c, 400, 'bad_request', { message: 'invalid JSON' });
-    const { baseVersion, text } = body;
+    const { pageId, baseVersion, text } = body;
     if (
+      (pageId !== undefined && (typeof pageId !== 'string' || pageId === '')) ||
       typeof baseVersion !== 'number' || !Number.isInteger(baseVersion) || baseVersion < 0 ||
-      typeof text !== 'string' || text === ''
+      typeof text !== 'string' || text === '' ||
+      (baseVersion !== 0 && pageId === undefined)
     ) {
-      return jsonError(c, 400, 'bad_request', { message: 'baseVersion and non-empty text required' });
+      return jsonError(c, 400, 'bad_request', { message: 'pageId, baseVersion and non-empty text required' });
     }
 
     const rawTitle = safeDecode(c.req.param('title'));
     if (rawTitle === null) return jsonError(c, 404, 'not_found');
-    const urlTitleLc = titleLc(rawTitle);
-    const newTexts = text.split('\n');
-    const page = await storage.getPageByTitle(project.id, urlTitleLc);
-    if (!page && baseVersion !== 0) return jsonError(c, 404, 'not_found');
-    // split は必ず 1 要素以上を返す。
-    if (!page && titleLc(newTexts[0]!) !== urlTitleLc) {
-      return jsonError(c, 400, 'bad_request', { message: 'first line must match the URL title' });
-    }
-    if (page && baseVersion !== page.version) {
-      return jsonError(c, 409, 'conflict', { reason: 'version', page: pageToJson(page) });
-    }
-
-    const currentLines = page ? page.lines : [];
-    const ops = diffLines(currentLines, newTexts, () => ulid(now() * 1000));
-    if (ops.length === 0) return c.json({ version: page!.version, commitId: null });
-
-    const commitId = ulid(now() * 1000);
     try {
-      const result = await storage.commit({
+      const result = await storage.replacePageText({
         projectId: project.id,
-        pageId: page ? page.id : ulid(now() * 1000),
-        commitId, baseVersion, ops, actorId: c.get('actorId'), now: now(),
+        pageId: typeof pageId === 'string' ? pageId : null,
+        urlTitleLc: titleLc(rawTitle),
+        baseVersion,
+        newTexts: text.split('\n'),
+        actorId: c.get('actorId'),
+        now: now(),
       });
-      if (result.kind === 'applied') return c.json({ version: result.version, commitId });
+      if (result.kind === 'applied') return c.json({ version: result.version, commitId: result.commitId });
       return commitResultToResponse(c, result);
     } catch (e) {
-      if (e instanceof BadCommitError) return jsonError(c, 400, 'bad_commit', { message: e.message });
+      if (e instanceof UnknownPageError) return jsonError(c, 404, 'not_found');
+      if (e instanceof BadCommitError) return jsonError(c, 400, 'bad_request', { message: e.message });
       throw e;
     }
   });

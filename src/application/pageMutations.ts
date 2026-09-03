@@ -1,4 +1,5 @@
 import { applyOps } from '../core/apply.ts';
+import { diffLines } from '../core/diff.ts';
 import { ulid } from '../core/id.ts';
 import { extractRefs, rewritePageLinks } from '../core/links.ts';
 import { OpsError, type Line, type LineOp } from '../core/ops.ts';
@@ -16,6 +17,8 @@ import {
   type ImportPageInput,
   type ImportPageResult,
   type PageSnapshot,
+  type ReplacePageTextInput,
+  type ReplacePageTextResult,
   type RenameInput,
   type RenameResult,
 } from '../storage/types.ts';
@@ -152,6 +155,46 @@ function applyCommit(tx: PageTransaction, input: CommitInput): CommitResult {
 
 export function commitPage(repository: PageRepository, input: CommitInput): CommitResult {
   return repository.transaction((tx) => applyCommit(tx, input));
+}
+
+export function replacePageText(
+  repository: PageRepository,
+  input: ReplacePageTextInput,
+): ReplacePageTextResult {
+  const { projectId, baseVersion, newTexts, actorId, now } = input;
+  return repository.transaction((tx) => {
+    let page: PageSnapshot | null = null;
+    let pageId: string;
+    if (input.pageId === null) {
+      if (baseVersion !== 0) throw new UnknownPageError('pageId required for existing page');
+      if (newTexts.length === 0 || titleLc(newTexts[0]!) !== input.urlTitleLc) {
+        throw new BadCommitError('first line must match the URL title');
+      }
+      pageId = ulid(now * 1000);
+    } else {
+      pageId = input.pageId;
+      page = tx.getPageById(pageId);
+      if (page === null) throw new UnknownPageError(`unknown page: ${pageId}`);
+      if (page.projectId !== projectId) throw new UnknownPageError(`page ${pageId} is not in project ${projectId}`);
+      if (baseVersion !== page.version) return { kind: 'conflict', reason: 'version', page };
+      if (page.deleted) throw new UnknownPageError(`unknown page: ${pageId}`);
+    }
+
+    const ops = diffLines(page?.lines ?? [], newTexts, () => ulid(now * 1000));
+    if (ops.length === 0) return { kind: 'applied', version: page!.version, commitId: null };
+
+    const commitId = ulid(now * 1000);
+    const result = applyCommit(tx, {
+      projectId,
+      pageId,
+      commitId,
+      baseVersion,
+      ops,
+      actorId,
+      now,
+    });
+    return result.kind === 'applied' ? { ...result, commitId } : result;
+  });
 }
 
 export function deletePage(
