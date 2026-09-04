@@ -148,6 +148,23 @@ void test('不在と別プロジェクトの pageId は 404', async () => {
   assert.deepEqual(untouched!.lines.map((line) => line.text), ['Elsewhere', 'keep me']);
 });
 
+void test('pageId 付きの baseVersion 0 は既存ページなら 409、不在ページなら 404', async () => {
+  const { s, project, put } = await setup();
+  const pageId = await seedPage(s.storage, project.id, 'Doc', ['keep me'], s.clock.t);
+
+  const existing = await put('Doc', { pageId, baseVersion: 0, text: 'Doc\noverwrite' });
+  assert.equal(existing.status, 409);
+  const conflict = await existing.json();
+  assert.equal(conflict.reason, 'version');
+  assert.equal(conflict.page.id, pageId);
+  assert.equal(conflict.page.version, 1);
+  assert.equal((await put('Ghost', { pageId: 'missing', baseVersion: 0, text: 'Ghost' })).status, 404);
+
+  const current = await s.storage.getPageById(pageId);
+  assert.equal(current!.version, 1);
+  assert.deepEqual(current!.lines.map((line) => line.text), ['Doc', 'keep me']);
+});
+
 void test('削除と競合した全文置換は version を先に照合し、最新 version なら 404', async () => {
   const { s, project, put } = await setup();
   const pageId = await seedPage(s.storage, project.id, 'Doomed', ['keep me'], s.clock.t);
