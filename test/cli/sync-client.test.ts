@@ -72,6 +72,7 @@ void test('getPage: 詳細を text に組み立てる。404 は null', async () 
 });
 
 void test('putText: X-Knot-Client を送り、200 は ok、409 は conflict', async () => {
+  const bodies: unknown[] = [];
   const client = makeSyncClient({
     ...opts,
     fetchFn: fakeFetch((url, init) => {
@@ -81,11 +82,16 @@ void test('putText: X-Knot-Client を送り、200 は ok、409 は conflict', as
       assert.equal(typeof init?.body, 'string');
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       const body = JSON.parse(init?.body as string) as { baseVersion: number };
+      bodies.push(body);
       return body.baseVersion === 3 ? json(200, { version: 4, commitId: 'c' }) : json(409, { error: 'conflict' });
     }),
   });
-  assert.deepEqual(await client.putText('Alpha', 3, 'Alpha\nbody'), { kind: 'ok', version: 4 });
-  assert.deepEqual(await client.putText('Alpha', 1, 'Alpha\nbody'), { kind: 'conflict' });
+  assert.deepEqual(await client.putText('Alpha', 'p1', 3, 'Alpha\nbody'), { kind: 'ok', version: 4 });
+  assert.deepEqual(await client.putText('Alpha', null, 0, 'Alpha\nbody'), { kind: 'conflict' });
+  assert.deepEqual(bodies, [
+    { pageId: 'p1', baseVersion: 3, text: 'Alpha\nbody' },
+    { baseVersion: 0, text: 'Alpha\nbody' },
+  ]);
 });
 
 void test('401 は認証エラーとして SyncHttpError(status=401)', async () => {

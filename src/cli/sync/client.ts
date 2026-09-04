@@ -16,7 +16,7 @@ export class SyncHttpError extends Error {
 export type SyncClient = {
   listPages(): Promise<PageEntry[]>;
   getPage(title: string): Promise<RemotePage | null>;
-  putText(title: string, baseVersion: number, text: string): Promise<PutTextResult>;
+  putText(title: string, pageId: string | null, baseVersion: number, text: string): Promise<PutTextResult>;
 };
 
 export function makeSyncClient(opts: {
@@ -76,14 +76,19 @@ export function makeSyncClient(opts: {
     return { id: body.id, title: body.title, version: body.version, text: body.lines.map((l) => l.text).join('\n') };
   };
 
-  const putText = async (title: string, baseVersion: number, text: string): Promise<PutTextResult> => {
+  const putText = async (
+    title: string,
+    pageId: string | null,
+    baseVersion: number,
+    text: string,
+  ): Promise<PutTextResult> => {
     const res = await fetchFn(
       `${opts.baseUrl}/api/knot/pages/${projectSeg}/${encodeTitleForUrl(title)}/text`,
       {
         method: 'PUT',
         redirect: 'error',
         headers: { ...authHeaders, 'X-Knot-Client': 'knot-sync', 'content-type': 'application/json' },
-        body: JSON.stringify({ baseVersion, text }),
+        body: JSON.stringify(pageId === null ? { baseVersion, text } : { pageId, baseVersion, text }),
       },
     );
     if (res.status === 401) throw new SyncHttpError('unauthorized: check API token', 401);

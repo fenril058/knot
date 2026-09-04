@@ -4,6 +4,7 @@ import {
   deletePage as deletePageApplication,
   derivePageData,
   importPage as importPageApplication,
+  replacePageText as replacePageTextApplication,
   renamePage as renamePageApplication,
   type PageMutation,
   type PageRepository,
@@ -37,6 +38,8 @@ import {
   type Project,
   type RelatedPage,
   type RelatedPages,
+  type ReplacePageTextInput,
+  type ReplacePageTextResult,
   type RenameInput,
   type RenameResult,
   type SearchHit,
@@ -921,6 +924,10 @@ export class SqliteStorage implements Storage {
 
   async commit(input: CommitInput): Promise<CommitResult> {
     return commitPage(this.#pageRepository(), input);
+  }
+
+  async replacePageText(input: ReplacePageTextInput): Promise<ReplacePageTextResult> {
+    return replacePageTextApplication(this.#pageRepository(), input);
   }
 
   async deletePage(input: DeleteInput): Promise<DeleteResult> {
