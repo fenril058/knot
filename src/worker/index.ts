@@ -16,10 +16,12 @@ function application(serializedConfig: string): Hono<ApiEnv> {
 
 export default {
   async fetch(request: Request, env: Env, executionContext: ExecutionContext): Promise<Response> {
+    let app: Hono<ApiEnv>;
     try {
-      return await application(env.KNOT_ACCESS_CONFIG).fetch(request, env, executionContext);
+      app = application(env.KNOT_ACCESS_CONFIG);
     } catch {
       return Response.json({ error: 'worker_configuration_invalid' }, { status: 503 });
     }
+    return app.fetch(request, env, executionContext);
   },
 } satisfies ExportedHandler<Env>;

@@ -5,6 +5,7 @@
     "public/*.js",
     "scripts/*.ts",
     "test/**/*.test.ts",
+    "test/**/*.integration.ts",
     "e2e/**/*.ts"
   ],
   "project": [
