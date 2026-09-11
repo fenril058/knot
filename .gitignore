@@ -4,5 +4,7 @@ data/
 *.db
 dist/
 public/build/
+.worker-assets/
+.wrangler/
 test-results/
 playwright-report/

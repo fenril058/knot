@@ -4,15 +4,20 @@ import { Hono, type Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { serveStatic } from '@hono/node-server/serve-static';
 import type { Storage } from '../storage/types.ts';
+import {
+  createApplication,
+  registerPortableApiRoutes,
+  registerPortablePageRoutes,
+  type AuthenticationAdapter,
+} from './application.ts';
 import type { ServerConfig } from './config.ts';
 import { clientIp, jsonError, type ApiEnv } from './http.ts';
 import { verifyPassword } from './password.ts';
 import { hashApiToken } from './apiToken.ts';
 import { RateLimiter } from './ratelimit.ts';
-import { registerReadRoutes } from './routes/read.ts';
 import { registerFileRoutes } from './routes/files.ts';
-import { registerWriteRoutes } from './routes/write.ts';
-import { registerPageRoutes } from './routes/pages.ts';
+import { registerProjectTransferRoutes } from './routes/projectTransfer.ts';
+import { loginPage } from './views/login.ts';
 
 export type AppDeps = { storage: Storage; config: ServerConfig; now?: () => number; fetchFn?: typeof fetch };
 
@@ -33,25 +38,10 @@ export function publicDirectory(): string {
   return fileURLToPath(new URL('../../public/', import.meta.url));
 }
 
-const hosts = (list: string[]): string => (list.length === 0 ? '' : ` ${list.join(' ')}`);
-
-function cspValue(config: ServerConfig): string {
-  const frame = config.allowedFrameHosts.length === 0 ? "'none'" : config.allowedFrameHosts.join(' ');
-  return [
-    "default-src 'self'",
-    `img-src 'self'${hosts(config.allowedImageHosts)}`,
-    `media-src 'self'${hosts(config.allowedMediaHosts)}`,
-    `frame-src ${frame}`,
-    "frame-ancestors 'none'",
-  ].join('; ');
-}
-
 export function createApp(deps: AppDeps): Hono<ApiEnv> {
   const { storage, config } = deps;
   const now = deps.now ?? ((): number => Math.floor(Date.now() / 1000));
   const loginLimiter = new RateLimiter(10, 10 * 60);
-  const csp = cspValue(config);
-  const app = new Hono<ApiEnv>();
 
   const setSessionCookie = (c: Context<ApiEnv>, id: string): void => {
     setCookie(c, SESSION_COOKIE, id, {
@@ -63,52 +53,35 @@ export function createApp(deps: AppDeps): Hono<ApiEnv> {
     });
   };
 
-  app.use('*', async (c, next) => {
-    await next();
-    c.header('X-Content-Type-Options', 'nosniff');
-    const styleNonce = c.get('styleNonce');
-    c.header(
-      'Content-Security-Policy',
-      styleNonce === undefined ? csp : `${csp}; style-src 'self' 'nonce-${styleNonce}'`,
-    );
-  });
-
-  app.use('/api/knot/*', async (c, next) => {
-    if (['POST', 'PUT', 'DELETE'].includes(c.req.method) && !c.req.header('X-Knot-Client')) {
-      return jsonError(c, 403, 'forbidden', { message: 'X-Knot-Client header required' });
-    }
-    return next();
-  });
-
-  app.use('*', async (c, next) => {
+  const authenticate: AuthenticationAdapter = async (c) => {
     const requestClass = classifyRequest(c.req.method, c.req.path);
-    if (requestClass === 'public') return next();
+    if (requestClass === 'public') return { kind: 'public' };
     const apiToken = requestClass === 'api' ? c.req.header('x-personal-access-token') : undefined;
     if (apiToken !== undefined) {
       const account = await storage.getAccountByApiTokenHash(hashApiToken(apiToken));
-      if (account === null) return jsonError(c, 401, 'unauthorized');
-      c.set('accountId', account.id);
-      c.set('actorId', account.actorId);
-      return next();
+      if (account === null) return { kind: 'response', response: jsonError(c, 401, 'unauthorized') };
+      return { kind: 'authenticated', accountId: account.id, actorId: account.actorId };
     }
     const sid = getCookie(c, SESSION_COOKIE);
     const session = sid === undefined ? null : await storage.getSession(sid, now());
     if (session === null) {
-      if (requestClass === 'api') return jsonError(c, 401, 'unauthorized');
+      if (requestClass === 'api') {
+        return { kind: 'response', response: jsonError(c, 401, 'unauthorized') };
+      }
       const requestUrl = new URL(c.req.url);
       const nextPath = `${requestUrl.pathname}${requestUrl.search}`;
-      return c.redirect(`/login?next=${encodeURIComponent(nextPath)}`, 302);
+      return { kind: 'response', response: c.redirect(`/login?next=${encodeURIComponent(nextPath)}`, 302) };
     }
     if (session.expires - now() < config.sessionTtlSeconds - REFRESH_MARGIN_SECONDS) {
       await storage.refreshSession(session.id, now() + config.sessionTtlSeconds);
       setSessionCookie(c, session.id);
     }
     const account = await storage.getAccountById(session.accountId);
-    if (account === null) return jsonError(c, 401, 'unauthorized');
-    c.set('accountId', account.id);
-    c.set('actorId', account.actorId);
-    return next();
-  });
+    if (account === null) return { kind: 'response', response: jsonError(c, 401, 'unauthorized') };
+    return { kind: 'authenticated', accountId: account.id, actorId: account.actorId };
+  };
+
+  const app = createApplication(config, authenticate);
 
   app.use('/assets/*', serveStatic({ root: publicDirectory(), rewriteRequestPath: (p) => p.replace(/^\/assets/, '') }));
 
@@ -149,10 +122,12 @@ export function createApp(deps: AppDeps): Hono<ApiEnv> {
     return c.json({ ok: true });
   });
 
-  registerReadRoutes(app, deps);
-  registerWriteRoutes(app, deps);
+  app.get('/login', (c) => c.html(loginPage()));
+
+  registerPortableApiRoutes(app, deps);
+  registerProjectTransferRoutes(app, deps);
   registerFileRoutes(app, deps);
-  registerPageRoutes(app, deps);
+  registerPortablePageRoutes(app, deps);
 
   return app;
 }
