@@ -1,0 +1,29 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "knot",
+  "main": "./src/worker/index.ts",
+  "compatibility_date": "2026-09-11",
+  "workers_dev": true,
+  "preview_urls": true,
+  "assets": {
+    "directory": "./.worker-assets",
+    "binding": "ASSETS",
+    // Access protects this internal assets router, but it does not propagate ctx.access to the user Worker.
+    // Keeping assets-first avoids Worker invocations for assets; dynamic requests verify Cf-Access-Jwt-Assertion.
+    "run_worker_first": false
+  },
+  "secrets": {
+    "required": ["KNOT_ACCESS_CONFIG"]
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.1
+    }
+  }
+}

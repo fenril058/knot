@@ -1,16 +1,20 @@
-import { randomBytes } from 'node:crypto';
 import type { Hono } from 'hono';
 import { renderLines } from '../../render/render.ts';
-import type { AppDeps } from '../app.ts';
+import type { ApplicationDeps } from '../application.ts';
 import { resolvePage, resolveProject, safeDecode, type ApiEnv } from '../http.ts';
-import { loginPage } from '../views/login.ts';
 import { pageListPage } from '../views/pageList.ts';
 import { pageNotFoundPage, pageViewPage, projectNotFoundPage } from '../views/pageView.ts';
 import { projectIndexPage } from '../views/projectIndex.ts';
 
-export function registerPageRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
+function nonce(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+export function registerPageRoutes(app: Hono<ApiEnv>, deps: ApplicationDeps): void {
   const now = deps.now ?? ((): number => Math.floor(Date.now() / 1000));
-  app.get('/login', (c) => c.html(loginPage()));
 
   app.get('/', async (c) => c.html(projectIndexPage(await deps.storage.listProjects())));
 
@@ -46,7 +50,7 @@ export function registerPageRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
     const rawTitle = safeDecode(c.req.param('title')) ?? c.req.param('title');
     const accountId = c.get('accountId');
     const actor = await deps.storage.getActorById(c.get('actorId'));
-    const styleNonce = randomBytes(16).toString('base64');
+    const styleNonce = nonce();
     c.set('styleNonce', styleNonce);
     const page = await resolvePage(deps.storage, project.id, c);
     const renderConfig = {

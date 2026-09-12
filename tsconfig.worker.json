@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["es2023"],
+    "types": []
+  },
+  "include": ["src/worker/**/*.ts", "worker-configuration.d.ts"],
+  "exclude": []
+}

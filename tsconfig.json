@@ -14,5 +14,13 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "e2e/**/*.ts", "rolldown.config.ts", "playwright.config.ts"]
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "e2e/**/*.ts",
+    "scripts/**/*.ts",
+    "rolldown.config.ts",
+    "playwright.config.ts"
+  ],
+  "exclude": ["src/worker/index.ts", "worker-configuration.d.ts"]
 }

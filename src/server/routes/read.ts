@@ -1,7 +1,7 @@
 import type { Context, Hono } from 'hono';
 import { parsePageSyntax } from '../../core/syntax.ts';
 import { parseSearchQuery } from '../../core/searchQuery.ts';
-import type { AppDeps } from '../app.ts';
+import type { ApplicationDeps } from '../application.ts';
 import { jsonError, resolvePage, resolveProject, safeDecode, type ApiEnv } from '../http.ts';
 import { titleLc } from '../../core/title.ts';
 import type { PageSummary, PageSort, RelatedPage } from '../../storage/types.ts';
@@ -40,7 +40,7 @@ function relatedToJson(p: RelatedPage) {
   };
 }
 
-export function registerReadRoutes(app: Hono<ApiEnv>, deps: AppDeps): void {
+export function registerReadRoutes(app: Hono<ApiEnv>, deps: ApplicationDeps): void {
   const { storage } = deps;
 
   const getPage = async (c: Context<ApiEnv>): Promise<Response> => {

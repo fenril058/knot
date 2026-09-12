@@ -44,7 +44,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run lint:dead-code
-      - run: npm run build:client
+      - run: npm run check:worker
       - run: npm test
 
   e2e:
