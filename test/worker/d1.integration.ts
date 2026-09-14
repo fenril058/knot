@@ -135,30 +135,35 @@ function seedSqliteReadFixture(db: DatabaseSync): void {
   }
 }
 
-function normalizeRelatedPages(pages: RelatedPages['links1hop']): RelatedPages['links1hop'] {
+function normalizeRelatedPageLinks(pages: RelatedPages['links1hop']): RelatedPages['links1hop'] {
   return pages.map((page) => ({
     ...page,
     linksLc: page.linksLc.toSorted(),
-  })).toSorted((left, right) => left.id.localeCompare(right.id));
+  }));
 }
 
 function normalizedRelated(related: RelatedPages): RelatedPages {
   return {
     ...related,
-    links1hop: normalizeRelatedPages(related.links1hop),
-    links2hop: normalizeRelatedPages(related.links2hop),
+    links1hop: normalizeRelatedPageLinks(related.links1hop),
+    links2hop: normalizeRelatedPageLinks(related.links2hop),
   };
 }
 
 async function readContract(storage: Storage) {
-  const searches = await Promise.all(['設計', '設計 検索', '設計 -検索', 'shared'].map(async (query) => ({
+  const searches = await Promise.all(['設計', '設計 検索', '設計 -検索', 'shared', '"Home\n日本語"'].map(async (query) => ({
     query,
     hits: await storage.search('project-1', parseSearchQuery(query)),
+  })));
+  const summaries = await Promise.all((['updated', 'created', 'linked', 'title', 'views', 'accessed'] as const).map(async (sort) => ({
+    sort,
+    result: await storage.listPageSummaries('project-1', { skip: 0, limit: 100, sort }),
   })));
   return {
     page: await storage.getPageById('home'),
     pages: await storage.listPages('project-1'),
     related: normalizedRelated(await storage.getRelatedPages('project-1', 'home', 'home')),
+    summaries,
     visit: await storage.getVisit('account-1', 'home'),
     searches,
   };
@@ -513,6 +518,26 @@ void test('D1 and SQLite adapters expose the same page read contract', async () 
     assert.deepEqual(await readContract(d1Storage), await readContract(sqliteStorage));
   } finally {
     await sqliteStorage.close();
+    await server.close();
+  }
+});
+
+void test('D1 reindex keeps each page in a separate batch', async () => {
+  const { server, db } = await testDatabase();
+  try {
+    await db.prepare('INSERT INTO projects VALUES (?, ?, ?, 1, 1)').bind('project-1', 'project', 'Project').run();
+    await seedReadFixture(db);
+    const batchSizes: number[] = [];
+    const measured: D1Binding = {
+      prepare: (query) => db.prepare(query),
+      batch: (statements) => {
+        batchSizes.push(statements.length);
+        return db.batch(statements);
+      },
+    };
+    await new D1Storage(measured).reindex('project-1');
+    assert.equal(batchSizes.length, 4);
+  } finally {
     await server.close();
   }
 });

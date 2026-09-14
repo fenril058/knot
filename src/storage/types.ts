@@ -257,6 +257,7 @@ export interface Storage extends AttachmentRepository {
    * links2hop: このページの前方リンク先（空リンク含む）へ張っている他のページ（自分と 1hop を除く）。
    *            その entry の linksLc は共有しているリンク先の lc。
    * 1hop の linksLc はそのページ自身の前方リンク lc。
+   * links1hop と links2hop は updated の降順、同値なら id の昇順。
    * hasBackLinks: extractRefs は [X.icon] もリンクとして links に記録するため、
    * これは「逆リンクまたはアイコン参照の有無」に一致し、応答フィールド
    * hasBackLinksOrIcons の意味をそのまま満たす。

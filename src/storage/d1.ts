@@ -1,5 +1,5 @@
 import { ulid } from '../core/id.ts';
-import { extractRefs } from '../core/links.ts';
+import { derivePageData } from '../application/pageDerivedData.ts';
 import type { Line } from '../core/ops.ts';
 import type { SearchQuery } from '../core/searchQuery.ts';
 import {
@@ -575,14 +575,14 @@ export class D1Storage implements Storage {
     const lineConditions = words.map(() => 'instr(lower(matched_line.text), lower(?)) > 0').join(' OR ');
     const rows = (await this.#db.prepare(
       `SELECT p.id, p.title, p.image, matched_line.text
-       FROM ${from} JOIN lines matched_line ON matched_line.page_id = p.id AND (${lineConditions})
+       FROM ${from} LEFT JOIN lines matched_line ON matched_line.page_id = p.id AND (${lineConditions})
        WHERE ${conditions.join(' AND ')}
        ORDER BY ${order}`,
-    ).bind(...words, ...conditionValues).all<{ id: string; title: string; image: string | null; text: string }>()).results;
+    ).bind(...words, ...conditionValues).all<{ id: string; title: string; image: string | null; text: string | null }>()).results;
     const hits = new Map<string, SearchHit>();
     for (const row of rows) {
       const hit = hits.get(row.id) ?? { pageId: row.id, title: row.title, image: row.image, lines: [] };
-      hit.lines.push(row.text);
+      if (row.text !== null) hit.lines.push(row.text);
       hits.set(row.id, hit);
     }
     return [...hits.values()];
@@ -602,32 +602,31 @@ export class D1Storage implements Storage {
            WHERE p.project_id = ? ORDER BY l.page_id, l.ord`,
         ).bind(projectId).all<LineRow & { page_id: string }>(),
     ]);
-    const linesByPage = new Map<string, string[]>();
+    const linesByPage = new Map<string, { text: string }[]>();
     for (const line of lineResult.results) {
       const lines = linesByPage.get(line.page_id) ?? [];
-      lines.push(line.text);
+      lines.push({ text: line.text });
       linesByPage.set(line.page_id, lines);
     }
-    const statements: D1Statement[] = [];
     for (const page of pageResult.results) {
-      const searchText = (linesByPage.get(page.id) ?? []).join('\n');
-      const refs = page.deleted === 1 ? { linkTargets: [], image: null } : extractRefs(searchText);
-      statements.push(
+      const derived = derivePageData(linesByPage.get(page.id) ?? [], page.deleted === 1);
+      const statements: D1Statement[] = [
         this.#db.prepare('DELETE FROM links WHERE source_page_id = ?').bind(page.id),
         this.#db.prepare('DELETE FROM pages_fts WHERE page_id = ?').bind(page.id),
-        this.#db.prepare('UPDATE pages SET image = ? WHERE id = ?').bind(refs.image, page.id),
-      );
-      if (page.deleted === 1) continue;
-      for (const target of refs.linkTargets) {
+        this.#db.prepare('UPDATE pages SET image = ? WHERE id = ?').bind(derived.image, page.id),
+      ];
+      for (const target of derived.links) {
         statements.push(this.#db.prepare(
           'INSERT OR IGNORE INTO links (project_id, source_page_id, target_title_lc, target_title) VALUES (?, ?, ?, ?)',
         ).bind(page.project_id, page.id, target.titleLc, target.title));
       }
-      statements.push(this.#db.prepare(
-        'INSERT INTO pages_fts (page_id, project_id, content) VALUES (?, ?, ?)',
-      ).bind(page.id, page.project_id, searchText));
+      if (derived.searchText !== null) {
+        statements.push(this.#db.prepare(
+          'INSERT INTO pages_fts (page_id, project_id, content) VALUES (?, ?, ?)',
+        ).bind(page.id, page.project_id, derived.searchText));
+      }
+      await this.#db.batch(statements);
     }
-    if (statements.length > 0) await this.#db.batch(statements);
     return { pages: pageResult.results.length };
   }
 

@@ -1,11 +1,12 @@
 import { applyOps } from '../core/apply.ts';
 import { diffLines } from '../core/diff.ts';
 import { ulid } from '../core/id.ts';
-import { extractRefs, rewritePageLinks } from '../core/links.ts';
+import { rewritePageLinks } from '../core/links.ts';
 import { OpsError, type Line, type LineOp } from '../core/ops.ts';
 import { titleLc } from '../core/title.ts';
 import { opsHash } from '../storage/hash.ts';
 import { validateImportLines } from './importValidation.ts';
+import { derivePageData, type DerivedPageData } from './pageDerivedData.ts';
 import {
   BadCommitError,
   StorageError,
@@ -23,11 +24,7 @@ import {
   type RenameResult,
 } from '../storage/types.ts';
 
-export type DerivedPageData = {
-  links: { title: string; titleLc: string }[];
-  image: string | null;
-  searchText: string | null;
-};
+export { derivePageData } from './pageDerivedData.ts';
 
 export type PageMutation = {
   before: PageSnapshot | null;
@@ -62,13 +59,6 @@ export interface PageTransaction {
 
 export interface PageRepository {
   transaction<T>(operation: (tx: PageTransaction) => T): T;
-}
-
-export function derivePageData(lines: Line[], deleted: boolean): DerivedPageData {
-  if (deleted) return { links: [], image: null, searchText: null };
-  const searchText = lines.map((line) => line.text).join('\n');
-  const refs = extractRefs(searchText);
-  return { links: refs.linkTargets, image: refs.image, searchText };
 }
 
 function applyCommit(tx: PageTransaction, input: CommitInput): CommitResult {

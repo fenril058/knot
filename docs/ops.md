@@ -107,7 +107,8 @@ Account ID と Actor ID には異なる値を指定します。
 各値は Worker secret `KNOT_ACCESS_CONFIG` の mapping と一致させます。
 同じ mapping での再実行は成功し、既存 identity と衝突する mapping は失敗します。
 
-isolated remote D1 の検証では、追跡対象の `wrangler.jsonc` を変更せず、database name と database ID を設定した一時 config を `.dev/` に作ります。
+isolated remote D1 の検証では、追跡対象の `wrangler.jsonc` を変更せず、database name、database ID、`"remote": true` を設定した一時 config を `.dev/` に作ります。
+`--remote` は remote binding の利用を許可する指定であり、config の binding 自体を remote へ変更しません。
 production D1 を対象にする前に、`wrangler d1 info knot` で database を確認してください。
 適用後は `npm run d1:smoke -- --remote --config .dev/wrangler-d1-smoke.jsonc` で Account / Actor、project、page read、search、visit と未実装 mutation の拒否を確認できます。
 
