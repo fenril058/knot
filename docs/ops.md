@@ -87,6 +87,42 @@ curl -H "x-personal-access-token: $KNOT_PAT" \
 COSENSE_PAT="$KNOT_PAT" cosense listPages https://wiki.example.com/notes
 ```
 
+### Cloudflare D1 の初期化
+
+Worker 用 D1 は `wrangler.jsonc` の `DB` binding と `src/storage/migrations/d1/` の migration を使います。
+検索 index には SQLite と同じ trigram tokenizer の FTS5 virtual table を使います。
+ローカル D1 は次の順に初期化します。
+
+```sh
+wrangler d1 migrations apply knot --local
+KNOT_BOOTSTRAP_ACCOUNT_ID=01ACCOUNT \
+KNOT_BOOTSTRAP_ACTOR_ID=01ACTOR \
+KNOT_BOOTSTRAP_ACCOUNT_NAME=owner \
+KNOT_BOOTSTRAP_DISPLAY_NAME=Owner \
+KNOT_BOOTSTRAP_EMAIL=owner@example.com \
+npm run d1:bootstrap
+```
+
+Account ID と Actor ID には異なる値を指定します。
+各値は Worker secret `KNOT_ACCESS_CONFIG` の mapping と一致させます。
+同じ mapping での再実行は成功し、既存 identity と衝突する mapping は失敗します。
+
+isolated remote D1 の検証では、追跡対象の `wrangler.jsonc` を変更せず、database name、database ID、`"remote": true` を設定した一時 config を `.dev/` に作ります。
+`--remote` は remote binding の利用を許可する指定であり、config の binding 自体を remote へ変更しません。
+production D1 を対象にする前に、`wrangler d1 info knot` で database を確認してください。
+適用後は `npm run d1:smoke -- --remote --config .dev/wrangler-d1-smoke.jsonc` で Account / Actor、project、page read、search、visit と未実装 mutation の拒否を確認できます。
+
+```sh
+wrangler d1 migrations apply knot-smoke \
+  --remote --config .dev/wrangler-d1-smoke.jsonc
+KNOT_BOOTSTRAP_ACCOUNT_ID=01ACCOUNT \
+KNOT_BOOTSTRAP_ACTOR_ID=01ACTOR \
+KNOT_BOOTSTRAP_ACCOUNT_NAME=owner \
+KNOT_BOOTSTRAP_DISPLAY_NAME=Owner \
+KNOT_BOOTSTRAP_EMAIL=owner@example.com \
+npm run d1:bootstrap -- --remote --config .dev/wrangler-d1-smoke.jsonc
+```
+
 ## 3. リバースプロキシ
 
 リバースプロキシは `/files/` と `/assets/` を含むすべてのパスを knot に転送します。

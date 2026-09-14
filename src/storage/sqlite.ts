@@ -77,6 +77,10 @@ type PageRow = {
   updated: number;
 };
 
+function byUpdatedThenId(left: PageRow, right: PageRow): number {
+  return right.updated - left.updated || (left.id < right.id ? -1 : left.id === right.id ? 0 : 1);
+}
+
 type LineRow = {
   id: string;
   text: string;
@@ -829,7 +833,9 @@ export class SqliteStorage implements Storage {
 
     const oneHop = new Map<string, PageRow>();
     for (const row of [...forward, ...back]) oneHop.set(row.id, row);
-    const links1hop = [...oneHop.values()].map((row) => this.#toRelatedPage(row, this.#outboundLc(row.id)));
+    const links1hop = [...oneHop.values()]
+      .toSorted(byUpdatedThenId)
+      .map((row) => this.#toRelatedPage(row, this.#outboundLc(row.id)));
 
     let links2hop: RelatedPage[] = [];
     if (targets.length > 0) {
@@ -847,7 +853,9 @@ export class SqliteStorage implements Storage {
         entry.shared.push(row.shared);
         byPage.set(row.id, entry);
       }
-      links2hop = [...byPage.values()].map(({ row, shared }) => this.#toRelatedPage(row, shared));
+      links2hop = [...byPage.values()]
+        .toSorted((left, right) => byUpdatedThenId(left.row, right.row))
+        .map(({ row, shared }) => this.#toRelatedPage(row, shared));
     }
 
     return {

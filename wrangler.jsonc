@@ -12,6 +12,13 @@
     // Keeping assets-first avoids Worker invocations for assets; dynamic requests verify Cf-Access-Jwt-Assertion.
     "run_worker_first": false
   },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "knot",
+      "migrations_dir": "src/storage/migrations/d1"
+    }
+  ],
   "secrets": {
     "required": ["KNOT_ACCESS_CONFIG"]
   },
