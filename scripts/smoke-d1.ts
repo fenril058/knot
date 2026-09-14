@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { getPlatformProxy } from 'wrangler';
 import { parseSearchQuery } from '../src/core/searchQuery.ts';
 import { D1Storage, type D1Binding } from '../src/storage/d1.ts';
-import { UnsupportedStorageOperationError } from '../src/storage/types.ts';
 
 const args = process.argv.slice(2);
 let remote = false;
@@ -35,6 +34,7 @@ try {
   assert(appliedMigrations.has('0001_identity_projects.sql'));
   assert(appliedMigrations.has('0002_page_reads.sql'));
   assert(appliedMigrations.has('0003_search_fts.sql'));
+  assert(appliedMigrations.has('0004_page_mutation_guard.sql'));
   const storage = new D1Storage(platform.env.DB);
   const account = await storage.addAccessAccount({
     id: accountId,
@@ -45,38 +45,77 @@ try {
   assert.notEqual(account.accountId, account.actorId);
   const created = await storage.createProject(accountName, Math.floor(Date.now() / 1000));
   assert.equal(created.kind, 'created');
-  await platform.env.DB.batch([
-    platform.env.DB.prepare('INSERT INTO pages VALUES (?, ?, ?, ?, 1, 0, 0, NULL, 1, 1)')
-      .bind(pageId, created.project.id, 'D1 Smoke', 'd1_smoke'),
-    platform.env.DB.prepare(
-      'INSERT INTO lines (id, page_id, ord, text, created, updated, updated_version, actor_id) VALUES (?, ?, 0, ?, 1, 1, 1, ?)',
-    ).bind(`${pageId}-title`, pageId, 'D1 Smoke', actorId),
-    platform.env.DB.prepare(
-      'INSERT INTO lines (id, page_id, ord, text, created, updated, updated_version, actor_id) VALUES (?, ?, 1, ?, 1, 1, 1, ?)',
-    ).bind(`${pageId}-body`, pageId, 'remote 日本語 search smoke', actorId),
-    platform.env.DB.prepare(
-      `INSERT INTO commits (id, page_id, base_version, version, actor_id, created, ops, ops_hash)
-       VALUES (?, ?, 0, 1, ?, 1, '[]', 'smoke')`,
-    ).bind(`smoke-commit-${suffix}`, pageId, actorId),
-  ]);
-  await storage.reindex(created.project.id);
-  assert.equal((await storage.getPageById(pageId))?.lines[1]?.text, 'remote 日本語 search smoke');
+  const initialCommit = {
+    projectId: created.project.id,
+    pageId,
+    commitId: `smoke-initial-${suffix}`,
+    baseVersion: 0,
+    ops: [
+      { type: 'insert' as const, id: `${pageId}-title`, after: '_head', text: 'D1 Smoke' },
+      {
+        type: 'insert' as const,
+        id: `${pageId}-body`,
+        after: `${pageId}-title`,
+        text: 'remote 日本語 search smoke [Before]',
+      },
+    ],
+    actorId,
+    now: 1,
+  };
+  assert.deepEqual(await storage.commit(initialCommit), { kind: 'applied', version: 1 });
+  assert.equal((await storage.getPageById(pageId))?.lines[1]?.text, 'remote 日本語 search smoke [Before]');
   assert.equal((await storage.search(created.project.id, parseSearchQuery('日本語 search')))[0]?.pageId, pageId);
   await storage.recordVisit(accountId, pageId, 2, 1);
   assert.deepEqual(await storage.getVisit(accountId, pageId), { visited: 2, lastSeenVersion: 1 });
-  await assert.rejects(
-    storage.commit({
-      projectId: created.project.id,
-      pageId,
-      commitId: `unsupported-${suffix}`,
-      baseVersion: 1,
-      ops: [],
-      actorId,
-      now: 2,
-    }),
-    UnsupportedStorageOperationError,
+
+  let arrivals = 0;
+  let release: (() => void) | undefined;
+  const ready = new Promise<void>((resolve) => { release = resolve; });
+  const barrierDb: D1Binding = {
+    prepare: (query) => platform.env.DB.prepare(query),
+    async batch(statements) {
+      arrivals += 1;
+      if (arrivals === 2) release?.();
+      await ready;
+      return platform.env.DB.batch(statements);
+    },
+  };
+  const makeConcurrentCommit = (commitId: string, text: string) => ({
+    projectId: created.project.id,
+    pageId,
+    commitId,
+    baseVersion: 1,
+    ops: [{ type: 'update' as const, id: `${pageId}-body`, text }],
+    actorId,
+    now: 2,
+  });
+  const left = makeConcurrentCommit(`smoke-left-${suffix}`, 'left wins [Left]');
+  const right = makeConcurrentCommit(`smoke-right-${suffix}`, 'right wins [Right]');
+  const race = await Promise.all([new D1Storage(barrierDb).commit(left), new D1Storage(barrierDb).commit(right)]);
+  assert.equal(race.filter((result) => result.kind === 'applied').length, 1);
+  assert.equal(race.filter((result) => result.kind === 'conflict').length, 1);
+  const winner = race[0].kind === 'applied' ? left : right;
+  assert.deepEqual(await storage.commit(winner), { kind: 'applied', version: 2 });
+  assert.equal(
+    (await platform.env.DB.prepare('SELECT COUNT(*) AS count FROM commits WHERE page_id = ?')
+      .bind(pageId).first<{ count: number }>())?.count,
+    2,
   );
-  console.log(JSON.stringify({ target: remote ? 'remote' : 'local', migration: 'ok', crud: 'ok', search: 'ok' }));
+  assert.equal((await storage.deletePage({
+    projectId: created.project.id, pageId, baseVersion: 1, actorId, now: 3,
+  })).kind, 'conflict');
+  assert.deepEqual(await storage.deletePage({
+    projectId: created.project.id, pageId, baseVersion: 2, actorId, now: 4,
+  }), { kind: 'applied', version: 3 });
+  assert.equal((await storage.getPageById(pageId))?.deleted, true);
+  assert.equal((await storage.search(created.project.id, parseSearchQuery('wins'))).length, 0);
+  console.log(JSON.stringify({
+    target: remote ? 'remote' : 'local',
+    migration: 'ok',
+    crud: 'ok',
+    search: 'ok',
+    mutationRace: 'ok',
+  }));
 } finally {
   await platform.env.DB.batch([
     platform.env.DB.prepare('DELETE FROM page_visits WHERE account_id = ?').bind(accountId),

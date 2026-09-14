@@ -61,11 +61,22 @@ export interface PageRepository {
   transaction<T>(operation: (tx: PageTransaction) => T): T;
 }
 
-function applyCommit(tx: PageTransaction, input: CommitInput): CommitResult {
-  const { projectId, pageId, commitId, baseVersion, ops, actorId, now } = input;
-  tx.ensureActor(actorId, now);
+export interface GuardedPageMutationRepository {
+  getAppliedCommit(commitId: string): Promise<AppliedCommit | null>;
+  getPageById(pageId: string): Promise<PageSnapshot | null>;
+  getPageByTitle(projectId: string, titleLcValue: string): Promise<PageSnapshot | null>;
+  getCurrentTitleStarted(pageId: string, fallback: number): Promise<number>;
+  tryApplyPageMutation(mutation: PageMutation): Promise<boolean>;
+}
 
-  const prior = tx.getAppliedCommit(commitId);
+type PreparedCommit = { kind: 'prepared'; mutation: PageMutation };
+
+function prepareCommit(
+  input: CommitInput,
+  prior: AppliedCommit | null,
+  current: PageSnapshot | null,
+): CommitResult | PreparedCommit {
+  const { projectId, pageId, commitId, baseVersion, ops, actorId, now } = input;
   if (prior !== null) {
     if (prior.opsHash !== opsHash(pageId, baseVersion, ops)) {
       throw new BadCommitError(`commit ${commitId} was already applied with different content`);
@@ -73,7 +84,6 @@ function applyCommit(tx: PageTransaction, input: CommitInput): CommitResult {
     return { kind: 'applied', version: prior.version };
   }
 
-  const current = tx.getPageById(pageId);
   if (current === null && baseVersion !== 0) throw new BadCommitError(`unknown page: ${pageId}`);
   if (current !== null && current.projectId !== projectId) {
     throw new BadCommitError(`page ${pageId} is not in project ${projectId}`);
@@ -96,11 +106,6 @@ function applyCommit(tx: PageTransaction, input: CommitInput): CommitResult {
   if (current === null && deleted) throw new BadCommitError('page creation must leave at least one line');
   const newTitle = deleted ? current!.title : lines[0]!.text;
   const newTitleLc = titleLc(newTitle);
-  if (!deleted && (current === null || newTitleLc !== current.titleLc)) {
-    const clash = tx.getPageByTitle(projectId, newTitleLc);
-    if (clash !== null && clash.id !== pageId) return { kind: 'conflict', reason: 'title', page: clash };
-  }
-
   const after: PageSnapshot = {
     id: pageId,
     projectId,
@@ -116,7 +121,7 @@ function applyCommit(tx: PageTransaction, input: CommitInput): CommitResult {
   };
   const derived = derivePageData(lines, deleted);
   after.image = derived.image;
-  const mutation: PageMutation = {
+  return { kind: 'prepared', mutation: {
     before: current,
     after,
     commit: {
@@ -130,21 +135,114 @@ function applyCommit(tx: PageTransaction, input: CommitInput): CommitResult {
       opsHash: opsHash(pageId, baseVersion, ops),
     },
     derived,
+  } };
+}
+
+function needsTitleLookup(mutation: PageMutation): boolean {
+  return !mutation.after.deleted
+    && (mutation.before === null || mutation.after.titleLc !== mutation.before.titleLc);
+}
+
+function titleConflict(mutation: PageMutation, clash: PageSnapshot | null): CommitResult | null {
+  return clash !== null && clash.id !== mutation.after.id
+    ? { kind: 'conflict', reason: 'title', page: clash }
+    : null;
+}
+
+function addTitleHistory(mutation: PageMutation, started: number): void {
+  const { before, after } = mutation;
+  if (before === null || after.deleted || after.title === before.title) return;
+  mutation.titleHistory = {
+    oldTitle: before.title,
+    oldTitleLc: before.titleLc,
+    started,
+    ended: after.updated,
   };
-  if (current !== null && !deleted && newTitle !== current.title) {
-    mutation.titleHistory = {
-      oldTitle: current.title,
-      oldTitleLc: current.titleLc,
-      started: tx.getCurrentTitleStarted(pageId, current.created),
-      ended: now,
-    };
+}
+
+function applyCommit(tx: PageTransaction, input: CommitInput): CommitResult {
+  tx.ensureActor(input.actorId, input.now);
+  const prepared = prepareCommit(input, tx.getAppliedCommit(input.commitId), tx.getPageById(input.pageId));
+  if (prepared.kind !== 'prepared') return prepared;
+  const { mutation } = prepared;
+  if (needsTitleLookup(mutation)) {
+    const conflict = titleConflict(mutation, tx.getPageByTitle(input.projectId, mutation.after.titleLc));
+    if (conflict !== null) return conflict;
+  }
+  if (mutation.before !== null) {
+    addTitleHistory(mutation, tx.getCurrentTitleStarted(input.pageId, mutation.before.created));
   }
   tx.savePageMutation(mutation);
-  return { kind: 'applied', version };
+  return { kind: 'applied', version: mutation.after.version };
 }
 
 export function commitPage(repository: PageRepository, input: CommitInput): CommitResult {
   return repository.transaction((tx) => applyCommit(tx, input));
+}
+
+const MAX_GUARD_RETRIES = 3;
+
+export async function commitPageGuarded(
+  repository: GuardedPageMutationRepository,
+  input: CommitInput,
+): Promise<CommitResult> {
+  for (let attempt = 0; attempt < MAX_GUARD_RETRIES; attempt += 1) {
+    const prior = await repository.getAppliedCommit(input.commitId);
+    const current = await repository.getPageById(input.pageId);
+    const prepared = prepareCommit(input, prior, current);
+    if (prepared.kind !== 'prepared') return prepared;
+    const { mutation } = prepared;
+    if (needsTitleLookup(mutation)) {
+      const conflict = titleConflict(
+        mutation,
+        await repository.getPageByTitle(input.projectId, mutation.after.titleLc),
+      );
+      if (conflict !== null) return conflict;
+    }
+    if (mutation.before !== null) {
+      addTitleHistory(
+        mutation,
+        await repository.getCurrentTitleStarted(input.pageId, mutation.before.created),
+      );
+    }
+    try {
+      if (await repository.tryApplyPageMutation(mutation)) {
+        return { kind: 'applied', version: mutation.after.version };
+      }
+    } catch (error) {
+      // A D1 transport error can arrive after the transaction committed. Confirm by commitId
+      // before surfacing a retryable failure so the caller never applies the same commit twice.
+      const applied = await repository.getAppliedCommit(input.commitId);
+      if (applied !== null) {
+        const confirmed = prepareCommit(input, applied, current);
+        if (confirmed.kind === 'prepared') throw new StorageError('applied commit was not recognized');
+        return confirmed;
+      }
+      throw error;
+    }
+  }
+  throw new StorageError(`page mutation did not converge after ${MAX_GUARD_RETRIES} guarded attempts`);
+}
+
+export async function deletePageGuarded(
+  repository: GuardedPageMutationRepository,
+  input: DeleteInput,
+): Promise<DeleteResult> {
+  const page = await repository.getPageById(input.pageId);
+  if (page === null) throw new BadCommitError(`unknown page: ${input.pageId}`);
+  if (page.projectId !== input.projectId) {
+    throw new BadCommitError(`page ${input.pageId} is not in project ${input.projectId}`);
+  }
+  if (input.baseVersion !== page.version) return { kind: 'conflict', reason: 'version', page };
+  if (page.deleted) throw new BadCommitError(`unknown page: ${input.pageId}`);
+  const result = await commitPageGuarded(repository, {
+    ...input,
+    commitId: ulid(input.now * 1000),
+    ops: page.lines.map((line) => ({ type: 'delete', id: line.id })),
+  });
+  if (result.kind === 'applied') return result;
+  if (result.reason === 'title') throw new StorageError('unexpected title conflict in deletePage');
+  return { kind: 'conflict', reason: 'version', page: result.page };
 }
 
 export function replacePageText(
