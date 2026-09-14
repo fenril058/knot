@@ -20,17 +20,20 @@ export function createCloudflareApp(
   access: AccessConfig,
   key?: JWTVerifyGetKey,
 ) {
-  const app = createApplication(deps.config, createAccessAuthenticationAdapter(access, key));
+  const accessAuthentication = createAccessAuthenticationAdapter(access, key);
+  const app = createApplication(deps.config, async (c) => {
+    const result = await accessAuthentication(c);
+    if (result.kind !== 'authenticated') return result;
+    const [account, actor] = await Promise.all([
+      deps.storage.getAccountById(result.accountId),
+      deps.storage.getActorById(result.actorId),
+    ]);
+    if (account === null || actor === null || account.actorId !== actor.id) {
+      return { kind: 'response', response: jsonError(c, 503, 'identity_mapping_unavailable') };
+    }
+    return result;
+  });
   registerPortableApiRoutes(app, deps);
   registerPortablePageRoutes(app, deps);
-  return app;
-}
-
-export function createCloudflareBoundary(access: AccessConfig, key?: JWTVerifyGetKey) {
-  const app = createApplication(
-    { allowedImageHosts: [], allowedMediaHosts: [], allowedFrameHosts: [] },
-    createAccessAuthenticationAdapter(access, key),
-  );
-  app.all('*', (c) => jsonError(c, 503, 'storage_unavailable', { message: 'D1 storage is not configured' }));
   return app;
 }

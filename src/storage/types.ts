@@ -197,6 +197,13 @@ export class StorageError extends Error {
   }
 }
 
+export class UnsupportedStorageOperationError extends StorageError {
+  constructor(operation: string) {
+    super(`storage operation is not implemented yet: ${operation}`);
+    this.name = 'UnsupportedStorageOperationError';
+  }
+}
+
 export interface AttachmentRepository {
   /** claimOwner がある添付は、対応するページが確定するまで一覧・取得 API へ公開しない。 */
   tryCreateAttachment(attachment: Attachment, claimOwner?: string): Promise<CreateAttachmentResult>;

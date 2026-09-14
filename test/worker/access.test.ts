@@ -151,6 +151,14 @@ void test('検証済みでも設定と異なる Access email は 403', async () 
 
 void test('Worker application は password session endpoint と login page を公開しない', async () => {
   const { storage } = makeStorage();
+  await storage.addAccount({
+    id: access.accountId,
+    actor: { id: access.actorId, name: 'owner', displayName: 'Owner' },
+    name: 'owner',
+    email: access.email,
+    passwordHash: 'not-used-by-worker',
+    isAdmin: true,
+  }, now);
   const app = createCloudflareApp(
     { storage, config: { allowedImageHosts: [], allowedMediaHosts: [], allowedFrameHosts: [] } },
     access,
@@ -172,6 +180,20 @@ void test('Worker application は password session endpoint と login page を�
   });
   assert.equal(loginPage.status, 404);
   assert.doesNotMatch(await loginPage.text(), /type=["']password["']/i);
+});
+
+void test('Access 設定の Account / Actor mapping が storage に無ければ fail closed', async () => {
+  const { storage } = makeStorage();
+  const app = createCloudflareApp(
+    { storage, config: { allowedImageHosts: [], allowedMediaHosts: [], allowedFrameHosts: [] } },
+    access,
+    key,
+  );
+  const response = await app.request('/', {
+    headers: { 'Cf-Access-Jwt-Assertion': await token() },
+  });
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: 'identity_mapping_unavailable' });
 });
 
 void test('Worker application では PAT だけで Access boundary を迂回できない', async () => {

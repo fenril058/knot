@@ -1,5 +1,5 @@
 import { Hono, type Context } from 'hono';
-import type { Storage } from '../storage/types.ts';
+import { UnsupportedStorageOperationError, type Storage } from '../storage/types.ts';
 import { jsonError, type ApiEnv } from './http.ts';
 import { registerReadRoutes } from './routes/read.ts';
 import { registerWriteRoutes } from './routes/write.ts';
@@ -40,6 +40,13 @@ function cspValue(config: ApplicationConfig): string {
 export function createApplication(config: ApplicationConfig, authenticate: AuthenticationAdapter): Hono<ApiEnv> {
   const app = new Hono<ApiEnv>();
   const csp = cspValue(config);
+
+  app.onError((error, c) => {
+    if (error instanceof UnsupportedStorageOperationError) {
+      return jsonError(c, 501, 'storage_operation_unavailable', { message: error.message });
+    }
+    throw error;
+  });
 
   app.use('*', async (c, next) => {
     await next();
