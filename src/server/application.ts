@@ -45,7 +45,8 @@ export function createApplication(config: ApplicationConfig, authenticate: Authe
     if (error instanceof UnsupportedStorageOperationError) {
       return jsonError(c, 501, 'storage_operation_unavailable', { message: error.message });
     }
-    throw error;
+    console.error(error);
+    return c.text('Internal Server Error', 500);
   });
 
   app.use('*', async (c, next) => {

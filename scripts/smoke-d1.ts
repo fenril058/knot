@@ -22,7 +22,7 @@ for (let index = 0; index < args.length; index += 1) {
 }
 
 process.env.KNOT_ACCESS_CONFIG ??= '{}';
-const platform = await getPlatformProxy<{ DB: D1Binding }>({ configPath, remoteBindings: remote });
+const platform = await getPlatformProxy<{ DB: D1Binding }>({ configPath, persist: true, remoteBindings: remote });
 const suffix = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
 const accountId = `smoke-account-${suffix}`;
 const actorId = `smoke-actor-${suffix}`;
@@ -34,6 +34,7 @@ try {
   const appliedMigrations = new Set(migrationRows.results.map((row) => row.name));
   assert(appliedMigrations.has('0001_identity_projects.sql'));
   assert(appliedMigrations.has('0002_page_reads.sql'));
+  assert(appliedMigrations.has('0003_search_fts.sql'));
   const storage = new D1Storage(platform.env.DB);
   const account = await storage.addAccessAccount({
     id: accountId,
@@ -79,7 +80,7 @@ try {
 } finally {
   await platform.env.DB.batch([
     platform.env.DB.prepare('DELETE FROM page_visits WHERE account_id = ?').bind(accountId),
-    platform.env.DB.prepare('DELETE FROM page_search WHERE page_id = ?').bind(pageId),
+    platform.env.DB.prepare('DELETE FROM pages_fts WHERE page_id = ?').bind(pageId),
     platform.env.DB.prepare('DELETE FROM links WHERE source_page_id = ?').bind(pageId),
     platform.env.DB.prepare('DELETE FROM commits WHERE page_id = ?').bind(pageId),
     platform.env.DB.prepare('DELETE FROM lines WHERE page_id = ?').bind(pageId),

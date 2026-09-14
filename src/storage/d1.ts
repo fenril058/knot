@@ -1,4 +1,5 @@
 import { ulid } from '../core/id.ts';
+import { extractRefs } from '../core/links.ts';
 import type { Line } from '../core/ops.ts';
 import type { SearchQuery } from '../core/searchQuery.ts';
 import {
@@ -87,12 +88,26 @@ type LineRow = {
   actor_id: string;
 };
 
-function escapeLike(value: string): string {
-  return value.replaceAll(/[\\%_]/g, (match) => `\\${match}`);
+function isD1ConstraintError(error: unknown): boolean {
+  return error instanceof Error && /(?:SQLITE_CONSTRAINT_UNIQUE|UNIQUE constraint failed)/u.test(error.message);
 }
 
-function isD1ConstraintError(error: unknown): boolean {
-  return error instanceof Error && /(?:SQLITE_CONSTRAINT|UNIQUE constraint failed)/u.test(error.message);
+function textArray(json: string): string[] {
+  // JSON1 aggregate output crosses the D1 binding as text.
+  const value: unknown = JSON.parse(json);
+  if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
+    throw new StorageError('D1 returned an invalid text array');
+  }
+  return value;
+}
+
+function usesFts(term: string): boolean {
+  // oxlint-disable-next-line typescript/no-misused-spread
+  return [...term].length >= 3;
+}
+
+function ftsPhrase(term: string): string {
+  return `"${term.replaceAll('"', '""')}"`;
 }
 
 function pageMeta(row: PageRow): PageMeta {
@@ -246,14 +261,21 @@ export class D1Storage implements Storage {
       }
       throw new StorageError(`Access account mapping conflicts with existing identity: ${account.name}`);
     }
-    await this.#db.batch([
-      this.#db.prepare('INSERT INTO actors (id, name, display_name, created) VALUES (?, ?, ?, ?)')
-        .bind(account.actor.id, account.actor.name, account.actor.displayName, now),
-      this.#db.prepare(
-        `INSERT INTO accounts (id, actor_id, name, email, password_hash, is_admin, created)
-         VALUES (?, ?, ?, ?, NULL, 1, ?)`,
-      ).bind(account.id, account.actor.id, account.name, account.email, now),
-    ]);
+    try {
+      await this.#db.batch([
+        this.#db.prepare('INSERT INTO actors (id, name, display_name, created) VALUES (?, ?, ?, ?)')
+          .bind(account.actor.id, account.actor.name, account.actor.displayName, now),
+        this.#db.prepare(
+          `INSERT INTO accounts (id, actor_id, name, email, password_hash, is_admin, created)
+           VALUES (?, ?, ?, ?, NULL, 1, ?)`,
+        ).bind(account.id, account.actor.id, account.name, account.email, now),
+      ]);
+    } catch (error) {
+      if (isD1ConstraintError(error)) {
+        throw new StorageError(`Access account mapping conflicts with existing identity: ${account.name}`);
+      }
+      throw error;
+    }
     return { accountId: account.id, actorId: account.actor.id };
   }
 
@@ -347,102 +369,123 @@ export class D1Storage implements Storage {
         `SELECT p.*,
            (SELECT COUNT(*) FROM links l WHERE l.project_id = p.project_id AND l.target_title_lc = p.title_lc) AS linked,
            COALESCE((SELECT SUM(pv.views) FROM page_visits pv WHERE pv.page_id = p.id), 0) AS views,
-           COALESCE((SELECT MAX(pv.visited) FROM page_visits pv WHERE pv.page_id = p.id), 0) AS accessed
+           COALESCE((SELECT MAX(pv.visited) FROM page_visits pv WHERE pv.page_id = p.id), 0) AS accessed,
+           (SELECT json_group_array(text) FROM (
+             SELECT text FROM lines WHERE page_id = p.id AND ord > 0 AND text <> '' ORDER BY ord LIMIT 5
+           )) AS descriptions_json
          FROM pages p WHERE p.project_id = ? AND p.deleted = 0
          ORDER BY ${order} LIMIT ? OFFSET ?`,
-      ).bind(projectId, opts.limit, opts.skip).all<PageRow & PageVisitMetrics & { linked: number }>(),
+      ).bind(projectId, opts.limit, opts.skip).all<
+        PageRow & PageVisitMetrics & { linked: number; descriptions_json: string }
+      >(),
     ]);
-    const pages = await Promise.all(rowsResult.results.map(async (row): Promise<PageSummary> => ({
+    const pages = rowsResult.results.map((row): PageSummary => ({
       ...pageMeta(row),
       linked: row.linked,
       views: row.views,
       accessed: row.accessed,
-      descriptions: (await this.#db.prepare(
-        "SELECT text FROM lines WHERE page_id = ? AND ord > 0 AND text <> '' ORDER BY ord LIMIT 5",
-      ).bind(row.id).all<{ text: string }>()).results.map((line) => line.text),
-    })));
+      descriptions: textArray(row.descriptions_json),
+    }));
     return { count: countRow?.n ?? 0, pages };
   }
 
-  async #outbound(pageId: string): Promise<{ titleLc: string; title: string }[]> {
-    const { results } = await this.#db.prepare(
-      'SELECT target_title_lc, target_title FROM links WHERE source_page_id = ?',
-    ).bind(pageId).all<{ target_title_lc: string; target_title: string }>();
-    return results.map((row) => ({ titleLc: row.target_title_lc, title: row.target_title }));
-  }
-
-  async #relatedPage(row: PageRow, linksLc: string[]): Promise<RelatedPage> {
-    const [descriptionRows, linkedRow, metrics] = await Promise.all([
-      this.#db.prepare("SELECT text FROM lines WHERE page_id = ? AND ord > 0 AND text <> '' ORDER BY ord LIMIT 5")
-        .bind(row.id).all<{ text: string }>(),
-      this.#db.prepare('SELECT COUNT(*) AS n FROM links WHERE project_id = ? AND target_title_lc = ?')
-        .bind(row.project_id, row.title_lc).first<{ n: number }>(),
-      this.getPageVisitMetrics(row.id),
+  async getRelatedPages(projectId: string, pageId: string, titleLcValue: string): Promise<RelatedPages> {
+    type RelatedRow = PageRow & {
+      hop: number;
+      shared_json: string | null;
+      descriptions_json: string;
+      links_json: string;
+      linked: number;
+      accessed: number;
+    };
+    const [rowsResult, stats] = await Promise.all([
+      this.#db.prepare(
+        `WITH targets AS (
+           SELECT target_title_lc FROM links WHERE project_id = ? AND source_page_id = ?
+         ), one_hop AS (
+           SELECT p.id FROM targets t JOIN pages p
+             ON p.project_id = ? AND p.title_lc = t.target_title_lc
+           WHERE p.deleted = 0 AND p.id != ?
+           UNION
+           SELECT p.id FROM links l JOIN pages p ON p.id = l.source_page_id
+           WHERE l.project_id = ? AND l.target_title_lc = ? AND p.deleted = 0 AND p.id != ?
+         ), two_hop AS (
+           SELECT p.id, json_group_array(candidate.target_title_lc) AS shared_json
+           FROM targets t JOIN links candidate
+             ON candidate.project_id = ? AND candidate.target_title_lc = t.target_title_lc
+           JOIN pages p ON p.id = candidate.source_page_id
+           WHERE p.deleted = 0 AND p.id != ? AND NOT EXISTS (SELECT 1 FROM one_hop o WHERE o.id = p.id)
+           GROUP BY p.id
+         ), candidates AS (
+           SELECT id, 1 AS hop, NULL AS shared_json FROM one_hop
+           UNION ALL
+           SELECT id, 2 AS hop, shared_json FROM two_hop
+         )
+         SELECT p.*, candidates.hop, candidates.shared_json,
+           (SELECT json_group_array(text) FROM (
+             SELECT text FROM lines WHERE page_id = p.id AND ord > 0 AND text <> '' ORDER BY ord LIMIT 5
+           )) AS descriptions_json,
+           (SELECT json_group_array(target_title_lc) FROM links outbound WHERE outbound.source_page_id = p.id)
+             AS links_json,
+           (SELECT COUNT(*) FROM links inbound
+             WHERE inbound.project_id = p.project_id AND inbound.target_title_lc = p.title_lc) AS linked,
+           COALESCE((SELECT MAX(visited) FROM page_visits WHERE page_id = p.id), 0) AS accessed
+         FROM candidates JOIN pages p ON p.id = candidates.id
+         ORDER BY candidates.hop, p.updated DESC, p.id`,
+      ).bind(
+        projectId,
+        pageId,
+        projectId,
+        pageId,
+        projectId,
+        titleLcValue,
+        pageId,
+        projectId,
+        pageId,
+      ).all<RelatedRow>(),
+      this.#db.prepare(
+        `SELECT
+           (SELECT COUNT(*) FROM links WHERE project_id = ? AND target_title_lc = ?) AS linked,
+           EXISTS(
+             SELECT 1 FROM links l JOIN pages p ON p.id = l.source_page_id
+             WHERE l.project_id = ? AND l.target_title_lc = ? AND p.id != ? AND p.deleted = 0
+           ) AS has_back_links`,
+      ).bind(projectId, titleLcValue, projectId, titleLcValue, pageId)
+        .first<{ linked: number; has_back_links: number }>(),
     ]);
-    return {
+    const relatedPage = (row: RelatedRow): RelatedPage => ({
       id: row.id,
       title: row.title,
       titleLc: row.title_lc,
       image: row.image,
-      descriptions: descriptionRows.results.map((description) => description.text),
-      linksLc,
-      linked: linkedRow?.n ?? 0,
+      descriptions: textArray(row.descriptions_json),
+      linksLc: textArray(row.shared_json ?? row.links_json),
+      linked: row.linked,
       updated: row.updated,
-      accessed: metrics.accessed,
+      accessed: row.accessed,
+    });
+    return {
+      links1hop: rowsResult.results.filter((row) => row.hop === 1).map(relatedPage),
+      links2hop: rowsResult.results.filter((row) => row.hop === 2).map(relatedPage),
+      hasBackLinks: stats?.has_back_links === 1,
+      linked: stats?.linked ?? 0,
     };
-  }
-
-  async getRelatedPages(projectId: string, pageId: string, titleLcValue: string): Promise<RelatedPages> {
-    const targets = await this.#outbound(pageId);
-    const targetValues = targets.map((target) => target.titleLc);
-    const placeholders = targetValues.map(() => '?').join(', ');
-    const forward = targetValues.length === 0
-      ? []
-      : (await this.#db.prepare(
-        `SELECT * FROM pages WHERE project_id = ? AND deleted = 0 AND id != ? AND title_lc IN (${placeholders})`,
-      ).bind(projectId, pageId, ...targetValues).all<PageRow>()).results;
-    const back = (await this.#db.prepare(
-      `SELECT p.* FROM pages p JOIN links l ON l.source_page_id = p.id
-       WHERE l.project_id = ? AND l.target_title_lc = ? AND p.id != ? AND p.deleted = 0`,
-    ).bind(projectId, titleLcValue, pageId).all<PageRow>()).results;
-    const oneHop = new Map<string, PageRow>();
-    for (const row of [...forward, ...back]) oneHop.set(row.id, row);
-    const links1hop = await Promise.all([...oneHop.values()].map(async (row) =>
-      this.#relatedPage(row, (await this.#outbound(row.id)).map((target) => target.titleLc))));
-
-    const byPage = new Map<string, { row: PageRow; shared: string[] }>();
-    if (targetValues.length > 0) {
-      const rows = (await this.#db.prepare(
-        `SELECT p.*, l.target_title_lc AS shared FROM pages p JOIN links l ON l.source_page_id = p.id
-         WHERE l.project_id = ? AND l.target_title_lc IN (${placeholders}) AND p.deleted = 0`,
-      ).bind(projectId, ...targetValues).all<PageRow & { shared: string }>()).results;
-      for (const row of rows) {
-        if (row.id === pageId || oneHop.has(row.id)) continue;
-        const entry = byPage.get(row.id) ?? { row, shared: [] };
-        entry.shared.push(row.shared);
-        byPage.set(row.id, entry);
-      }
-    }
-    const [links2hop, linkedRow] = await Promise.all([
-      Promise.all([...byPage.values()].map(({ row, shared }) => this.#relatedPage(row, shared))),
-      this.#db.prepare('SELECT COUNT(*) AS n FROM links WHERE project_id = ? AND target_title_lc = ?')
-        .bind(projectId, titleLcValue).first<{ n: number }>(),
-    ]);
-    return { links1hop, links2hop, hasBackLinks: back.length > 0, linked: linkedRow?.n ?? 0 };
   }
 
   async listPageTitles(projectId: string): Promise<TitleEntry[]> {
     const rows = (await this.#db.prepare(
-      'SELECT * FROM pages WHERE project_id = ? AND deleted = 0 ORDER BY updated DESC, id',
-    ).bind(projectId).all<PageRow>()).results;
-    return Promise.all(rows.map(async (row) => ({
+      `SELECT p.*,
+         (SELECT json_group_array(target_title) FROM links l WHERE l.source_page_id = p.id) AS links_json
+       FROM pages p WHERE p.project_id = ? AND p.deleted = 0 ORDER BY p.updated DESC, p.id`,
+    ).bind(projectId).all<PageRow & { links_json: string }>()).results;
+    return rows.map((row) => ({
       id: row.id,
       title: row.title,
       hasIcon: row.image !== null,
       updated: row.updated,
-      links: (await this.#outbound(row.id)).map((target) => target.title),
+      links: textArray(row.links_json),
       image: row.image,
-    })));
+    }));
   }
 
   async listKnownPages(projectId: string): Promise<{ titleLc: string; title: string; image: string | null }[]> {
@@ -486,51 +529,106 @@ export class D1Storage implements Storage {
     const firstWord = words[0];
     if (firstWord === undefined) return [];
     const excludes = [...new Set(query.excludes)];
-    const clauses = [
-      ...words.map(() => "s.content LIKE ? ESCAPE '\\'"),
-      ...excludes.map(() => "s.content NOT LIKE ? ESCAPE '\\'"),
-    ];
-    const values = [...words, ...excludes].map((word) => `%${escapeLike(word)}%`);
-    const pages = (await this.#db.prepare(
-      `SELECT p.id, p.title, p.image FROM page_search s JOIN pages p ON p.id = s.page_id
-       WHERE s.project_id = ? AND p.deleted = 0 AND ${clauses.join(' AND ')}
-       ORDER BY p.updated DESC, p.id`,
-    ).bind(projectId, ...values).all<{ id: string; title: string; image: string | null }>()).results;
-    const lineClauses = words.map(() => "text LIKE ? ESCAPE '\\'").join(' OR ');
-    const patterns = words.map((word) => `%${escapeLike(word)}%`);
-    return Promise.all(pages.map(async (page): Promise<SearchHit> => ({
-      pageId: page.id,
-      title: page.title,
-      image: page.image,
-      lines: (await this.#db.prepare(
-        `SELECT text FROM lines WHERE page_id = ? AND (${lineClauses}) ORDER BY ord`,
-      ).bind(page.id, ...patterns).all<{ text: string }>()).results.map((row) => row.text),
-    })));
+    const conditionValues: unknown[] = [];
+    let from: string;
+    let order: string;
+    if (usesFts(firstWord)) {
+      from = 'pages_fts JOIN pages p ON p.id = pages_fts.page_id';
+      order = 'pages_fts.rank, p.id, matched_line.ord';
+      conditionValues.push(ftsPhrase(firstWord), projectId);
+    } else {
+      from = 'pages p';
+      order = 'p.updated DESC, p.id, matched_line.ord';
+      conditionValues.push(projectId, firstWord);
+    }
+    const firstCondition = usesFts(firstWord)
+      ? 'pages_fts MATCH ? AND pages_fts.project_id = ?'
+      : `p.project_id = ? AND EXISTS (
+          SELECT 1 FROM lines first_line
+          WHERE first_line.page_id = p.id AND instr(lower(first_line.text), lower(?)) > 0
+        )`;
+    const conditions = [firstCondition, 'p.deleted = 0'];
+    for (const word of words.slice(1)) {
+      if (usesFts(word)) {
+        conditions.push('p.id IN (SELECT page_id FROM pages_fts WHERE pages_fts MATCH ?)');
+        conditionValues.push(ftsPhrase(word));
+      } else {
+        conditions.push(`EXISTS (
+          SELECT 1 FROM lines required_line
+          WHERE required_line.page_id = p.id AND instr(lower(required_line.text), lower(?)) > 0
+        )`);
+        conditionValues.push(word);
+      }
+    }
+    for (const word of excludes) {
+      if (usesFts(word)) {
+        conditions.push('p.id NOT IN (SELECT page_id FROM pages_fts WHERE pages_fts MATCH ?)');
+        conditionValues.push(ftsPhrase(word));
+      } else {
+        conditions.push(`NOT EXISTS (
+          SELECT 1 FROM lines excluded_line
+          WHERE excluded_line.page_id = p.id AND instr(lower(excluded_line.text), lower(?)) > 0
+        )`);
+        conditionValues.push(word);
+      }
+    }
+    const lineConditions = words.map(() => 'instr(lower(matched_line.text), lower(?)) > 0').join(' OR ');
+    const rows = (await this.#db.prepare(
+      `SELECT p.id, p.title, p.image, matched_line.text
+       FROM ${from} JOIN lines matched_line ON matched_line.page_id = p.id AND (${lineConditions})
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY ${order}`,
+    ).bind(...words, ...conditionValues).all<{ id: string; title: string; image: string | null; text: string }>()).results;
+    const hits = new Map<string, SearchHit>();
+    for (const row of rows) {
+      const hit = hits.get(row.id) ?? { pageId: row.id, title: row.title, image: row.image, lines: [] };
+      hit.lines.push(row.text);
+      hits.set(row.id, hit);
+    }
+    return [...hits.values()];
   }
 
   async reindex(projectId?: string): Promise<{ pages: number }> {
-    const countRow = projectId === undefined
-      ? await this.#db.prepare('SELECT COUNT(*) AS n FROM pages').first<{ n: number }>()
-      : await this.#db.prepare('SELECT COUNT(*) AS n FROM pages WHERE project_id = ?')
-        .bind(projectId).first<{ n: number }>();
-    const deleteStatement = projectId === undefined
-      ? this.#db.prepare('DELETE FROM page_search')
-      : this.#db.prepare('DELETE FROM page_search WHERE project_id = ?').bind(projectId);
-    const insertStatement = projectId === undefined
-      ? this.#db.prepare(
-        `INSERT INTO page_search (page_id, project_id, content)
-         SELECT p.id, p.project_id, GROUP_CONCAT(l.text, char(10))
-         FROM pages p JOIN lines l ON l.page_id = p.id
-         WHERE p.deleted = 0 GROUP BY p.id, p.project_id`,
-      )
-      : this.#db.prepare(
-        `INSERT INTO page_search (page_id, project_id, content)
-         SELECT p.id, p.project_id, GROUP_CONCAT(l.text, char(10))
-         FROM pages p JOIN lines l ON l.page_id = p.id
-         WHERE p.project_id = ? AND p.deleted = 0 GROUP BY p.id, p.project_id`,
-      ).bind(projectId);
-    await this.#db.batch([deleteStatement, insertStatement]);
-    return { pages: countRow?.n ?? 0 };
+    const [pageResult, lineResult] = await Promise.all([
+      projectId === undefined
+        ? this.#db.prepare('SELECT * FROM pages ORDER BY id').all<PageRow>()
+        : this.#db.prepare('SELECT * FROM pages WHERE project_id = ? ORDER BY id').bind(projectId).all<PageRow>(),
+      projectId === undefined
+        ? this.#db.prepare(
+          `SELECT l.* FROM lines l JOIN pages p ON p.id = l.page_id ORDER BY l.page_id, l.ord`,
+        ).all<LineRow & { page_id: string }>()
+        : this.#db.prepare(
+          `SELECT l.* FROM lines l JOIN pages p ON p.id = l.page_id
+           WHERE p.project_id = ? ORDER BY l.page_id, l.ord`,
+        ).bind(projectId).all<LineRow & { page_id: string }>(),
+    ]);
+    const linesByPage = new Map<string, string[]>();
+    for (const line of lineResult.results) {
+      const lines = linesByPage.get(line.page_id) ?? [];
+      lines.push(line.text);
+      linesByPage.set(line.page_id, lines);
+    }
+    const statements: D1Statement[] = [];
+    for (const page of pageResult.results) {
+      const searchText = (linesByPage.get(page.id) ?? []).join('\n');
+      const refs = page.deleted === 1 ? { linkTargets: [], image: null } : extractRefs(searchText);
+      statements.push(
+        this.#db.prepare('DELETE FROM links WHERE source_page_id = ?').bind(page.id),
+        this.#db.prepare('DELETE FROM pages_fts WHERE page_id = ?').bind(page.id),
+        this.#db.prepare('UPDATE pages SET image = ? WHERE id = ?').bind(refs.image, page.id),
+      );
+      if (page.deleted === 1) continue;
+      for (const target of refs.linkTargets) {
+        statements.push(this.#db.prepare(
+          'INSERT OR IGNORE INTO links (project_id, source_page_id, target_title_lc, target_title) VALUES (?, ?, ?, ?)',
+        ).bind(page.project_id, page.id, target.titleLc, target.title));
+      }
+      statements.push(this.#db.prepare(
+        'INSERT INTO pages_fts (page_id, project_id, content) VALUES (?, ?, ?)',
+      ).bind(page.id, page.project_id, searchText));
+    }
+    if (statements.length > 0) await this.#db.batch(statements);
+    return { pages: pageResult.results.length };
   }
 
   async createApiToken(): Promise<void> { throw new UnsupportedStorageOperationError('createApiToken'); }
