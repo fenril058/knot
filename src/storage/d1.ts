@@ -94,6 +94,8 @@ type LineRow = {
   actor_id: string;
 };
 
+type PageSnapshotRow = PageRow & { lines_json: string };
+
 function isD1UniqueConstraintError(error: unknown): boolean {
   return error instanceof Error && /(?:SQLITE_CONSTRAINT_UNIQUE|UNIQUE constraint failed)/u.test(error.message);
 }
@@ -108,6 +110,25 @@ function textArray(json: string): string[] {
   const value: unknown = JSON.parse(json);
   if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
     throw new StorageError('D1 returned an invalid text array');
+  }
+  return value;
+}
+
+function isLine(value: unknown): value is Line {
+  return typeof value === 'object'
+    && value !== null
+    && 'id' in value && typeof value.id === 'string'
+    && 'text' in value && typeof value.text === 'string'
+    && 'created' in value && typeof value.created === 'number'
+    && 'updated' in value && typeof value.updated === 'number'
+    && 'updatedVersion' in value && typeof value.updatedVersion === 'number'
+    && 'userId' in value && typeof value.userId === 'string';
+}
+
+function lineArray(json: string): Line[] {
+  const value: unknown = JSON.parse(json);
+  if (!Array.isArray(value) || !value.every(isLine)) {
+    throw new StorageError('D1 returned an invalid line array');
   }
   return value;
 }
@@ -323,34 +344,39 @@ export class D1Storage implements Storage {
     return { user, lastUpdateUser };
   }
 
-  async #lines(pageId: string): Promise<Line[]> {
-    const { results } = await this.#db.prepare(
-      'SELECT id, text, created, updated, updated_version, actor_id FROM lines WHERE page_id = ? ORDER BY ord',
-    ).bind(pageId).all<LineRow>();
-    return results.map((row) => ({
-      id: row.id,
-      text: row.text,
-      created: row.created,
-      updated: row.updated,
-      updatedVersion: row.updated_version,
-      userId: row.actor_id,
-    }));
-  }
-
-  async #snapshot(row: PageRow): Promise<PageSnapshot> {
-    return { ...pageMeta(row), lines: await this.#lines(row.id) };
+  #snapshot(row: PageSnapshotRow): PageSnapshot {
+    return { ...pageMeta(row), lines: lineArray(row.lines_json) };
   }
 
   async getPageByTitle(projectId: string, titleLcValue: string): Promise<PageSnapshot | null> {
     const row = await this.#db.prepare(
-      'SELECT * FROM pages WHERE project_id = ? AND title_lc = ? AND deleted = 0',
-    ).bind(projectId, titleLcValue).first<PageRow>();
+      `${this.#pageSnapshotSelect()}
+       WHERE p.project_id = ? AND p.title_lc = ? AND p.deleted = 0`,
+    ).bind(projectId, titleLcValue).first<PageSnapshotRow>();
     return row === null ? null : this.#snapshot(row);
   }
 
   async getPageById(pageId: string): Promise<PageSnapshot | null> {
-    const row = await this.#db.prepare('SELECT * FROM pages WHERE id = ?').bind(pageId).first<PageRow>();
+    const row = await this.#db.prepare(`${this.#pageSnapshotSelect()} WHERE p.id = ?`)
+      .bind(pageId).first<PageSnapshotRow>();
     return row === null ? null : this.#snapshot(row);
+  }
+
+  #pageSnapshotSelect(): string {
+    return `SELECT p.*, COALESCE((
+      SELECT json_group_array(json_object(
+        'id', ordered.id,
+        'text', ordered.text,
+        'created', ordered.created,
+        'updated', ordered.updated,
+        'updatedVersion', ordered.updated_version,
+        'userId', ordered.actor_id
+      ))
+      FROM (
+        SELECT id, text, created, updated, updated_version, actor_id
+        FROM lines WHERE page_id = p.id ORDER BY ord
+      ) AS ordered
+    ), '[]') AS lines_json FROM pages AS p`;
   }
 
   async #getAppliedCommit(commitId: string): Promise<{ version: number; opsHash: string } | null> {

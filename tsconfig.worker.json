@@ -2,7 +2,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "lib": ["es2023"],
-    "types": []
+    "types": ["node"]
   },
   "include": ["src/worker/**/*.ts", "worker-configuration.d.ts"],
   "exclude": []

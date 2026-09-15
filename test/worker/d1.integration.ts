@@ -169,20 +169,64 @@ async function readContract(storage: Storage) {
   };
 }
 
-function countQueries(db: D1Binding): { binding: D1Binding; count: () => number; reset: () => void } {
+type QueryMeasurements = {
+  queries: number;
+  batchStatements: number;
+  maxParameters: number;
+  maxStatementBytes: number;
+  maxBoundStringBytes: number;
+};
+
+function countQueries(db: D1Binding): {
+  binding: D1Binding;
+  count: () => number;
+  measurements: () => QueryMeasurements;
+  reset: () => void;
+} {
+  type Statement = ReturnType<D1Binding['prepare']>;
+  const rawStatements = new WeakMap<Statement, Statement>();
   let count = 0;
+  let batchStatements = 0;
+  let maxParameters = 0;
+  let maxStatementBytes = 0;
+  let maxBoundStringBytes = 0;
   return {
     binding: {
       prepare(query) {
         count += 1;
-        return db.prepare(query);
+        maxParameters = Math.max(maxParameters, query.match(/\?/gu)?.length ?? 0);
+        maxStatementBytes = Math.max(maxStatementBytes, Buffer.byteLength(query));
+        const statement = db.prepare(query);
+        const measuredStatement: Statement = {
+          bind(...values) {
+            for (const value of values) {
+              if (typeof value === 'string') {
+                maxBoundStringBytes = Math.max(maxBoundStringBytes, Buffer.byteLength(value));
+              }
+            }
+            return statement.bind(...values);
+          },
+          first: <T>() => statement.first<T>(),
+          all: <T>() => statement.all<T>(),
+          run: <T>() => statement.run<T>(),
+        };
+        rawStatements.set(measuredStatement, statement);
+        return measuredStatement;
       },
       batch(statements) {
-        return db.batch(statements);
+        batchStatements += statements.length;
+        return db.batch(statements.map((statement) => rawStatements.get(statement) ?? statement));
       },
     },
     count: () => count,
-    reset: () => { count = 0; },
+    measurements: () => ({ queries: count, batchStatements, maxParameters, maxStatementBytes, maxBoundStringBytes }),
+    reset: () => {
+      count = 0;
+      batchStatements = 0;
+      maxParameters = 0;
+      maxStatementBytes = 0;
+      maxBoundStringBytes = 0;
+    },
   };
 }
 
@@ -385,6 +429,39 @@ void test('D1 commit retry is idempotent and rejects commitId reuse', async () =
   }
 });
 
+void test('D1 commit confirms commitId after the batch response is lost', async () => {
+  const { server, db } = await testDatabase();
+  try {
+    const initial = await seedMutationProject(db);
+    await initial.commit({
+      projectId: 'project-1', pageId: 'page-1', commitId: 'commit-initial', baseVersion: 0,
+      ops: [{ type: 'insert', id: 'line-title', after: '_head', text: 'Home' }],
+      actorId: 'actor-1', now: 100,
+    });
+    let loseNextBatchResponse = true;
+    const responseLossDb: D1Binding = {
+      prepare: (query) => db.prepare(query),
+      async batch<T = unknown>(statements: Parameters<D1Binding['batch']>[0]) {
+        const result = await db.batch<T>(statements);
+        if (loseNextBatchResponse) {
+          loseNextBatchResponse = false;
+          throw new Error('batch response lost');
+        }
+        return result;
+      },
+    };
+
+    assert.deepEqual(await new D1Storage(responseLossDb).commit({
+      projectId: 'project-1', pageId: 'page-1', commitId: 'commit-after-loss', baseVersion: 1,
+      ops: [{ type: 'update', id: 'line-title', text: 'Renamed' }], actorId: 'actor-1', now: 200,
+    }), { kind: 'applied', version: 2 });
+    assert.equal(await tableCount(db, 'commits', 'WHERE page_id = ?', 'page-1'), 2);
+    assert.equal((await initial.getPageById('page-1'))?.title, 'Renamed');
+  } finally {
+    await server.close();
+  }
+});
+
 void test('D1 concurrent commits from the same snapshot apply at most once', async () => {
   const { server, db } = await testDatabase();
   try {
@@ -431,6 +508,66 @@ void test('D1 concurrent commits from the same snapshot apply at most once', asy
       (await left.search('project-1', parseSearchQuery(winningTerm))).map((hit) => hit.pageId),
       ['page-1'],
     );
+  } finally {
+    await server.close();
+  }
+});
+
+void test('D1 commit returns the latest version conflict when a read overlaps another commit', async () => {
+  const { server, db } = await testDatabase();
+  try {
+    const initial = await seedMutationProject(db);
+    await initial.commit({
+      projectId: 'project-1', pageId: 'page-1', commitId: 'commit-initial', baseVersion: 0,
+      ops: [
+        { type: 'insert', id: 'line-title', after: '_head', text: 'Home' },
+        { type: 'insert', id: 'line-body', after: 'line-title', text: 'initial' },
+      ],
+      actorId: 'actor-1', now: 100,
+    });
+    let intercepted = false;
+    const overlappingDb: D1Binding = {
+      prepare(query) {
+        const statement = db.prepare(query);
+        if (!query.includes('AS lines_json FROM pages AS p WHERE p.id = ?')) return statement;
+        const wrap = (current: typeof statement): typeof statement => ({
+          bind(...values) {
+            return wrap(current.bind(...values));
+          },
+          async first<T>() {
+            const row = await current.first<T>();
+            if (!intercepted) {
+              intercepted = true;
+              await initial.commit({
+                projectId: 'project-1', pageId: 'page-1', commitId: 'commit-winner', baseVersion: 1,
+                ops: [{ type: 'delete', id: 'line-body' }], actorId: 'actor-1', now: 200,
+              });
+            }
+            return row;
+          },
+          all<T>() {
+            return current.all<T>();
+          },
+          run<T>() {
+            return current.run<T>();
+          },
+        });
+        return wrap(statement);
+      },
+      batch: (statements) => db.batch(statements),
+    };
+
+    const result = await new D1Storage(overlappingDb).commit({
+      projectId: 'project-1', pageId: 'page-1', commitId: 'commit-loser', baseVersion: 1,
+      ops: [{ type: 'update', id: 'line-body', text: 'loser' }], actorId: 'actor-1', now: 200,
+    });
+
+    assert.equal(result.kind, 'conflict');
+    if (result.kind === 'conflict') {
+      assert.equal(result.reason, 'version');
+      assert.equal(result.page.version, 2);
+      assert.deepEqual(result.page.lines.map((line) => line.text), ['Home']);
+    }
   } finally {
     await server.close();
   }
@@ -518,37 +655,40 @@ void test('D1 batch constraint failure leaves no partial page mutation', async (
   }
 });
 
-void test('D1 dogfood-sized commit keeps query count and parameter count below Free limits', async () => {
+void test('D1 commit statement shape stays fixed as the page grows and remains within D1 limits', async () => {
   const { server, db } = await testDatabase();
   try {
     await db.prepare('INSERT INTO projects (id, name, display_name, created, updated) VALUES (?, ?, ?, ?, ?)')
       .bind('project-1', 'wiki', 'wiki', 100, 100).run();
-    let queries = 0;
-    let maxParameters = 0;
-    let maxStatementBytes = 0;
-    const measuredDb: D1Binding = {
-      prepare(query) {
-        queries += 1;
-        maxStatementBytes = Math.max(maxStatementBytes, Buffer.byteLength(query));
-        maxParameters = Math.max(maxParameters, query.match(/\?/gu)?.length ?? 0);
-        return db.prepare(query);
-      },
-      batch: (statements) => db.batch(statements),
-    };
-    const storage = new D1Storage(measuredDb);
-    const ops = Array.from({ length: 200 }, (_, index) => ({
-      type: 'insert' as const,
-      id: `line-${index}`,
-      after: index === 0 ? '_head' : `line-${index - 1}`,
-      text: index === 0 ? 'Dogfood' : `line ${index} [Target ${index}]`,
-    }));
-    assert.deepEqual(await storage.commit({
-      projectId: 'project-1', pageId: 'page-1', commitId: 'commit-1', baseVersion: 0,
-      ops, actorId: 'actor-1', now: 200,
-    }), { kind: 'applied', version: 1 });
-    assert.equal(queries, 14);
-    assert.equal(maxParameters, 10);
-    assert.ok(maxStatementBytes <= 100_000, `statement bytes: ${maxStatementBytes}`);
+    const measured = countQueries(db);
+    const storage = new D1Storage(measured.binding);
+    const measurements: QueryMeasurements[] = [];
+    for (const size of [10, 2_000]) {
+      measured.reset();
+      const ops = Array.from({ length: size }, (_, index) => ({
+        type: 'insert' as const,
+        id: `line-${size}-${index}`,
+        after: index === 0 ? '_head' : `line-${size}-${index - 1}`,
+        text: index === 0 ? `Dogfood ${size}` : `line ${index} [Target ${index}]`,
+      }));
+      assert.deepEqual(await storage.commit({
+        projectId: 'project-1', pageId: `page-${size}`, commitId: `commit-${size}`, baseVersion: 0,
+        ops, actorId: 'actor-1', now: 200,
+      }), { kind: 'applied', version: 1 });
+      measurements.push(measured.measurements());
+    }
+    const [small, large] = measurements;
+    assert.ok(small);
+    assert.ok(large);
+    assert.deepEqual(
+      { queries: large.queries, batchStatements: large.batchStatements, maxParameters: large.maxParameters },
+      { queries: small.queries, batchStatements: small.batchStatements, maxParameters: small.maxParameters },
+    );
+    assert.equal(large.maxStatementBytes, small.maxStatementBytes);
+    for (const measurement of measurements) {
+      assert.ok(measurement.maxStatementBytes <= 100_000);
+      assert.ok(measurement.maxBoundStringBytes <= 2_000_000);
+    }
   } finally {
     await server.close();
   }
@@ -700,8 +840,8 @@ void test('dogfood read and search operations stay within the D1 Free query budg
     );
     const token = await accessToken();
     for (const [path, expectedQueries] of [
-      ['/project/Home', 11],
-      ['/api/pages/project/Home', 10],
+      ['/project/Home', 10],
+      ['/api/pages/project/Home', 9],
       ['/api/pages/project', 5],
       ['/api/pages/project/search/query?q=shared', 4],
     ] as const) {
