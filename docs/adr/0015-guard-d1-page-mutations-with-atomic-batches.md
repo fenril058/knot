@@ -16,6 +16,7 @@ batch の成否が transport error から判別できない場合は、commit ID
 同じ操作ハッシュの commit が存在すれば適用済みとして元の version を返し、存在しなければ error を呼び出し元へ返す。
 
 lines と links は JSON parameter で渡し、ページサイズに応じて statement 数と placeholder 数を増やさない。
+操作ハッシュには configured compatibility date の Workers runtime が提供する `node:crypto` を使うため、Worker の型検査でも Node の型定義を読み込む。
 通常の D1 binding を使い Sessions API を使わないため、今回の read は primary に対して行う。
 将来 Sessions API を導入する場合は、最初の query を primary に制約するか bookmark を引き継ぐ必要がある。
 

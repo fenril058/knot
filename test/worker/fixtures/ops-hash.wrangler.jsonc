@@ -1,0 +1,6 @@
+{
+  "$schema": "../../../node_modules/wrangler/config-schema.json",
+  "name": "knot-ops-hash-runtime-test",
+  "main": "./ops-hash-worker.ts",
+  "compatibility_date": "2026-09-11"
+}

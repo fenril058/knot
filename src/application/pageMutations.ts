@@ -149,21 +149,23 @@ function titleConflict(mutation: PageMutation, clash: PageSnapshot | null): Comm
     : null;
 }
 
+type TitleChangingMutation = PageMutation & { before: PageSnapshot };
+
+function needsTitleHistory(mutation: PageMutation): mutation is TitleChangingMutation {
+  return mutation.before !== null
+    && !mutation.after.deleted
+    && mutation.after.title !== mutation.before.title;
+}
+
 function addTitleHistory(mutation: PageMutation, started: number): void {
+  if (!needsTitleHistory(mutation)) return;
   const { before, after } = mutation;
-  if (before === null) return;
   mutation.titleHistory = {
     oldTitle: before.title,
     oldTitleLc: before.titleLc,
     started,
     ended: after.updated,
   };
-}
-
-function needsTitleHistory(mutation: PageMutation): boolean {
-  return mutation.before !== null
-    && !mutation.after.deleted
-    && mutation.after.title !== mutation.before.title;
 }
 
 function applyCommit(tx: PageTransaction, input: CommitInput): CommitResult {
@@ -175,9 +177,8 @@ function applyCommit(tx: PageTransaction, input: CommitInput): CommitResult {
     const conflict = titleConflict(mutation, tx.getPageByTitle(input.projectId, mutation.after.titleLc));
     if (conflict !== null) return conflict;
   }
-  const before = mutation.before;
-  if (before !== null && needsTitleHistory(mutation)) {
-    addTitleHistory(mutation, tx.getCurrentTitleStarted(input.pageId, before.created));
+  if (needsTitleHistory(mutation)) {
+    addTitleHistory(mutation, tx.getCurrentTitleStarted(input.pageId, mutation.before.created));
   }
   tx.savePageMutation(mutation);
   return { kind: 'applied', version: mutation.after.version };
@@ -206,11 +207,10 @@ export async function commitPageGuarded(
       );
       if (conflict !== null) return conflict;
     }
-    const before = mutation.before;
-    if (before !== null && needsTitleHistory(mutation)) {
+    if (needsTitleHistory(mutation)) {
       addTitleHistory(
         mutation,
-        await repository.getCurrentTitleStarted(input.pageId, before.created),
+        await repository.getCurrentTitleStarted(input.pageId, mutation.before.created),
       );
     }
     try {

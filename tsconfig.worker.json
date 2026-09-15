@@ -2,6 +2,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "lib": ["es2023"],
+    // The configured Workers runtime enables Node compatibility and opsHash imports node:crypto.
     "types": ["node"]
   },
   "include": ["src/worker/**/*.ts", "worker-configuration.d.ts"],
