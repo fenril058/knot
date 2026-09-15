@@ -26,6 +26,7 @@ class FakePageRepository implements PageRepository {
   failOnSave: number | null = null;
   finalizeError: Error | null = null;
   transactionCount = 0;
+  currentTitleStartedReads = 0;
 
   transaction<T>(operation: (tx: PageTransaction) => T): T {
     this.transactionCount++;
@@ -46,7 +47,10 @@ class FakePageRepository implements PageRepository {
       getPageByTitle: (projectId, normalizedTitle) =>
         [...this.pages.values()].find((page) =>
           page.projectId === projectId && page.titleLc === normalizedTitle && !page.deleted) ?? null,
-      getCurrentTitleStarted: (_pageId, fallback) => fallback,
+      getCurrentTitleStarted: (_pageId, fallback) => {
+        this.currentTitleStartedReads++;
+        return fallback;
+      },
       pageIdExists: (pageId) => this.pages.has(pageId),
       listPagesLinkingTo: (projectId, targetTitleLc, excludePageId) =>
         [...this.pages.values()].filter((page) =>
@@ -122,6 +126,25 @@ void test('commit の適用と version conflict を SQLite なしで判定する
   assert.equal(conflict.kind, 'conflict');
   assert.equal(conflict.kind === 'conflict' ? conflict.reason : '', 'version');
   assert.equal(repository.pages.get('page')?.lines[1]?.text, '[Target]');
+});
+
+void test('タイトルを変更しない commit は title history の開始時刻を読まない', () => {
+  const repository = new FakePageRepository();
+  createPage(repository, 'page', 'Page', ['before']);
+  repository.currentTitleStartedReads = 0;
+
+  const result = commitPage(repository, {
+    projectId: 'project',
+    pageId: 'page',
+    commitId: 'body-update',
+    baseVersion: 1,
+    ops: [{ type: 'update', id: 'page-line-1', text: 'after' }],
+    actorId: 'actor',
+    now: now + 1,
+  });
+
+  assert.deepEqual(result, { kind: 'applied', version: 2 });
+  assert.equal(repository.currentTitleStartedReads, 0);
 });
 
 void test('delete は同じ application transaction 内で baseVersion を検証して全行を削除する', () => {

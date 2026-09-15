@@ -11,7 +11,5 @@ export function opsHash(pageId: string, baseVersion: number, ops: LineOp[]): str
     if (op.type === 'update') return { type: op.type, id: op.id, text: op.text };
     return { type: op.type, id: op.id };
   });
-  return createHash('sha256')
-    .update(JSON.stringify({ pageId, baseVersion, ops: canonical }))
-    .digest('hex');
+  return createHash('sha256').update(JSON.stringify({ pageId, baseVersion, ops: canonical })).digest('hex');
 }

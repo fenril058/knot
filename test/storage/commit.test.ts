@@ -9,6 +9,11 @@ void test('opsHash はキー順に依存しない決定的ハッシュ', () => {
   const a: LineOp[] = [{ type: 'insert', id: 'l1', after: '_head', text: 'T' }];
   const reordered = [{ after: '_head', text: 'T', type: 'insert', id: 'l1' }] as LineOp[];
   assert.equal(opsHash('p', 0, a), opsHash('p', 0, reordered));
+  assert.equal(opsHash('p', 0, a), 'bf3bb29ff1933e760a51bdd26275d77d283cda0ca9b208e34e56052be71c90a4');
+  assert.equal(
+    opsHash('ページ', 12, [{ type: 'update', id: '行', text: '日本語🙂' }]),
+    '072317309784c78222af822fc9a9f26d9474c58da393d5b93524d59ce0677d6b',
+  );
   assert.notEqual(opsHash('p', 0, a), opsHash('p', 1, a));
 });
 

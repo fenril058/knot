@@ -1,5 +1,11 @@
 import { ulid } from '../core/id.ts';
 import { derivePageData } from '../application/pageDerivedData.ts';
+import {
+  commitPageGuarded,
+  deletePageGuarded,
+  type GuardedPageMutationRepository,
+  type PageMutation,
+} from '../application/pageMutations.ts';
 import type { Line } from '../core/ops.ts';
 import type { SearchQuery } from '../core/searchQuery.ts';
 import {
@@ -88,8 +94,15 @@ type LineRow = {
   actor_id: string;
 };
 
-function isD1ConstraintError(error: unknown): boolean {
+type PageSnapshotRow = PageRow & { lines_json: string };
+
+function isD1UniqueConstraintError(error: unknown): boolean {
   return error instanceof Error && /(?:SQLITE_CONSTRAINT_UNIQUE|UNIQUE constraint failed)/u.test(error.message);
+}
+
+function isD1MutationConflict(error: unknown): boolean {
+  return isD1UniqueConstraintError(error)
+    || (error instanceof Error && /CHECK constraint failed: (?:page_mutation_guard|locked = 1)/iu.test(error.message));
 }
 
 function textArray(json: string): string[] {
@@ -97,6 +110,25 @@ function textArray(json: string): string[] {
   const value: unknown = JSON.parse(json);
   if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
     throw new StorageError('D1 returned an invalid text array');
+  }
+  return value;
+}
+
+function isLine(value: unknown): value is Line {
+  return typeof value === 'object'
+    && value !== null
+    && 'id' in value && typeof value.id === 'string'
+    && 'text' in value && typeof value.text === 'string'
+    && 'created' in value && typeof value.created === 'number'
+    && 'updated' in value && typeof value.updated === 'number'
+    && 'updatedVersion' in value && typeof value.updatedVersion === 'number'
+    && 'userId' in value && typeof value.userId === 'string';
+}
+
+function lineArray(json: string): Line[] {
+  const value: unknown = JSON.parse(json);
+  if (!Array.isArray(value) || !value.every(isLine)) {
+    throw new StorageError('D1 returned an invalid line array');
   }
   return value;
 }
@@ -235,7 +267,7 @@ export class D1Storage implements Storage {
         ),
       ]);
     } catch (error) {
-      if (isD1ConstraintError(error)) throw new StorageError(`account already exists: ${account.name}`);
+      if (isD1UniqueConstraintError(error)) throw new StorageError(`account already exists: ${account.name}`);
       throw error;
     }
     return { accountId: account.id, actorId: account.actor.id };
@@ -271,7 +303,7 @@ export class D1Storage implements Storage {
         ).bind(account.id, account.actor.id, account.name, account.email, now),
       ]);
     } catch (error) {
-      if (isD1ConstraintError(error)) {
+      if (isD1UniqueConstraintError(error)) {
         throw new StorageError(`Access account mapping conflicts with existing identity: ${account.name}`);
       }
       throw error;
@@ -312,34 +344,182 @@ export class D1Storage implements Storage {
     return { user, lastUpdateUser };
   }
 
-  async #lines(pageId: string): Promise<Line[]> {
-    const { results } = await this.#db.prepare(
-      'SELECT id, text, created, updated, updated_version, actor_id FROM lines WHERE page_id = ? ORDER BY ord',
-    ).bind(pageId).all<LineRow>();
-    return results.map((row) => ({
-      id: row.id,
-      text: row.text,
-      created: row.created,
-      updated: row.updated,
-      updatedVersion: row.updated_version,
-      userId: row.actor_id,
-    }));
-  }
-
-  async #snapshot(row: PageRow): Promise<PageSnapshot> {
-    return { ...pageMeta(row), lines: await this.#lines(row.id) };
+  #snapshot(row: PageSnapshotRow): PageSnapshot {
+    return { ...pageMeta(row), lines: lineArray(row.lines_json) };
   }
 
   async getPageByTitle(projectId: string, titleLcValue: string): Promise<PageSnapshot | null> {
     const row = await this.#db.prepare(
-      'SELECT * FROM pages WHERE project_id = ? AND title_lc = ? AND deleted = 0',
-    ).bind(projectId, titleLcValue).first<PageRow>();
+      `${this.#pageSnapshotSelect()}
+       WHERE p.project_id = ? AND p.title_lc = ? AND p.deleted = 0`,
+    ).bind(projectId, titleLcValue).first<PageSnapshotRow>();
     return row === null ? null : this.#snapshot(row);
   }
 
   async getPageById(pageId: string): Promise<PageSnapshot | null> {
-    const row = await this.#db.prepare('SELECT * FROM pages WHERE id = ?').bind(pageId).first<PageRow>();
+    const row = await this.#db.prepare(`${this.#pageSnapshotSelect()} WHERE p.id = ?`)
+      .bind(pageId).first<PageSnapshotRow>();
     return row === null ? null : this.#snapshot(row);
+  }
+
+  #pageSnapshotSelect(): string {
+    return `SELECT p.*, COALESCE((
+      SELECT json_group_array(json_object(
+        'id', ordered.id,
+        'text', ordered.text,
+        'created', ordered.created,
+        'updated', ordered.updated,
+        'updatedVersion', ordered.updated_version,
+        'userId', ordered.actor_id
+      ))
+      FROM (
+        SELECT id, text, created, updated, updated_version, actor_id
+        FROM lines WHERE page_id = p.id ORDER BY ord
+      ) AS ordered
+    ), '[]') AS lines_json FROM pages AS p`;
+  }
+
+  async #getAppliedCommit(commitId: string): Promise<{ version: number; opsHash: string } | null> {
+    const row = await this.#db.prepare('SELECT version, ops_hash FROM commits WHERE id = ?')
+      .bind(commitId).first<{ version: number; ops_hash: string }>();
+    return row === null ? null : { version: row.version, opsHash: row.ops_hash };
+  }
+
+  async #getCurrentTitleStarted(pageId: string, fallback: number): Promise<number> {
+    const row = await this.#db.prepare(
+      'SELECT COALESCE(MAX(ended), ?) AS started FROM title_history WHERE page_id = ?',
+    ).bind(fallback, pageId).first<{ started: number }>();
+    return row?.started ?? fallback;
+  }
+
+  #mutationRepository(): GuardedPageMutationRepository {
+    return {
+      getAppliedCommit: (commitId) => this.#getAppliedCommit(commitId),
+      getPageById: (pageId) => this.getPageById(pageId),
+      getPageByTitle: (projectId, titleLcValue) => this.getPageByTitle(projectId, titleLcValue),
+      getCurrentTitleStarted: (pageId, fallback) => this.#getCurrentTitleStarted(pageId, fallback),
+      tryApplyPageMutation: (mutation) => this.#tryApplyPageMutation(mutation),
+    };
+  }
+
+  async #tryApplyPageMutation(mutation: PageMutation): Promise<boolean> {
+    const { before, after, commit, derived } = mutation;
+    const guard = before === null
+      ? this.#db.prepare(
+        `INSERT INTO page_mutation_guard (locked)
+         SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM commits WHERE id = ?)
+           AND NOT EXISTS (SELECT 1 FROM pages WHERE id = ?)
+           AND NOT EXISTS (
+             SELECT 1 FROM pages WHERE project_id = ? AND title_lc = ? AND deleted = 0
+           ) THEN 1 ELSE 0 END`,
+      ).bind(commit.id, after.id, after.projectId, after.titleLc)
+      : this.#db.prepare(
+        `INSERT INTO page_mutation_guard (locked)
+         SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM commits WHERE id = ?)
+           AND EXISTS (
+             SELECT 1 FROM pages
+             WHERE id = ? AND project_id = ? AND version = ? AND deleted = 0
+           )
+           AND (? = 1 OR NOT EXISTS (
+             SELECT 1 FROM pages
+             WHERE project_id = ? AND title_lc = ? AND deleted = 0 AND id != ?
+           )) THEN 1 ELSE 0 END`,
+      ).bind(
+        commit.id,
+        after.id,
+        after.projectId,
+        commit.baseVersion,
+        after.deleted ? 1 : 0,
+        after.projectId,
+        after.titleLc,
+        after.id,
+      );
+    const statements: D1Statement[] = [
+      guard,
+      this.#db.prepare(
+        'INSERT INTO actors (id, name, display_name, created) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO NOTHING',
+      ).bind(commit.actorId, commit.actorId, commit.actorId, commit.created),
+    ];
+    if (before === null) {
+      statements.push(this.#db.prepare(
+        `INSERT INTO pages (id, project_id, title, title_lc, version, pinned, deleted, image, created, updated)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        after.id,
+        after.projectId,
+        after.title,
+        after.titleLc,
+        after.version,
+        after.pinned,
+        after.deleted ? 1 : 0,
+        derived.image,
+        after.created,
+        after.updated,
+      ));
+    } else {
+      if (mutation.titleHistory !== undefined) {
+        const history = mutation.titleHistory;
+        statements.push(this.#db.prepare(
+          'INSERT INTO title_history (page_id, old_title, old_title_lc, started, ended) VALUES (?, ?, ?, ?, ?)',
+        ).bind(after.id, history.oldTitle, history.oldTitleLc, history.started, history.ended));
+      }
+      statements.push(this.#db.prepare(
+        `UPDATE pages SET title = ?, title_lc = ?, version = ?, pinned = ?, deleted = ?, image = ?,
+           created = ?, updated = ? WHERE id = ?`,
+      ).bind(
+        after.title,
+        after.titleLc,
+        after.version,
+        after.pinned,
+        after.deleted ? 1 : 0,
+        derived.image,
+        after.created,
+        after.updated,
+        after.id,
+      ));
+    }
+    statements.push(
+      this.#db.prepare('DELETE FROM lines WHERE page_id = ?').bind(after.id),
+      this.#db.prepare(
+        `INSERT INTO lines (id, page_id, ord, text, created, updated, updated_version, actor_id)
+         SELECT json_extract(value, '$.id'), ?, CAST(key AS INTEGER), json_extract(value, '$.text'),
+           json_extract(value, '$.created'), json_extract(value, '$.updated'),
+           json_extract(value, '$.updatedVersion'), json_extract(value, '$.userId')
+         FROM json_each(?)`,
+      ).bind(after.id, JSON.stringify(after.lines)),
+      this.#db.prepare(
+        `INSERT INTO commits (id, page_id, base_version, version, actor_id, created, ops, ops_hash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        commit.id,
+        commit.pageId,
+        commit.baseVersion,
+        commit.version,
+        commit.actorId,
+        commit.created,
+        JSON.stringify(commit.ops),
+        commit.opsHash,
+      ),
+      this.#db.prepare('DELETE FROM links WHERE source_page_id = ?').bind(after.id),
+      this.#db.prepare(
+        `INSERT OR IGNORE INTO links (project_id, source_page_id, target_title_lc, target_title)
+         SELECT ?, ?, json_extract(value, '$.titleLc'), json_extract(value, '$.title') FROM json_each(?)`,
+      ).bind(after.projectId, after.id, JSON.stringify(derived.links)),
+      this.#db.prepare('DELETE FROM pages_fts WHERE page_id = ?').bind(after.id),
+    );
+    if (derived.searchText !== null) {
+      statements.push(this.#db.prepare(
+        'INSERT INTO pages_fts (page_id, project_id, content) VALUES (?, ?, ?)',
+      ).bind(after.id, after.projectId, derived.searchText));
+    }
+    statements.push(this.#db.prepare('DELETE FROM page_mutation_guard WHERE locked = 1'));
+    try {
+      await this.#db.batch(statements);
+      return true;
+    } catch (error) {
+      if (isD1MutationConflict(error)) return false;
+      throw error;
+    }
   }
 
   async listPages(projectId: string): Promise<PageMeta[]> {
@@ -646,11 +826,15 @@ export class D1Storage implements Storage {
   async reuseAttachmentBySha256(): Promise<Attachment | null> { throw new UnsupportedStorageOperationError('reuseAttachmentBySha256'); }
   async listAttachments(): Promise<Attachment[]> { throw new UnsupportedStorageOperationError('listAttachments'); }
   async getAttachment(): Promise<Attachment | null> { throw new UnsupportedStorageOperationError('getAttachment'); }
-  async commit(_input: CommitInput): Promise<CommitResult> { throw new UnsupportedStorageOperationError('commit'); }
+  async commit(input: CommitInput): Promise<CommitResult> {
+    return commitPageGuarded(this.#mutationRepository(), input);
+  }
   async replacePageText(_input: ReplacePageTextInput): Promise<ReplacePageTextResult> {
     throw new UnsupportedStorageOperationError('replacePageText');
   }
-  async deletePage(_input: DeleteInput): Promise<DeleteResult> { throw new UnsupportedStorageOperationError('deletePage'); }
+  async deletePage(input: DeleteInput): Promise<DeleteResult> {
+    return deletePageGuarded(this.#mutationRepository(), input);
+  }
   async renamePage(_input: RenameInput): Promise<RenameResult> { throw new UnsupportedStorageOperationError('renamePage'); }
   async importPage(_input: ImportPageInput): Promise<ImportPageResult> { throw new UnsupportedStorageOperationError('importPage'); }
   async close(): Promise<void> {}

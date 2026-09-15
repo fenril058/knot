@@ -110,7 +110,7 @@ Account ID と Actor ID には異なる値を指定します。
 isolated remote D1 の検証では、追跡対象の `wrangler.jsonc` を変更せず、database name、database ID、`"remote": true` を設定した一時 config を `.dev/` に作ります。
 `--remote` は remote binding の利用を許可する指定であり、config の binding 自体を remote へ変更しません。
 production D1 を対象にする前に、`wrangler d1 info knot` で database を確認してください。
-適用後は `npm run d1:smoke -- --remote --config .dev/wrangler-d1-smoke.jsonc` で Account / Actor、project、page read、search、visit と未実装 mutation の拒否を確認できます。
+適用後は `npm run d1:smoke -- --remote --config .dev/wrangler-d1-smoke.jsonc` で Account / Actor、project、page read、search、visit、commit / delete の競合と冪等性を確認できます。
 
 ```sh
 wrangler d1 migrations apply knot-smoke \
