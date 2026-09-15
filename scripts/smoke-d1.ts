@@ -26,6 +26,8 @@ const suffix = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
 const accountId = `smoke-account-${suffix}`;
 const actorId = `smoke-actor-${suffix}`;
 const pageId = `smoke-page-${suffix}`;
+const sourcePageId = `smoke-source-${suffix}`;
+const lateSourcePageId = `smoke-late-source-${suffix}`;
 const accountName = `smoke-${suffix}`;
 
 try {
@@ -35,6 +37,7 @@ try {
   assert(appliedMigrations.has('0002_page_reads.sql'));
   assert(appliedMigrations.has('0003_search_fts.sql'));
   assert(appliedMigrations.has('0004_page_mutation_guard.sql'));
+  assert(appliedMigrations.has('0005_page_mutation_revisions.sql'));
   const storage = new D1Storage(platform.env.DB);
   const account = await storage.addAccessAccount({
     id: accountId,
@@ -101,12 +104,75 @@ try {
       .bind(pageId).first<{ count: number }>())?.count,
     2,
   );
+
+  await storage.commit({
+    projectId: created.project.id,
+    pageId: sourcePageId,
+    commitId: `smoke-source-commit-${suffix}`,
+    baseVersion: 0,
+    ops: [
+      { type: 'insert', id: `${sourcePageId}-title`, after: '_head', text: 'Smoke Source' },
+      { type: 'insert', id: `${sourcePageId}-body`, after: `${sourcePageId}-title`, text: 'see [D1 Smoke]' },
+    ],
+    actorId,
+    now: 3,
+  });
+  let backlinkSnapshotRead = false;
+  const overlappingRenameDb: D1Binding = {
+    prepare(query) {
+      const statement = platform.env.DB.prepare(query);
+      if (!query.includes('SELECT source_page_id FROM links')) return statement;
+      const wrap = (current: typeof statement): typeof statement => ({
+        bind(...values) { return wrap(current.bind(...values)); },
+        first<T>() { return current.first<T>(); },
+        async all<T>() {
+          const rows = await current.all<T>();
+          if (!backlinkSnapshotRead) {
+            backlinkSnapshotRead = true;
+            await storage.commit({
+              projectId: created.project.id,
+              pageId: lateSourcePageId,
+              commitId: `smoke-late-source-commit-${suffix}`,
+              baseVersion: 0,
+              ops: [
+                { type: 'insert', id: `${lateSourcePageId}-title`, after: '_head', text: 'Late Smoke Source' },
+                {
+                  type: 'insert',
+                  id: `${lateSourcePageId}-body`,
+                  after: `${lateSourcePageId}-title`,
+                  text: 'late [D1 Smoke]',
+                },
+              ],
+              actorId,
+              now: 4,
+            });
+          }
+          return rows;
+        },
+        run<T>() { return current.run<T>(); },
+      });
+      return wrap(statement);
+    },
+    batch: (statements) => platform.env.DB.batch(statements),
+  };
+  const renamed = await new D1Storage(overlappingRenameDb).renamePage({
+    projectId: created.project.id,
+    pageId,
+    baseVersion: 2,
+    newTitle: 'D1 Renamed',
+    rewriteLinks: true,
+    actorId,
+    now: 5,
+  });
+  assert.equal(renamed.kind, 'applied');
+  assert.equal((await storage.getPageById(sourcePageId))?.lines[1]?.text, 'see [D1 Renamed]');
+  assert.equal((await storage.getPageById(lateSourcePageId))?.lines[1]?.text, 'late [D1 Renamed]');
   assert.equal((await storage.deletePage({
-    projectId: created.project.id, pageId, baseVersion: 1, actorId, now: 3,
+    projectId: created.project.id, pageId, baseVersion: 2, actorId, now: 6,
   })).kind, 'conflict');
   assert.deepEqual(await storage.deletePage({
-    projectId: created.project.id, pageId, baseVersion: 2, actorId, now: 4,
-  }), { kind: 'applied', version: 3 });
+    projectId: created.project.id, pageId, baseVersion: 3, actorId, now: 7,
+  }), { kind: 'applied', version: 4 });
   assert.equal((await storage.getPageById(pageId))?.deleted, true);
   assert.equal((await storage.search(created.project.id, parseSearchQuery('wins'))).length, 0);
   console.log(JSON.stringify({
@@ -115,15 +181,18 @@ try {
     crud: 'ok',
     search: 'ok',
     mutationRace: 'ok',
+    renameRace: 'ok',
   }));
 } finally {
+  const pageIds = [pageId, sourcePageId, lateSourcePageId];
   await platform.env.DB.batch([
     platform.env.DB.prepare('DELETE FROM page_visits WHERE account_id = ?').bind(accountId),
-    platform.env.DB.prepare('DELETE FROM pages_fts WHERE page_id = ?').bind(pageId),
-    platform.env.DB.prepare('DELETE FROM links WHERE source_page_id = ?').bind(pageId),
-    platform.env.DB.prepare('DELETE FROM commits WHERE page_id = ?').bind(pageId),
-    platform.env.DB.prepare('DELETE FROM lines WHERE page_id = ?').bind(pageId),
-    platform.env.DB.prepare('DELETE FROM pages WHERE id = ?').bind(pageId),
+    ...pageIds.map((id) => platform.env.DB.prepare('DELETE FROM pages_fts WHERE page_id = ?').bind(id)),
+    ...pageIds.map((id) => platform.env.DB.prepare('DELETE FROM links WHERE source_page_id = ?').bind(id)),
+    ...pageIds.map((id) => platform.env.DB.prepare('DELETE FROM commits WHERE page_id = ?').bind(id)),
+    ...pageIds.map((id) => platform.env.DB.prepare('DELETE FROM title_history WHERE page_id = ?').bind(id)),
+    ...pageIds.map((id) => platform.env.DB.prepare('DELETE FROM lines WHERE page_id = ?').bind(id)),
+    ...pageIds.map((id) => platform.env.DB.prepare('DELETE FROM pages WHERE id = ?').bind(id)),
     platform.env.DB.prepare('DELETE FROM projects WHERE name = ?').bind(accountName),
     platform.env.DB.prepare('DELETE FROM accounts WHERE id = ?').bind(accountId),
     platform.env.DB.prepare('DELETE FROM actors WHERE id = ?').bind(actorId),

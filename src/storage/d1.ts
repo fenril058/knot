@@ -4,11 +4,14 @@ import {
   commitPageGuarded,
   deletePageGuarded,
   type GuardedPageMutationRepository,
+  type GuardedPageRenameRepository,
   type PageMutation,
+  renamePageGuarded,
 } from '../application/pageMutations.ts';
 import type { Line } from '../core/ops.ts';
 import type { SearchQuery } from '../core/searchQuery.ts';
 import {
+  BadCommitError,
   StorageError,
   UnsupportedStorageOperationError,
   type Account,
@@ -398,24 +401,38 @@ export class D1Storage implements Storage {
       getPageById: (pageId) => this.getPageById(pageId),
       getPageByTitle: (projectId, titleLcValue) => this.getPageByTitle(projectId, titleLcValue),
       getCurrentTitleStarted: (pageId, fallback) => this.#getCurrentTitleStarted(pageId, fallback),
-      tryApplyPageMutation: (mutation) => this.#tryApplyPageMutation(mutation),
+      getPageMutationRevision: (projectId) => this.#getPageMutationRevision(projectId),
+      tryApplyPageMutation: (mutation, expectedRevision) => this.#tryApplyPageMutation(mutation, expectedRevision),
     };
   }
 
-  async #tryApplyPageMutation(mutation: PageMutation): Promise<boolean> {
+  async #getPageMutationRevision(projectId: string): Promise<number> {
+    const row = await this.#db.prepare(
+      'SELECT revision FROM page_mutation_revisions WHERE project_id = ?',
+    ).bind(projectId).first<{ revision: number }>();
+    return row?.revision ?? 0;
+  }
+
+  async #tryApplyPageMutation(mutation: PageMutation, expectedRevision: number): Promise<boolean> {
     const { before, after, commit, derived } = mutation;
     const guard = before === null
       ? this.#db.prepare(
         `INSERT INTO page_mutation_guard (locked)
-         SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM commits WHERE id = ?)
+         SELECT CASE WHEN COALESCE((
+           SELECT revision FROM page_mutation_revisions WHERE project_id = ?
+         ), 0) = ?
+           AND NOT EXISTS (SELECT 1 FROM commits WHERE id = ?)
            AND NOT EXISTS (SELECT 1 FROM pages WHERE id = ?)
            AND NOT EXISTS (
              SELECT 1 FROM pages WHERE project_id = ? AND title_lc = ? AND deleted = 0
            ) THEN 1 ELSE 0 END`,
-      ).bind(commit.id, after.id, after.projectId, after.titleLc)
+      ).bind(after.projectId, expectedRevision, commit.id, after.id, after.projectId, after.titleLc)
       : this.#db.prepare(
         `INSERT INTO page_mutation_guard (locked)
-         SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM commits WHERE id = ?)
+         SELECT CASE WHEN COALESCE((
+           SELECT revision FROM page_mutation_revisions WHERE project_id = ?
+         ), 0) = ?
+           AND NOT EXISTS (SELECT 1 FROM commits WHERE id = ?)
            AND EXISTS (
              SELECT 1 FROM pages
              WHERE id = ? AND project_id = ? AND version = ? AND deleted = 0
@@ -425,6 +442,8 @@ export class D1Storage implements Storage {
              WHERE project_id = ? AND title_lc = ? AND deleted = 0 AND id != ?
            )) THEN 1 ELSE 0 END`,
       ).bind(
+        after.projectId,
+        expectedRevision,
         commit.id,
         after.id,
         after.projectId,
@@ -512,7 +531,157 @@ export class D1Storage implements Storage {
         'INSERT INTO pages_fts (page_id, project_id, content) VALUES (?, ?, ?)',
       ).bind(after.id, after.projectId, derived.searchText));
     }
-    statements.push(this.#db.prepare('DELETE FROM page_mutation_guard WHERE locked = 1'));
+    statements.push(
+      this.#db.prepare(
+        `INSERT INTO page_mutation_revisions (project_id, revision) VALUES (?, 1)
+         ON CONFLICT (project_id) DO UPDATE SET revision = page_mutation_revisions.revision + 1`,
+      ).bind(after.projectId),
+      this.#db.prepare('DELETE FROM page_mutation_guard WHERE locked = 1'),
+    );
+    try {
+      await this.#db.batch(statements);
+      return true;
+    } catch (error) {
+      if (isD1MutationConflict(error)) return false;
+      throw error;
+    }
+  }
+
+  #renameRepository(): GuardedPageRenameRepository {
+    return {
+      ...this.#mutationRepository(),
+      listPagesLinkingTo: async (projectId, targetTitleLc, excludePageId) => {
+        const { results } = await this.#db.prepare(
+          `${this.#pageSnapshotSelect()}
+           WHERE p.id IN (
+             SELECT source_page_id FROM links
+             WHERE project_id = ? AND target_title_lc = ? AND source_page_id != ?
+           ) AND p.deleted = 0 ORDER BY p.id`,
+        ).bind(projectId, targetTitleLc, excludePageId).all<PageSnapshotRow>();
+        return results.map((row) => this.#snapshot(row));
+      },
+      tryApplyPageMutations: (mutations, expectedRevision) =>
+        this.#tryApplyPageMutations(mutations, expectedRevision),
+    };
+  }
+
+  async #tryApplyPageMutations(mutations: PageMutation[], expectedRevision: number): Promise<boolean> {
+    const projectId = mutations[0]?.after.projectId;
+    if (projectId === undefined || mutations.some((mutation) => mutation.after.projectId !== projectId)) {
+      throw new StorageError('a guarded page mutation batch must contain one project');
+    }
+    const payload = JSON.stringify(mutations.map(({ before, after, commit, derived, titleHistory }) => ({
+      before: before === null ? null : { titleLc: before.titleLc },
+      after,
+      commit,
+      derived,
+      titleHistory: titleHistory ?? null,
+    })));
+    if (new TextEncoder().encode(payload).byteLength > 2_000_000) {
+      throw new BadCommitError('rename is too large for one atomic D1 mutation');
+    }
+    const guard = this.#db.prepare(
+      `INSERT INTO page_mutation_guard (locked)
+       SELECT CASE WHEN COALESCE((
+         SELECT revision FROM page_mutation_revisions WHERE project_id = ?
+       ), 0) = ? AND NOT EXISTS (
+         SELECT 1 FROM json_each(?) AS item
+         WHERE EXISTS (
+           SELECT 1 FROM commits WHERE id = json_extract(item.value, '$.commit.id')
+         ) OR NOT EXISTS (
+           SELECT 1 FROM pages
+           WHERE id = json_extract(item.value, '$.after.id')
+             AND project_id = json_extract(item.value, '$.after.projectId')
+             AND version = json_extract(item.value, '$.commit.baseVersion')
+             AND deleted = 0
+         ) OR (
+           json_extract(item.value, '$.after.deleted') = 0
+           AND json_extract(item.value, '$.after.titleLc') != json_extract(item.value, '$.before.titleLc')
+           AND EXISTS (
+             SELECT 1 FROM pages
+             WHERE project_id = json_extract(item.value, '$.after.projectId')
+               AND title_lc = json_extract(item.value, '$.after.titleLc')
+               AND deleted = 0 AND id != json_extract(item.value, '$.after.id')
+           )
+         )
+       ) THEN 1 ELSE 0 END`,
+    ).bind(projectId, expectedRevision, payload);
+    const statements: D1Statement[] = [
+      guard,
+      this.#db.prepare(
+        `INSERT INTO actors (id, name, display_name, created)
+         SELECT DISTINCT json_extract(value, '$.commit.actorId'), json_extract(value, '$.commit.actorId'),
+           json_extract(value, '$.commit.actorId'), json_extract(value, '$.commit.created')
+         FROM json_each(?) WHERE true ON CONFLICT (id) DO NOTHING`,
+      ).bind(payload),
+      this.#db.prepare(
+        `INSERT INTO title_history (page_id, old_title, old_title_lc, started, ended)
+         SELECT json_extract(value, '$.after.id'), json_extract(value, '$.titleHistory.oldTitle'),
+           json_extract(value, '$.titleHistory.oldTitleLc'), json_extract(value, '$.titleHistory.started'),
+           json_extract(value, '$.titleHistory.ended')
+         FROM json_each(?) WHERE json_type(value, '$.titleHistory') = 'object'`,
+      ).bind(payload),
+      this.#db.prepare(
+        `WITH mutation(value) AS (SELECT value FROM json_each(?))
+         UPDATE pages SET
+           title = json_extract((SELECT value FROM mutation WHERE json_extract(value, '$.after.id') = pages.id), '$.after.title'),
+           title_lc = json_extract((SELECT value FROM mutation WHERE json_extract(value, '$.after.id') = pages.id), '$.after.titleLc'),
+           version = json_extract((SELECT value FROM mutation WHERE json_extract(value, '$.after.id') = pages.id), '$.after.version'),
+           pinned = json_extract((SELECT value FROM mutation WHERE json_extract(value, '$.after.id') = pages.id), '$.after.pinned'),
+           deleted = json_extract((SELECT value FROM mutation WHERE json_extract(value, '$.after.id') = pages.id), '$.after.deleted'),
+           image = json_extract((SELECT value FROM mutation WHERE json_extract(value, '$.after.id') = pages.id), '$.derived.image'),
+           created = json_extract((SELECT value FROM mutation WHERE json_extract(value, '$.after.id') = pages.id), '$.after.created'),
+           updated = json_extract((SELECT value FROM mutation WHERE json_extract(value, '$.after.id') = pages.id), '$.after.updated')
+         WHERE id IN (SELECT json_extract(value, '$.after.id') FROM mutation)`,
+      ).bind(payload),
+      this.#db.prepare(
+        `DELETE FROM lines WHERE page_id IN (
+           SELECT json_extract(value, '$.after.id') FROM json_each(?)
+         )`,
+      ).bind(payload),
+      this.#db.prepare(
+        `INSERT INTO lines (id, page_id, ord, text, created, updated, updated_version, actor_id)
+         SELECT json_extract(line.value, '$.id'), json_extract(mutation.value, '$.after.id'),
+           CAST(line.key AS INTEGER), json_extract(line.value, '$.text'), json_extract(line.value, '$.created'),
+           json_extract(line.value, '$.updated'), json_extract(line.value, '$.updatedVersion'),
+           json_extract(line.value, '$.userId')
+         FROM json_each(?) AS mutation, json_each(mutation.value, '$.after.lines') AS line`,
+      ).bind(payload),
+      this.#db.prepare(
+        `INSERT INTO commits (id, page_id, base_version, version, actor_id, created, ops, ops_hash)
+         SELECT json_extract(value, '$.commit.id'), json_extract(value, '$.commit.pageId'),
+           json_extract(value, '$.commit.baseVersion'), json_extract(value, '$.commit.version'),
+           json_extract(value, '$.commit.actorId'), json_extract(value, '$.commit.created'),
+           json_extract(value, '$.commit.ops'), json_extract(value, '$.commit.opsHash') FROM json_each(?)`,
+      ).bind(payload),
+      this.#db.prepare(
+        `DELETE FROM links WHERE source_page_id IN (
+           SELECT json_extract(value, '$.after.id') FROM json_each(?)
+         )`,
+      ).bind(payload),
+      this.#db.prepare(
+        `INSERT OR IGNORE INTO links (project_id, source_page_id, target_title_lc, target_title)
+         SELECT json_extract(mutation.value, '$.after.projectId'), json_extract(mutation.value, '$.after.id'),
+           json_extract(link.value, '$.titleLc'), json_extract(link.value, '$.title')
+         FROM json_each(?) AS mutation, json_each(mutation.value, '$.derived.links') AS link`,
+      ).bind(payload),
+      this.#db.prepare(
+        `DELETE FROM pages_fts WHERE page_id IN (
+           SELECT json_extract(value, '$.after.id') FROM json_each(?)
+         )`,
+      ).bind(payload),
+      this.#db.prepare(
+        `INSERT INTO pages_fts (page_id, project_id, content)
+         SELECT json_extract(value, '$.after.id'), json_extract(value, '$.after.projectId'),
+           json_extract(value, '$.derived.searchText') FROM json_each(?)
+         WHERE json_type(value, '$.derived.searchText') != 'null'`,
+      ).bind(payload),
+      this.#db.prepare(
+        `INSERT INTO page_mutation_revisions (project_id, revision) VALUES (?, 1)
+         ON CONFLICT (project_id) DO UPDATE SET revision = page_mutation_revisions.revision + 1`,
+      ).bind(projectId),
+      this.#db.prepare('DELETE FROM page_mutation_guard WHERE locked = 1'),
+    ];
     try {
       await this.#db.batch(statements);
       return true;
@@ -835,7 +1004,9 @@ export class D1Storage implements Storage {
   async deletePage(input: DeleteInput): Promise<DeleteResult> {
     return deletePageGuarded(this.#mutationRepository(), input);
   }
-  async renamePage(_input: RenameInput): Promise<RenameResult> { throw new UnsupportedStorageOperationError('renamePage'); }
+  async renamePage(input: RenameInput): Promise<RenameResult> {
+    return renamePageGuarded(this.#renameRepository(), input);
+  }
   async importPage(_input: ImportPageInput): Promise<ImportPageResult> { throw new UnsupportedStorageOperationError('importPage'); }
   async close(): Promise<void> {}
 }

@@ -66,7 +66,13 @@ export interface GuardedPageMutationRepository {
   getPageById(pageId: string): Promise<PageSnapshot | null>;
   getPageByTitle(projectId: string, titleLcValue: string): Promise<PageSnapshot | null>;
   getCurrentTitleStarted(pageId: string, fallback: number): Promise<number>;
-  tryApplyPageMutation(mutation: PageMutation): Promise<boolean>;
+  getPageMutationRevision(projectId: string): Promise<number>;
+  tryApplyPageMutation(mutation: PageMutation, expectedRevision: number): Promise<boolean>;
+}
+
+export interface GuardedPageRenameRepository extends GuardedPageMutationRepository {
+  listPagesLinkingTo(projectId: string, targetTitleLc: string, excludePageId: string): Promise<PageSnapshot[]>;
+  tryApplyPageMutations(mutations: PageMutation[], expectedRevision: number): Promise<boolean>;
 }
 
 type PreparedCommit = { kind: 'prepared'; mutation: PageMutation };
@@ -195,6 +201,7 @@ export async function commitPageGuarded(
   input: CommitInput,
 ): Promise<CommitResult> {
   for (let attempt = 0; attempt < MAX_GUARD_RETRIES; attempt += 1) {
+    const expectedRevision = await repository.getPageMutationRevision(input.projectId);
     const prior = await repository.getAppliedCommit(input.commitId);
     const current = await repository.getPageById(input.pageId);
     const prepared = prepareCommit(input, prior, current);
@@ -214,7 +221,7 @@ export async function commitPageGuarded(
       );
     }
     try {
-      if (await repository.tryApplyPageMutation(mutation)) {
+      if (await repository.tryApplyPageMutation(mutation, expectedRevision)) {
         return { kind: 'applied', version: mutation.after.version };
       }
     } catch (error) {
@@ -230,6 +237,112 @@ export async function commitPageGuarded(
     }
   }
   throw new StorageError(`page mutation did not converge after ${MAX_GUARD_RETRIES} guarded attempts`);
+}
+
+function renameOps(page: PageSnapshot, newTitle: string): LineOp[] {
+  return [{ type: 'update', id: page.lines[0]!.id, text: newTitle }];
+}
+
+function backlinkRewriteOps(source: PageSnapshot, oldTitleLc: string, newTitle: string): LineOp[] {
+  const changes = rewritePageLinks(source.lines.map((line) => line.text), oldTitleLc, newTitle);
+  const ops: LineOp[] = [];
+  changes.forEach((text, index) => {
+    if (text !== null) ops.push({ type: 'update', id: source.lines[index]!.id, text });
+  });
+  return ops;
+}
+
+async function prepareExistingGuardedMutation(
+  repository: GuardedPageMutationRepository,
+  input: CommitInput,
+  current: PageSnapshot,
+): Promise<CommitResult | PreparedCommit> {
+  // rename の commit ID はこの operation 内で生成され、retry でも同じ ID を使う。
+  // apply が false の場合は batch 全体が rollback 済みなので、事前の commit lookup は不要。
+  const prepared = prepareCommit(input, null, current);
+  if (prepared.kind !== 'prepared') return prepared;
+  const { mutation } = prepared;
+  if (needsTitleLookup(mutation)) {
+    const conflict = titleConflict(
+      mutation,
+      await repository.getPageByTitle(input.projectId, mutation.after.titleLc),
+    );
+    if (conflict !== null) return conflict;
+  }
+  if (needsTitleHistory(mutation)) {
+    addTitleHistory(
+      mutation,
+      await repository.getCurrentTitleStarted(input.pageId, mutation.before.created),
+    );
+  }
+  return prepared;
+}
+
+export async function renamePageGuarded(
+  repository: GuardedPageRenameRepository,
+  input: RenameInput,
+): Promise<RenameResult> {
+  const { projectId, pageId, baseVersion, newTitle, rewriteLinks, actorId, now } = input;
+  if (newTitle === '') throw new BadCommitError('title must not be empty');
+  const commitIds = new Map<string, string>();
+  const commitIdFor = (id: string): string => {
+    const existing = commitIds.get(id);
+    if (existing !== undefined) return existing;
+    const created = ulid(now * 1000);
+    commitIds.set(id, created);
+    return created;
+  };
+
+  for (let attempt = 0; attempt < MAX_GUARD_RETRIES; attempt += 1) {
+    const expectedRevision = await repository.getPageMutationRevision(projectId);
+    const page = await repository.getPageById(pageId);
+    if (page === null || page.projectId !== projectId) throw new UnknownPageError(`unknown page: ${pageId}`);
+    if (baseVersion !== page.version) return { kind: 'conflict', reason: 'version', page };
+    if (page.deleted) throw new UnknownPageError(`unknown page: ${pageId}`);
+    if (newTitle === page.title) throw new BadCommitError('title is unchanged');
+
+    const titlePrepared = await prepareExistingGuardedMutation(repository, {
+      projectId,
+      pageId,
+      commitId: commitIdFor(pageId),
+      baseVersion,
+      ops: renameOps(page, newTitle),
+      actorId,
+      now,
+    }, page);
+    if (titlePrepared.kind !== 'prepared') {
+      if (titlePrepared.kind === 'conflict') return titlePrepared;
+      throw new StorageError('rename commit was unexpectedly already applied');
+    }
+
+    const mutations = [titlePrepared.mutation];
+    const rewritten: { pageId: string; title: string; version: number }[] = [];
+    if (rewriteLinks && titleLc(newTitle) !== page.titleLc) {
+      const sources = await repository.listPagesLinkingTo(projectId, page.titleLc, pageId);
+      for (const source of sources) {
+        const ops = backlinkRewriteOps(source, page.titleLc, newTitle);
+        if (ops.length === 0) continue;
+        const prepared = await prepareExistingGuardedMutation(repository, {
+          projectId,
+          pageId: source.id,
+          commitId: commitIdFor(source.id),
+          baseVersion: source.version,
+          ops,
+          actorId,
+          now,
+        }, source);
+        if (prepared.kind !== 'prepared') {
+          throw new StorageError(`link rewrite conflict on page ${source.id}`);
+        }
+        mutations.push(prepared.mutation);
+        rewritten.push({ pageId: source.id, title: source.title, version: prepared.mutation.after.version });
+      }
+    }
+    if (await repository.tryApplyPageMutations(mutations, expectedRevision)) {
+      return { kind: 'applied', version: titlePrepared.mutation.after.version, rewritten };
+    }
+  }
+  throw new StorageError(`page rename did not converge after ${MAX_GUARD_RETRIES} guarded attempts`);
 }
 
 export async function deletePageGuarded(
@@ -352,11 +465,7 @@ export function renamePage(repository: PageRepository, input: RenameInput): Rena
     if (rewriteLinks && titleLc(newTitle) !== page.titleLc) {
       const sources = tx.listPagesLinkingTo(projectId, page.titleLc, pageId);
       for (const source of sources) {
-        const changes = rewritePageLinks(source.lines.map((line) => line.text), page.titleLc, newTitle);
-        const ops: LineOp[] = [];
-        changes.forEach((text, index) => {
-          if (text !== null) ops.push({ type: 'update', id: source.lines[index]!.id, text });
-        });
+        const ops = backlinkRewriteOps(source, page.titleLc, newTitle);
         if (ops.length === 0) continue;
         const result = applyCommit(tx, {
           projectId,
