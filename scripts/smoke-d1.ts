@@ -38,6 +38,7 @@ try {
   assert(appliedMigrations.has('0003_search_fts.sql'));
   assert(appliedMigrations.has('0004_page_mutation_guard.sql'));
   assert(appliedMigrations.has('0005_page_mutation_revisions.sql'));
+  assert(appliedMigrations.has('0006_page_mutation_payload.sql'));
   const storage = new D1Storage(platform.env.DB);
   const account = await storage.addAccessAccount({
     id: accountId,

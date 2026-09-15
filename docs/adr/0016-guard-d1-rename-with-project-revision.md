@@ -4,7 +4,7 @@
 - 決定日: 2026-09-15
 
 D1 の `rewriteLinks=true` rename では、対象ページと逆リンク元を読み、application service が全ページの mutation plan を作り、D1 adapter が一つの atomic batch で適用する。
-逆リンク列挙後に新しい逆リンクが追加される race を検出するため、プロジェクトごとに page mutation revision を保持し、commit、delete、rename の成功ごとに進める。
+逆リンク列挙後に新しい逆リンクが追加される race を検出するため、プロジェクトごとに page mutation revision を保持し、ページ本文を変える commit、delete、rename の成功ごとに進める。
 rename は計画作成前に読んだ revision を batch 内で再検査し、一致しなければ全 mutation を rollback して、回数上限のある再計画を行う。
 
 ## 決定
@@ -14,9 +14,13 @@ rename は計画作成前に読んだ revision を batch 内で再検査し、�
 
 application service は逆リンクの列挙、`rewritePageLinks`、各ページの行操作、mutation の処理順を所有する。
 D1 adapter は snapshot read、revision と各 mutation 前提の SQL guard、mutation plan の atomic apply を所有する。
+単一ページの commit と delete は revision を進めるが照合せず、同じプロジェクトの無関係なページ変更を競合させない。
 
 複数ページ分の pages、lines、commits、title history、links、FTS を JSON parameter から集合として更新し、逆リンク数に応じて query 数、statement 数、placeholder 数を増やさない。
+JSON plan は guard table に一度だけ bind し、同じ batch の後続 statement はその値を参照する。
 一つの JSON parameter が D1 の 2 MB 上限を超える rename は、batch を分割せず明示的に拒否する。
+この payload は変更後の全文、行操作、検索用本文を含むため、2 MB はページ本文量の上限ではなく、実際に扱える本文量はそれより小さい。
+逆リンク本文の総量が 2 MB を超える場合は、全 snapshot を Worker へ読み出す前に拒否する。
 
 ## 却下した案
 
@@ -33,6 +37,8 @@ Workers Free の一 invocation あたり query 上限へ達し、同じ rename s
 
 - 無関係なページ変更も同じプロジェクトの rename を再計画させるが、一人利用を前提とする初期 dogfood では単純な correctness を優先する。
 - `rewriteLinks=false` も通常の page mutation として revision を進める。
+- `setPinned` はページ本文と逆リンク snapshot を変えないため revision を進めず、commit と rename も snapshot の `pinned` を書き戻さない。
+- `reindex` は既存の保守操作として revision guard の対象外であり、D1 のページ書き込みと同時には実行しない。
 - SQLite adapter は ADR 0012 の transaction callback を維持し、この revision を導入しない。
 - 全文置換と import の D1 対応はこの決定に含めない。
 

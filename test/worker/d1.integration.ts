@@ -14,6 +14,7 @@ import {
 } from '../../src/storage/types.ts';
 import { createCloudflareApp } from '../../src/worker/app.ts';
 import { makeStorage } from '../helpers/storage.ts';
+import { assertRenameConflictContract } from '../helpers/renameContract.ts';
 
 const access = {
   issuer: 'https://knot-test.cloudflareaccess.com',
@@ -172,6 +173,7 @@ async function readContract(storage: Storage) {
 type QueryMeasurements = {
   queries: number;
   batchStatements: number;
+  largeBoundStrings: number;
   maxParameters: number;
   maxStatementBytes: number;
   maxBoundStringBytes: number;
@@ -187,6 +189,7 @@ function countQueries(db: D1Binding): {
   const rawStatements = new WeakMap<Statement, Statement>();
   let count = 0;
   let batchStatements = 0;
+  let largeBoundStrings = 0;
   let maxParameters = 0;
   let maxStatementBytes = 0;
   let maxBoundStringBytes = 0;
@@ -202,6 +205,7 @@ function countQueries(db: D1Binding): {
             for (const value of values) {
               if (typeof value === 'string') {
                 maxBoundStringBytes = Math.max(maxBoundStringBytes, Buffer.byteLength(value));
+                if (Buffer.byteLength(value) > 1_000) largeBoundStrings += 1;
               }
             }
             return statement.bind(...values);
@@ -219,10 +223,18 @@ function countQueries(db: D1Binding): {
       },
     },
     count: () => count,
-    measurements: () => ({ queries: count, batchStatements, maxParameters, maxStatementBytes, maxBoundStringBytes }),
+    measurements: () => ({
+      queries: count,
+      batchStatements,
+      largeBoundStrings,
+      maxParameters,
+      maxStatementBytes,
+      maxBoundStringBytes,
+    }),
     reset: () => {
       count = 0;
       batchStatements = 0;
+      largeBoundStrings = 0;
       maxParameters = 0;
       maxStatementBytes = 0;
       maxBoundStringBytes = 0;
@@ -293,6 +305,7 @@ void test('D1 migrations are forward-only, repeatable, and upgrade a partially m
       '0003_search_fts.sql',
       '0004_page_mutation_guard.sql',
       '0005_page_mutation_revisions.sql',
+      '0006_page_mutation_payload.sql',
     ]);
     await server.getWorker().applyD1Migrations('DB');
     const reapplied = await db.prepare('SELECT name FROM d1_migrations ORDER BY id').all<{ name: string }>();
@@ -332,6 +345,7 @@ void test('D1 migrations are forward-only, repeatable, and upgrade a partially m
       '0003_search_fts.sql',
       '0004_page_mutation_guard.sql',
       '0005_page_mutation_revisions.sql',
+      '0006_page_mutation_payload.sql',
     ]);
     assert.notEqual(await partialDb.prepare("SELECT name FROM sqlite_master WHERE name = 'pages'").first(), null);
   } finally {
@@ -515,6 +529,49 @@ void test('D1 concurrent commits from the same snapshot apply at most once', asy
   }
 });
 
+void test('D1 concurrent commits to independent pages all apply', async () => {
+  const { server, db } = await testDatabase();
+  try {
+    const initial = await seedMutationProject(db);
+    for (let index = 0; index < 5; index += 1) {
+      await initial.commit({
+        projectId: 'project-1', pageId: `page-${index}`, commitId: `initial-${index}`, baseVersion: 0,
+        ops: [
+          { type: 'insert', id: `title-${index}`, after: '_head', text: `Page ${index}` },
+          { type: 'insert', id: `body-${index}`, after: `title-${index}`, text: 'before' },
+        ],
+        actorId: 'actor-1', now: 100,
+      });
+    }
+    let arrivals = 0;
+    let release: (() => void) | undefined;
+    const ready = new Promise<void>((resolve) => { release = resolve; });
+    const barrierDb: D1Binding = {
+      prepare: (query) => db.prepare(query),
+      async batch(statements) {
+        arrivals += 1;
+        if (arrivals === 5) release?.();
+        await ready;
+        return db.batch(statements);
+      },
+    };
+    const storage = new D1Storage(barrierDb);
+    const results = await Promise.all(Array.from({ length: 5 }, (_, index) => storage.commit({
+      projectId: 'project-1', pageId: `page-${index}`, commitId: `update-${index}`, baseVersion: 1,
+      ops: [{ type: 'update', id: `body-${index}`, text: 'after' }], actorId: 'actor-1', now: 200,
+    })));
+
+    assert.equal(results.filter((result) => result.kind === 'applied').length, 5);
+    for (let index = 0; index < 5; index += 1) {
+      const page = await initial.getPageById(`page-${index}`);
+      assert.equal(page?.version, 2);
+      assert.equal(page?.lines[1]?.text, 'after');
+    }
+  } finally {
+    await server.close();
+  }
+});
+
 void test('D1 commit returns the latest version conflict when a read overlaps another commit', async () => {
   const { server, db } = await testDatabase();
   try {
@@ -657,6 +714,88 @@ void test('D1 rename updates the target and every backlink atomically', async ()
   }
 });
 
+void test('D1 commit, delete, and rename advance the project page mutation revision', async () => {
+  const { server, db } = await testDatabase();
+  try {
+    const storage = await seedMutationProject(db);
+    const revision = async (): Promise<number> => (await db.prepare(
+      'SELECT revision FROM page_mutation_revisions WHERE project_id = ?',
+    ).bind('project-1').first<{ revision: number }>())?.revision ?? 0;
+    assert.equal(await revision(), 0);
+    await storage.commit({
+      projectId: 'project-1', pageId: 'target', commitId: 'commit-target', baseVersion: 0,
+      ops: [{ type: 'insert', id: 'target-title', after: '_head', text: 'Old' }],
+      actorId: 'actor-1', now: 100,
+    });
+    assert.equal(await revision(), 1);
+    await storage.commit({
+      projectId: 'project-1', pageId: 'deleted', commitId: 'commit-deleted', baseVersion: 0,
+      ops: [{ type: 'insert', id: 'deleted-title', after: '_head', text: 'Deleted' }],
+      actorId: 'actor-1', now: 100,
+    });
+    assert.equal(await revision(), 2);
+    await storage.deletePage({
+      projectId: 'project-1', pageId: 'deleted', baseVersion: 1, actorId: 'actor-1', now: 150,
+    });
+    assert.equal(await revision(), 3);
+    await storage.renamePage({
+      projectId: 'project-1', pageId: 'target', baseVersion: 1, newTitle: 'New',
+      rewriteLinks: false, actorId: 'actor-1', now: 200,
+    });
+    assert.equal(await revision(), 4);
+  } finally {
+    await server.close();
+  }
+});
+
+void test('D1 rename confirms every commit after the batch response is lost', async () => {
+  const { server, db } = await testDatabase();
+  try {
+    const storage = await seedMutationProject(db);
+    await storage.commit({
+      projectId: 'project-1', pageId: 'target', commitId: 'commit-target', baseVersion: 0,
+      ops: [{ type: 'insert', id: 'target-title', after: '_head', text: 'Old' }],
+      actorId: 'actor-1', now: 100,
+    });
+    await storage.commit({
+      projectId: 'project-1', pageId: 'source', commitId: 'commit-source', baseVersion: 0,
+      ops: [
+        { type: 'insert', id: 'source-title', after: '_head', text: 'Source' },
+        { type: 'insert', id: 'source-body', after: 'source-title', text: 'see [Old]' },
+      ],
+      actorId: 'actor-1', now: 100,
+    });
+    let loseNextBatchResponse = true;
+    const responseLossDb: D1Binding = {
+      prepare: (query) => db.prepare(query),
+      async batch<T = unknown>(statements: Parameters<D1Binding['batch']>[0]) {
+        const result = await db.batch<T>(statements);
+        if (loseNextBatchResponse) {
+          loseNextBatchResponse = false;
+          throw new Error('batch response lost');
+        }
+        return result;
+      },
+    };
+
+    assert.deepEqual(await new D1Storage(responseLossDb).renamePage({
+      projectId: 'project-1', pageId: 'target', baseVersion: 1, newTitle: 'New',
+      rewriteLinks: true, actorId: 'actor-1', now: 200,
+    }), {
+      kind: 'applied',
+      version: 2,
+      rewritten: [{ pageId: 'source', title: 'Source', version: 2 }],
+    });
+    assert.equal((await storage.getPageById('target'))?.title, 'New');
+    assert.equal((await storage.getPageById('target'))?.version, 2);
+    assert.equal((await storage.getPageById('source'))?.lines[1]?.text, 'see [New]');
+    assert.equal((await storage.getPageById('source'))?.version, 2);
+    assert.equal(await tableCount(db, 'commits'), 4);
+  } finally {
+    await server.close();
+  }
+});
+
 void test('D1 rename retries when a new backlink is committed after its snapshot', async () => {
   const { server, db } = await testDatabase();
   try {
@@ -784,6 +923,59 @@ void test('D1 rename does not overwrite a backlink page changed after its snapsh
   }
 });
 
+void test('D1 rename does not overwrite pinned state changed after its backlink snapshot', async () => {
+  const { server, db } = await testDatabase();
+  try {
+    const storage = await seedMutationProject(db);
+    await storage.commit({
+      projectId: 'project-1', pageId: 'target', commitId: 'commit-target', baseVersion: 0,
+      ops: [{ type: 'insert', id: 'target-title', after: '_head', text: 'Old' }],
+      actorId: 'actor-1', now: 100,
+    });
+    await storage.commit({
+      projectId: 'project-1', pageId: 'source', commitId: 'commit-source', baseVersion: 0,
+      ops: [
+        { type: 'insert', id: 'source-title', after: '_head', text: 'Source' },
+        { type: 'insert', id: 'source-body', after: 'source-title', text: 'see [Old]' },
+      ],
+      actorId: 'actor-1', now: 100,
+    });
+    let intercepted = false;
+    const overlappingDb: D1Binding = {
+      prepare(query) {
+        const statement = db.prepare(query);
+        if (!query.includes('SELECT source_page_id FROM links')) return statement;
+        const wrap = (current: typeof statement): typeof statement => ({
+          bind(...values) { return wrap(current.bind(...values)); },
+          first<T>() { return current.first<T>(); },
+          async all<T>() {
+            const rows = await current.all<T>();
+            if (!intercepted) {
+              intercepted = true;
+              await storage.setPinned('source', true);
+            }
+            return rows;
+          },
+          run<T>() { return current.run<T>(); },
+        });
+        return wrap(statement);
+      },
+      batch: (statements) => db.batch(statements),
+    };
+
+    assert.equal((await new D1Storage(overlappingDb).renamePage({
+      projectId: 'project-1', pageId: 'target', baseVersion: 1, newTitle: 'New',
+      rewriteLinks: true, actorId: 'actor-1', now: 200,
+    })).kind, 'applied');
+    const source = await storage.getPageById('source');
+    assert.equal(source?.pinned, 1);
+    assert.equal(source?.version, 2);
+    assert.equal(source?.lines[1]?.text, 'see [New]');
+  } finally {
+    await server.close();
+  }
+});
+
 void test('D1 rename rolls back the target and every backlink on an intermediate failure', async () => {
   const { server, db } = await testDatabase();
   try {
@@ -829,52 +1021,46 @@ void test('D1 rename rolls back the target and every backlink on an intermediate
   }
 });
 
+void test('D1 rename surfaces an unexpected unique constraint failure without retrying it as a guard conflict', async () => {
+  const { server, db } = await testDatabase();
+  try {
+    const storage = await seedMutationProject(db);
+    await storage.commit({
+      projectId: 'project-1', pageId: 'target', commitId: 'commit-target', baseVersion: 0,
+      ops: [{ type: 'insert', id: 'target-title', after: '_head', text: 'Old' }],
+      actorId: 'actor-1', now: 100,
+    });
+    let batchCalls = 0;
+    const failingDb: D1Binding = {
+      prepare: (query) => db.prepare(query),
+      batch(statements) {
+        batchCalls += 1;
+        const failure = db.prepare(
+          `INSERT INTO projects (id, name, display_name, created, updated)
+           VALUES ('project-1', 'duplicate', 'duplicate', 1, 1)`,
+        );
+        return db.batch([...statements.slice(0, 7), failure, ...statements.slice(7)]);
+      },
+    };
+
+    await assert.rejects(new D1Storage(failingDb).renamePage({
+      projectId: 'project-1', pageId: 'target', baseVersion: 1, newTitle: 'New',
+      rewriteLinks: false, actorId: 'actor-1', now: 200,
+    }), /UNIQUE constraint failed/u);
+    assert.equal(batchCalls, 1);
+    assert.equal((await storage.getPageById('target'))?.title, 'Old');
+    assert.equal((await storage.getPageById('target'))?.version, 1);
+    assert.equal(await tableCount(db, 'commits'), 1);
+  } finally {
+    await server.close();
+  }
+});
+
 void test('D1 rename preserves stale, title-conflict, and rewriteLinks false semantics', async () => {
   const { server, db } = await testDatabase();
   try {
     const storage = await seedMutationProject(db);
-    for (const [pageId, title, body] of [
-      ['target', 'Old', 'body'],
-      ['taken', 'Taken', 'occupied'],
-      ['source', 'Source', 'see [Old]'],
-    ] as const) {
-      await storage.commit({
-        projectId: 'project-1', pageId, commitId: `commit-${pageId}`, baseVersion: 0,
-        ops: [
-          { type: 'insert', id: `${pageId}-title`, after: '_head', text: title },
-          { type: 'insert', id: `${pageId}-body`, after: `${pageId}-title`, text: body },
-        ],
-        actorId: 'actor-1', now: 100,
-      });
-    }
-
-    const stale = await storage.renamePage({
-      projectId: 'project-1', pageId: 'target', baseVersion: 0, newTitle: 'New',
-      rewriteLinks: true, actorId: 'actor-1', now: 200,
-    });
-    assert.equal(stale.kind, 'conflict');
-    if (stale.kind === 'conflict') {
-      assert.equal(stale.reason, 'version');
-      assert.equal(stale.page.id, 'target');
-      assert.equal(stale.page.version, 1);
-    }
-    const occupied = await storage.renamePage({
-      projectId: 'project-1', pageId: 'target', baseVersion: 1, newTitle: 'Taken',
-      rewriteLinks: true, actorId: 'actor-1', now: 200,
-    });
-    assert.equal(occupied.kind, 'conflict');
-    if (occupied.kind === 'conflict') {
-      assert.equal(occupied.reason, 'title');
-      assert.equal(occupied.page.id, 'taken');
-    }
-    assert.deepEqual(await storage.renamePage({
-      projectId: 'project-1', pageId: 'target', baseVersion: 1, newTitle: 'New',
-      rewriteLinks: false, actorId: 'actor-1', now: 200,
-    }), { kind: 'applied', version: 2, rewritten: [] });
-    assert.deepEqual((await storage.getPageById('source'))?.lines.map((line) => line.text), [
-      'Source',
-      'see [Old]',
-    ]);
+    await assertRenameConflictContract(storage, 'project-1', 'actor-1');
     assert.equal(await tableCount(db, 'links', 'WHERE target_title_lc = ?', 'old'), 1);
     assert.equal(await tableCount(db, 'commits'), 4);
   } finally {
@@ -921,6 +1107,7 @@ void test('D1 rename query shape stays fixed as backlinks grow and remains withi
       { queries: small.queries, batchStatements: small.batchStatements, maxParameters: small.maxParameters },
     );
     assert.ok(large.queries <= 50);
+    assert.equal(large.largeBoundStrings, 1);
     assert.ok(large.maxParameters <= 100);
     assert.ok(large.maxStatementBytes <= 100_000);
     assert.ok(large.maxBoundStringBytes <= 2_000_000);
@@ -940,7 +1127,7 @@ void test('D1 rename rejects an oversized atomic payload without partial mutatio
     });
     for (let index = 0; index < 5; index += 1) {
       const pageId = `source-${index}`;
-      const body = `${'x'.repeat(220_000)} [Old]`;
+      const body = `${'x'.repeat(440_000)} [Old]`;
       await db.batch([
         db.prepare('INSERT INTO pages VALUES (?, ?, ?, ?, 1, 0, 0, NULL, 100, 100)')
           .bind(pageId, 'project-1', `Source ${index}`, `source_${index}`),
@@ -956,8 +1143,15 @@ void test('D1 rename rejects an oversized atomic payload without partial mutatio
         db.prepare('INSERT INTO links VALUES (?, ?, ?, ?)').bind('project-1', pageId, 'old', 'Old'),
       ]);
     }
+    const preflightDb: D1Binding = {
+      prepare(query) {
+        if (query.includes('WHERE p.id IN')) throw new Error('full backlink snapshot should not be read');
+        return db.prepare(query);
+      },
+      batch: (statements) => db.batch(statements),
+    };
 
-    await assert.rejects(storage.renamePage({
+    await assert.rejects(new D1Storage(preflightDb).renamePage({
       projectId: 'project-1', pageId: 'target', baseVersion: 1, newTitle: 'New',
       rewriteLinks: true, actorId: 'actor-1', now: 200,
     }), (error: unknown) => error instanceof BadCommitError
@@ -1039,6 +1233,8 @@ void test('D1 commit statement shape stays fixed as the page grows and remains w
       { queries: large.queries, batchStatements: large.batchStatements, maxParameters: large.maxParameters },
       { queries: small.queries, batchStatements: small.batchStatements, maxParameters: small.maxParameters },
     );
+    assert.equal(large.queries, 15);
+    assert.equal(large.batchStatements, 12);
     assert.equal(large.maxStatementBytes, small.maxStatementBytes);
     for (const measurement of measurements) {
       assert.ok(measurement.maxStatementBytes <= 100_000);

@@ -3,6 +3,7 @@ import { derivePageData } from '../application/pageDerivedData.ts';
 import {
   commitPageGuarded,
   deletePageGuarded,
+  type ExistingPageMutation,
   type GuardedPageMutationRepository,
   type GuardedPageRenameRepository,
   type PageMutation,
@@ -64,6 +65,7 @@ export interface D1Binding {
 const PROJECT_NAME_RE = /^[a-z0-9-]+$/;
 const MAX_PROJECT_NAME_LENGTH = 64;
 const RESERVED_PROJECT_NAMES = new Set(['api', 'login', 'files', 'assets']);
+const MAX_D1_VALUE_BYTES = 2_000_000;
 
 type AccountRow = {
   id: string;
@@ -106,6 +108,10 @@ function isD1UniqueConstraintError(error: unknown): boolean {
 function isD1MutationConflict(error: unknown): boolean {
   return isD1UniqueConstraintError(error)
     || (error instanceof Error && /CHECK constraint failed: (?:page_mutation_guard|locked = 1)/iu.test(error.message));
+}
+
+function isD1MutationGuardConflict(error: unknown): boolean {
+  return error instanceof Error && /CHECK constraint failed: (?:page_mutation_guard|locked = 1)/iu.test(error.message);
 }
 
 function textArray(json: string): string[] {
@@ -401,8 +407,7 @@ export class D1Storage implements Storage {
       getPageById: (pageId) => this.getPageById(pageId),
       getPageByTitle: (projectId, titleLcValue) => this.getPageByTitle(projectId, titleLcValue),
       getCurrentTitleStarted: (pageId, fallback) => this.#getCurrentTitleStarted(pageId, fallback),
-      getPageMutationRevision: (projectId) => this.#getPageMutationRevision(projectId),
-      tryApplyPageMutation: (mutation, expectedRevision) => this.#tryApplyPageMutation(mutation, expectedRevision),
+      tryApplyPageMutation: (mutation) => this.#tryApplyPageMutation(mutation),
     };
   }
 
@@ -413,26 +418,20 @@ export class D1Storage implements Storage {
     return row?.revision ?? 0;
   }
 
-  async #tryApplyPageMutation(mutation: PageMutation, expectedRevision: number): Promise<boolean> {
+  async #tryApplyPageMutation(mutation: PageMutation): Promise<boolean> {
     const { before, after, commit, derived } = mutation;
     const guard = before === null
       ? this.#db.prepare(
         `INSERT INTO page_mutation_guard (locked)
-         SELECT CASE WHEN COALESCE((
-           SELECT revision FROM page_mutation_revisions WHERE project_id = ?
-         ), 0) = ?
-           AND NOT EXISTS (SELECT 1 FROM commits WHERE id = ?)
+         SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM commits WHERE id = ?)
            AND NOT EXISTS (SELECT 1 FROM pages WHERE id = ?)
            AND NOT EXISTS (
              SELECT 1 FROM pages WHERE project_id = ? AND title_lc = ? AND deleted = 0
            ) THEN 1 ELSE 0 END`,
-      ).bind(after.projectId, expectedRevision, commit.id, after.id, after.projectId, after.titleLc)
+      ).bind(commit.id, after.id, after.projectId, after.titleLc)
       : this.#db.prepare(
         `INSERT INTO page_mutation_guard (locked)
-         SELECT CASE WHEN COALESCE((
-           SELECT revision FROM page_mutation_revisions WHERE project_id = ?
-         ), 0) = ?
-           AND NOT EXISTS (SELECT 1 FROM commits WHERE id = ?)
+         SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM commits WHERE id = ?)
            AND EXISTS (
              SELECT 1 FROM pages
              WHERE id = ? AND project_id = ? AND version = ? AND deleted = 0
@@ -442,8 +441,6 @@ export class D1Storage implements Storage {
              WHERE project_id = ? AND title_lc = ? AND deleted = 0 AND id != ?
            )) THEN 1 ELSE 0 END`,
       ).bind(
-        after.projectId,
-        expectedRevision,
         commit.id,
         after.id,
         after.projectId,
@@ -483,16 +480,14 @@ export class D1Storage implements Storage {
         ).bind(after.id, history.oldTitle, history.oldTitleLc, history.started, history.ended));
       }
       statements.push(this.#db.prepare(
-        `UPDATE pages SET title = ?, title_lc = ?, version = ?, pinned = ?, deleted = ?, image = ?,
-           created = ?, updated = ? WHERE id = ?`,
+        `UPDATE pages SET title = ?, title_lc = ?, version = ?, deleted = ?, image = ?, updated = ?
+         WHERE id = ?`,
       ).bind(
         after.title,
         after.titleLc,
         after.version,
-        after.pinned,
         after.deleted ? 1 : 0,
         derived.image,
-        after.created,
         after.updated,
         after.id,
       ));
@@ -550,7 +545,18 @@ export class D1Storage implements Storage {
   #renameRepository(): GuardedPageRenameRepository {
     return {
       ...this.#mutationRepository(),
+      getPageMutationRevision: (projectId) => this.#getPageMutationRevision(projectId),
       listPagesLinkingTo: async (projectId, targetTitleLc, excludePageId) => {
+        const size = await this.#db.prepare(
+          `SELECT COALESCE(SUM(length(CAST(line.text AS BLOB))), 0) AS bytes
+           FROM lines AS line JOIN links ON links.source_page_id = line.page_id
+           JOIN pages AS page ON page.id = line.page_id
+           WHERE links.project_id = ? AND links.target_title_lc = ?
+             AND links.source_page_id != ? AND page.deleted = 0`,
+        ).bind(projectId, targetTitleLc, excludePageId).first<{ bytes: number }>();
+        if ((size?.bytes ?? 0) > MAX_D1_VALUE_BYTES) {
+          throw new BadCommitError('rename is too large for one atomic D1 mutation');
+        }
         const { results } = await this.#db.prepare(
           `${this.#pageSnapshotSelect()}
            WHERE p.id IN (
@@ -565,27 +571,28 @@ export class D1Storage implements Storage {
     };
   }
 
-  async #tryApplyPageMutations(mutations: PageMutation[], expectedRevision: number): Promise<boolean> {
+  async #tryApplyPageMutations(mutations: ExistingPageMutation[], expectedRevision: number): Promise<boolean> {
     const projectId = mutations[0]?.after.projectId;
     if (projectId === undefined || mutations.some((mutation) => mutation.after.projectId !== projectId)) {
       throw new StorageError('a guarded page mutation batch must contain one project');
     }
     const payload = JSON.stringify(mutations.map(({ before, after, commit, derived, titleHistory }) => ({
-      before: before === null ? null : { titleLc: before.titleLc },
+      before: { titleLc: before.titleLc },
       after,
       commit,
       derived,
       titleHistory: titleHistory ?? null,
     })));
-    if (new TextEncoder().encode(payload).byteLength > 2_000_000) {
+    if (new TextEncoder().encode(payload).byteLength > MAX_D1_VALUE_BYTES) {
       throw new BadCommitError('rename is too large for one atomic D1 mutation');
     }
+    const payloadSql = '(SELECT payload FROM page_mutation_guard WHERE locked = 1)';
     const guard = this.#db.prepare(
-      `INSERT INTO page_mutation_guard (locked)
+      `INSERT INTO page_mutation_guard (locked, payload)
        SELECT CASE WHEN COALESCE((
          SELECT revision FROM page_mutation_revisions WHERE project_id = ?
        ), 0) = ? AND NOT EXISTS (
-         SELECT 1 FROM json_each(?) AS item
+         SELECT 1 FROM json_each(candidate.payload) AS item
          WHERE EXISTS (
            SELECT 1 FROM commits WHERE id = json_extract(item.value, '$.commit.id')
          ) OR NOT EXISTS (
@@ -604,7 +611,7 @@ export class D1Storage implements Storage {
                AND deleted = 0 AND id != json_extract(item.value, '$.after.id')
            )
          )
-       ) THEN 1 ELSE 0 END`,
+       ) THEN 1 ELSE 0 END, candidate.payload FROM (SELECT ? AS payload) AS candidate`,
     ).bind(projectId, expectedRevision, payload);
     const statements: D1Statement[] = [
       guard,
@@ -612,70 +619,69 @@ export class D1Storage implements Storage {
         `INSERT INTO actors (id, name, display_name, created)
          SELECT DISTINCT json_extract(value, '$.commit.actorId'), json_extract(value, '$.commit.actorId'),
            json_extract(value, '$.commit.actorId'), json_extract(value, '$.commit.created')
-         FROM json_each(?) WHERE true ON CONFLICT (id) DO NOTHING`,
-      ).bind(payload),
+         FROM json_each(${payloadSql}) WHERE true ON CONFLICT (id) DO NOTHING`,
+      ),
       this.#db.prepare(
         `INSERT INTO title_history (page_id, old_title, old_title_lc, started, ended)
          SELECT json_extract(value, '$.after.id'), json_extract(value, '$.titleHistory.oldTitle'),
            json_extract(value, '$.titleHistory.oldTitleLc'), json_extract(value, '$.titleHistory.started'),
            json_extract(value, '$.titleHistory.ended')
-         FROM json_each(?) WHERE json_type(value, '$.titleHistory') = 'object'`,
-      ).bind(payload),
+         FROM json_each(${payloadSql}) WHERE json_type(value, '$.titleHistory') = 'object'`,
+      ),
       this.#db.prepare(
-        `WITH mutation(value) AS (SELECT value FROM json_each(?))
-         UPDATE pages SET
-           title = json_extract((SELECT value FROM mutation WHERE json_extract(value, '$.after.id') = pages.id), '$.after.title'),
-           title_lc = json_extract((SELECT value FROM mutation WHERE json_extract(value, '$.after.id') = pages.id), '$.after.titleLc'),
-           version = json_extract((SELECT value FROM mutation WHERE json_extract(value, '$.after.id') = pages.id), '$.after.version'),
-           pinned = json_extract((SELECT value FROM mutation WHERE json_extract(value, '$.after.id') = pages.id), '$.after.pinned'),
-           deleted = json_extract((SELECT value FROM mutation WHERE json_extract(value, '$.after.id') = pages.id), '$.after.deleted'),
-           image = json_extract((SELECT value FROM mutation WHERE json_extract(value, '$.after.id') = pages.id), '$.derived.image'),
-           created = json_extract((SELECT value FROM mutation WHERE json_extract(value, '$.after.id') = pages.id), '$.after.created'),
-           updated = json_extract((SELECT value FROM mutation WHERE json_extract(value, '$.after.id') = pages.id), '$.after.updated')
-         WHERE id IN (SELECT json_extract(value, '$.after.id') FROM mutation)`,
-      ).bind(payload),
+        `WITH mutation(value) AS (SELECT value FROM json_each(${payloadSql}))
+         UPDATE pages AS page SET
+           title = json_extract(mutation.value, '$.after.title'),
+           title_lc = json_extract(mutation.value, '$.after.titleLc'),
+           version = json_extract(mutation.value, '$.after.version'),
+           deleted = json_extract(mutation.value, '$.after.deleted'),
+           image = json_extract(mutation.value, '$.derived.image'),
+           updated = json_extract(mutation.value, '$.after.updated')
+         FROM mutation WHERE page.id = json_extract(mutation.value, '$.after.id')`,
+      ),
       this.#db.prepare(
         `DELETE FROM lines WHERE page_id IN (
-           SELECT json_extract(value, '$.after.id') FROM json_each(?)
+           SELECT json_extract(value, '$.after.id') FROM json_each(${payloadSql})
          )`,
-      ).bind(payload),
+      ),
       this.#db.prepare(
         `INSERT INTO lines (id, page_id, ord, text, created, updated, updated_version, actor_id)
          SELECT json_extract(line.value, '$.id'), json_extract(mutation.value, '$.after.id'),
            CAST(line.key AS INTEGER), json_extract(line.value, '$.text'), json_extract(line.value, '$.created'),
            json_extract(line.value, '$.updated'), json_extract(line.value, '$.updatedVersion'),
            json_extract(line.value, '$.userId')
-         FROM json_each(?) AS mutation, json_each(mutation.value, '$.after.lines') AS line`,
-      ).bind(payload),
+         FROM json_each(${payloadSql}) AS mutation, json_each(mutation.value, '$.after.lines') AS line`,
+      ),
       this.#db.prepare(
         `INSERT INTO commits (id, page_id, base_version, version, actor_id, created, ops, ops_hash)
          SELECT json_extract(value, '$.commit.id'), json_extract(value, '$.commit.pageId'),
            json_extract(value, '$.commit.baseVersion'), json_extract(value, '$.commit.version'),
            json_extract(value, '$.commit.actorId'), json_extract(value, '$.commit.created'),
-           json_extract(value, '$.commit.ops'), json_extract(value, '$.commit.opsHash') FROM json_each(?)`,
-      ).bind(payload),
+           json_extract(value, '$.commit.ops'), json_extract(value, '$.commit.opsHash')
+         FROM json_each(${payloadSql})`,
+      ),
       this.#db.prepare(
         `DELETE FROM links WHERE source_page_id IN (
-           SELECT json_extract(value, '$.after.id') FROM json_each(?)
+           SELECT json_extract(value, '$.after.id') FROM json_each(${payloadSql})
          )`,
-      ).bind(payload),
+      ),
       this.#db.prepare(
         `INSERT OR IGNORE INTO links (project_id, source_page_id, target_title_lc, target_title)
          SELECT json_extract(mutation.value, '$.after.projectId'), json_extract(mutation.value, '$.after.id'),
            json_extract(link.value, '$.titleLc'), json_extract(link.value, '$.title')
-         FROM json_each(?) AS mutation, json_each(mutation.value, '$.derived.links') AS link`,
-      ).bind(payload),
+         FROM json_each(${payloadSql}) AS mutation, json_each(mutation.value, '$.derived.links') AS link`,
+      ),
       this.#db.prepare(
         `DELETE FROM pages_fts WHERE page_id IN (
-           SELECT json_extract(value, '$.after.id') FROM json_each(?)
+           SELECT json_extract(value, '$.after.id') FROM json_each(${payloadSql})
          )`,
-      ).bind(payload),
+      ),
       this.#db.prepare(
         `INSERT INTO pages_fts (page_id, project_id, content)
          SELECT json_extract(value, '$.after.id'), json_extract(value, '$.after.projectId'),
-           json_extract(value, '$.derived.searchText') FROM json_each(?)
+           json_extract(value, '$.derived.searchText') FROM json_each(${payloadSql})
          WHERE json_type(value, '$.derived.searchText') != 'null'`,
-      ).bind(payload),
+      ),
       this.#db.prepare(
         `INSERT INTO page_mutation_revisions (project_id, revision) VALUES (?, 1)
          ON CONFLICT (project_id) DO UPDATE SET revision = page_mutation_revisions.revision + 1`,
@@ -686,7 +692,7 @@ export class D1Storage implements Storage {
       await this.#db.batch(statements);
       return true;
     } catch (error) {
-      if (isD1MutationConflict(error)) return false;
+      if (isD1MutationGuardConflict(error)) return false;
       throw error;
     }
   }

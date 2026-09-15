@@ -66,13 +66,15 @@ export interface GuardedPageMutationRepository {
   getPageById(pageId: string): Promise<PageSnapshot | null>;
   getPageByTitle(projectId: string, titleLcValue: string): Promise<PageSnapshot | null>;
   getCurrentTitleStarted(pageId: string, fallback: number): Promise<number>;
-  getPageMutationRevision(projectId: string): Promise<number>;
-  tryApplyPageMutation(mutation: PageMutation, expectedRevision: number): Promise<boolean>;
+  tryApplyPageMutation(mutation: PageMutation): Promise<boolean>;
 }
 
+export type ExistingPageMutation = PageMutation & { before: PageSnapshot };
+
 export interface GuardedPageRenameRepository extends GuardedPageMutationRepository {
+  getPageMutationRevision(projectId: string): Promise<number>;
   listPagesLinkingTo(projectId: string, targetTitleLc: string, excludePageId: string): Promise<PageSnapshot[]>;
-  tryApplyPageMutations(mutations: PageMutation[], expectedRevision: number): Promise<boolean>;
+  tryApplyPageMutations(mutations: ExistingPageMutation[], expectedRevision: number): Promise<boolean>;
 }
 
 type PreparedCommit = { kind: 'prepared'; mutation: PageMutation };
@@ -201,7 +203,6 @@ export async function commitPageGuarded(
   input: CommitInput,
 ): Promise<CommitResult> {
   for (let attempt = 0; attempt < MAX_GUARD_RETRIES; attempt += 1) {
-    const expectedRevision = await repository.getPageMutationRevision(input.projectId);
     const prior = await repository.getAppliedCommit(input.commitId);
     const current = await repository.getPageById(input.pageId);
     const prepared = prepareCommit(input, prior, current);
@@ -221,7 +222,7 @@ export async function commitPageGuarded(
       );
     }
     try {
-      if (await repository.tryApplyPageMutation(mutation, expectedRevision)) {
+      if (await repository.tryApplyPageMutation(mutation)) {
         return { kind: 'applied', version: mutation.after.version };
       }
     } catch (error) {
@@ -278,6 +279,27 @@ async function prepareExistingGuardedMutation(
   return prepared;
 }
 
+function requireExistingMutation(mutation: PageMutation): ExistingPageMutation {
+  if (mutation.before === null) {
+    throw new StorageError('rename cannot atomically apply a page creation');
+  }
+  return { ...mutation, before: mutation.before };
+}
+
+async function allMutationsWereApplied(
+  repository: GuardedPageMutationRepository,
+  mutations: ExistingPageMutation[],
+): Promise<boolean> {
+  for (const mutation of mutations) {
+    const applied = await repository.getAppliedCommit(mutation.commit.id);
+    if (applied === null) return false;
+    if (applied.version !== mutation.commit.version || applied.opsHash !== mutation.commit.opsHash) {
+      throw new StorageError(`commit ${mutation.commit.id} was applied with unexpected content`);
+    }
+  }
+  return true;
+}
+
 export async function renamePageGuarded(
   repository: GuardedPageRenameRepository,
   input: RenameInput,
@@ -315,7 +337,7 @@ export async function renamePageGuarded(
       throw new StorageError('rename commit was unexpectedly already applied');
     }
 
-    const mutations = [titlePrepared.mutation];
+    const mutations = [requireExistingMutation(titlePrepared.mutation)];
     const rewritten: { pageId: string; title: string; version: number }[] = [];
     if (rewriteLinks && titleLc(newTitle) !== page.titleLc) {
       const sources = await repository.listPagesLinkingTo(projectId, page.titleLc, pageId);
@@ -334,12 +356,19 @@ export async function renamePageGuarded(
         if (prepared.kind !== 'prepared') {
           throw new StorageError(`link rewrite conflict on page ${source.id}`);
         }
-        mutations.push(prepared.mutation);
+        mutations.push(requireExistingMutation(prepared.mutation));
         rewritten.push({ pageId: source.id, title: source.title, version: prepared.mutation.after.version });
       }
     }
-    if (await repository.tryApplyPageMutations(mutations, expectedRevision)) {
-      return { kind: 'applied', version: titlePrepared.mutation.after.version, rewritten };
+    try {
+      if (await repository.tryApplyPageMutations(mutations, expectedRevision)) {
+        return { kind: 'applied', version: titlePrepared.mutation.after.version, rewritten };
+      }
+    } catch (error) {
+      if (await allMutationsWereApplied(repository, mutations)) {
+        return { kind: 'applied', version: titlePrepared.mutation.after.version, rewritten };
+      }
+      throw error;
     }
   }
   throw new StorageError(`page rename did not converge after ${MAX_GUARD_RETRIES} guarded attempts`);

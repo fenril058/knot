@@ -111,6 +111,7 @@ isolated remote D1 の検証では、追跡対象の `wrangler.jsonc` を変更�
 `--remote` は remote binding の利用を許可する指定であり、config の binding 自体を remote へ変更しません。
 production D1 を対象にする前に、`wrangler d1 info knot` で database を確認してください。
 適用後は `npm run d1:smoke -- --remote --config .dev/wrangler-d1-smoke.jsonc` で Account / Actor、project、page read、search、visit、commit / delete の競合と冪等性、および rename の逆リンク列挙 race を確認できます。
+保守操作の `knot reindex` は D1 の page mutation revision guard に参加しないため、D1 のページ書き込みを止めた状態で実行します。
 
 ```sh
 wrangler d1 migrations apply knot-smoke \
