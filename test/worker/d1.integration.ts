@@ -1166,6 +1166,42 @@ void test('D1 rename rejects an oversized atomic payload without partial mutatio
   }
 });
 
+void test('D1 rename rejects a payload within the reserved row-overhead margin before batching', async () => {
+  const { server, db } = await testDatabase();
+  try {
+    const storage = await seedMutationProject(db);
+    await storage.commit({
+      projectId: 'project-1', pageId: 'target', commitId: 'commit-target', baseVersion: 0,
+      ops: [{ type: 'insert', id: 'target-title', after: '_head', text: 'Old' }],
+      actorId: 'actor-1', now: 100,
+    });
+    await storage.commit({
+      projectId: 'project-1', pageId: 'source', commitId: 'commit-source', baseVersion: 0,
+      ops: [
+        { type: 'insert', id: 'source-title', after: '_head', text: 'Source' },
+        { type: 'insert', id: 'source-body', after: 'source-title', text: `${'x'.repeat(665_000)} [Old]` },
+      ],
+      actorId: 'actor-1', now: 100,
+    });
+    const measured = countQueries(db);
+    let caught: unknown;
+    try {
+      await new D1Storage(measured.binding).renamePage({
+        projectId: 'project-1', pageId: 'target', baseVersion: 1, newTitle: 'New',
+        rewriteLinks: true, actorId: 'actor-1', now: 200,
+      });
+    } catch (error) {
+      caught = error;
+    }
+    assert.ok(caught instanceof BadCommitError);
+    assert.equal(caught.message, 'rename is too large for one atomic D1 mutation');
+    assert.equal(measured.measurements().batchStatements, 0);
+    assert.equal((await storage.getPageById('target'))?.title, 'Old');
+  } finally {
+    await server.close();
+  }
+});
+
 void test('D1 batch constraint failure leaves no partial page mutation', async () => {
   const { server, db } = await testDatabase();
   try {

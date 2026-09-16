@@ -18,7 +18,7 @@ D1 adapter は snapshot read、revision と各 mutation 前提の SQL guard、mu
 
 複数ページ分の pages、lines、commits、title history、links、FTS を JSON parameter から集合として更新し、逆リンク数に応じて query 数、statement 数、placeholder 数を増やさない。
 JSON plan は guard table に一度だけ bind し、同じ batch の後続 statement はその値を参照する。
-一つの JSON parameter が D1 の 2 MB 上限を超える rename は、batch を分割せず明示的に拒否する。
+JSON plan は guard metadata と同じ table row に保持するため、D1 の 2 MB row 上限から 4 KiB の余白を引いた値を payload 上限とし、それを超える rename は batch を分割せず明示的に拒否する。
 この payload は変更後の全文、行操作、検索用本文を含むため、2 MB はページ本文量の上限ではなく、実際に扱える本文量はそれより小さい。
 逆リンク本文の総量が 2 MB を超える場合は、全 snapshot を Worker へ読み出す前に拒否する。
 

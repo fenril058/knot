@@ -66,6 +66,8 @@ const PROJECT_NAME_RE = /^[a-z0-9-]+$/;
 const MAX_PROJECT_NAME_LENGTH = 64;
 const RESERVED_PROJECT_NAMES = new Set(['api', 'login', 'files', 'assets']);
 const MAX_D1_VALUE_BYTES = 2_000_000;
+// The payload shares a table row with guard metadata, so leave room below D1's row-size limit.
+const MAX_D1_MUTATION_PAYLOAD_BYTES = MAX_D1_VALUE_BYTES - 4_096;
 
 type AccountRow = {
   id: string;
@@ -583,7 +585,7 @@ export class D1Storage implements Storage {
       derived,
       titleHistory: titleHistory ?? null,
     })));
-    if (new TextEncoder().encode(payload).byteLength > MAX_D1_VALUE_BYTES) {
+    if (new TextEncoder().encode(payload).byteLength > MAX_D1_MUTATION_PAYLOAD_BYTES) {
       throw new BadCommitError('rename is too large for one atomic D1 mutation');
     }
     const payloadSql = '(SELECT payload FROM page_mutation_guard WHERE locked = 1)';
