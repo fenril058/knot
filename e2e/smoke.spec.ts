@@ -201,11 +201,21 @@ test('page menu は表示時の version を送り、stale delete の競合を表
   const response = await deleteResponse;
   expect(response.status()).toBe(409);
   expect(response.request().postDataJSON()).toEqual({ pageId, baseVersion: 1 });
-  await expect(page.locator('#delete-error')).toHaveText('他の編集と競合しました。ページを再読み込みしてください');
+  await expect(page.locator('#delete-error')).toContainText('他の編集と競合しました');
+  await expect(page.locator('#delete-error').getByRole('link', { name: 'ページを再読み込みする' }))
+    .toHaveAttribute('href', `/e2e/${title}`);
   await expect(page).toHaveURL(`/e2e/${title}`);
   const current = await page.request.get(`/api/pages/e2e/${title}`);
   expect(current.ok()).toBe(true);
   expect((await current.json()).lines.map((line: { text: string }) => line.text)).toEqual([title, 'version 2']);
+
+  await page.route(`**/api/knot/pages/e2e/${title}`, (route) => route.fulfill({
+    status: 409, contentType: 'application/json', body: '{invalid',
+  }));
+  await dialog.getByRole('button', { name: '削除', exact: true }).click();
+  await expect(page.locator('#delete-error'))
+    .toHaveText('他の編集と競合しました。ダイアログを閉じて、ページ一覧で操作対象の状態を確認してください');
+  await expect(page.locator('#delete-error').getByRole('link')).toHaveCount(0);
 });
 
 test('page menu は表示時の pageId を送り、旧タイトルが再利用された stale rename を拒否する', async ({ page }) => {
@@ -263,14 +273,107 @@ test('page menu は表示時の pageId を送り、旧タイトルが再利用�
     baseVersion: 1,
     rewriteLinks: false,
   });
-  await expect(page.locator('#rename-error')).toHaveText('他の編集と競合しました。ページを再読み込みしてください');
+  const currentPageLink = page.locator('#rename-error').getByRole('link', { name: '現在のページを開く' });
+  await expect(currentPageLink).toHaveAttribute('href', `/e2e/${newTitle}`);
   await expect(page).toHaveURL(`/e2e/${oldTitle}`);
+  await currentPageLink.click();
+  await expect(page).toHaveURL(`/e2e/${newTitle}`);
+  await expect(page.getByRole('heading', { name: newTitle })).toBeVisible();
+
+  await page.locator('#page-actions > summary').click();
+  await page.locator('#rename-button').click();
+  await page.locator('#rename-title').fill(oldTitle);
+  const occupiedResponse = page.waitForResponse((candidate) =>
+    candidate.url().endsWith(`/api/knot/pages/e2e/${newTitle}/rename`)
+    && candidate.request().method() === 'POST'
+  );
+  await page.locator('#rename-dialog').getByRole('button', { name: 'リネーム', exact: true }).click();
+  expect((await occupiedResponse).status()).toBe(409);
+  await expect(page.locator('#rename-error')).toHaveText('指定したタイトルはすでに使われています。別のタイトルを指定してください');
+  await expect(page.locator('#rename-error').getByRole('link')).toHaveCount(0);
+
   const reusedPage = await page.request.get(`/api/pages/e2e/${oldTitle}`);
   expect(reusedPage.ok()).toBe(true);
   expect((await reusedPage.json()).lines.map((line: { text: string }) => line.text)).toEqual([oldTitle, 'reused']);
   const renamedPage = await page.request.get(`/api/pages/e2e/${newTitle}`);
   expect(renamedPage.ok()).toBe(true);
   expect((await renamedPage.json()).title).toBe(newTitle);
+});
+
+test('旧タイトルを再利用した後の stale delete は元ページへのリンクを示す', async ({ page }) => {
+  await loginProjectE2e(page);
+  const oldTitle = 'stale-delete-reused-old';
+  const newTitle = 'stale-delete-reused-new';
+  const created = await page.request.post(`/api/knot/pages/e2e/${oldTitle}/commits`, {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: {
+      commitId: 'stale-delete-reused-create', baseVersion: 0,
+      ops: [{ type: 'insert', id: 'stale-delete-reused-title', after: '_head', text: oldTitle }],
+    },
+  });
+  expect(created.ok()).toBe(true);
+  await page.goto(`/e2e/${oldTitle}`);
+  const pageId = await page.locator('#page-menu-root').getAttribute('data-page-id');
+  if (pageId === null) throw new Error('page menu pageId is missing');
+
+  const renamed = await page.request.post(`/api/knot/pages/e2e/${oldTitle}/rename`, {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: { pageId, baseVersion: 1, newTitle, rewriteLinks: false },
+  });
+  expect(renamed.ok()).toBe(true);
+  const reused = await page.request.post(`/api/knot/pages/e2e/${oldTitle}/commits`, {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: {
+      commitId: 'stale-delete-reused-other', baseVersion: 0,
+      ops: [{ type: 'insert', id: 'stale-delete-reused-other-title', after: '_head', text: oldTitle }],
+    },
+  });
+  expect(reused.ok()).toBe(true);
+
+  await page.locator('#page-actions > summary').click();
+  await page.locator('#delete-button').click();
+  const deleteResponse = page.waitForResponse((response) =>
+    response.url().endsWith(`/api/knot/pages/e2e/${oldTitle}`) && response.request().method() === 'DELETE'
+  );
+  await page.locator('#delete-dialog').getByRole('button', { name: '削除', exact: true }).click();
+  expect((await deleteResponse).status()).toBe(409);
+  const currentPageLink = page.locator('#delete-error').getByRole('link', { name: '現在のページを開く' });
+  await expect(currentPageLink).toHaveAttribute('href', `/e2e/${newTitle}`);
+  await currentPageLink.click();
+  await expect(page).toHaveURL(`/e2e/${newTitle}`);
+  await expect(page.locator('#page-menu-root')).toHaveAttribute('data-page-id', pageId);
+});
+
+test('別の client が先に削除したページの conflict は存在しないページへ誘導しない', async ({ page }) => {
+  await loginProjectE2e(page);
+  const title = 'stale-deleted-page-menu';
+  const created = await page.request.post(`/api/knot/pages/e2e/${title}/commits`, {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: {
+      commitId: 'stale-deleted-create', baseVersion: 0,
+      ops: [{ type: 'insert', id: 'stale-deleted-title', after: '_head', text: title }],
+    },
+  });
+  expect(created.ok()).toBe(true);
+  await page.goto(`/e2e/${title}`);
+  const pageId = await page.locator('#page-menu-root').getAttribute('data-page-id');
+  if (pageId === null) throw new Error('page menu pageId is missing');
+  const deleted = await page.request.delete(`/api/knot/pages/e2e/${title}`, {
+    headers: { 'X-Knot-Client': 'e2e' }, data: { pageId, baseVersion: 1 },
+  });
+  expect(deleted.ok()).toBe(true);
+
+  await page.locator('#page-actions > summary').click();
+  await page.locator('#delete-button').click();
+  const deleteResponse = page.waitForResponse((response) =>
+    response.url().endsWith(`/api/knot/pages/e2e/${title}`) && response.request().method() === 'DELETE'
+  );
+  await page.locator('#delete-dialog').getByRole('button', { name: '削除', exact: true }).click();
+  const response = await deleteResponse;
+  expect(response.status()).toBe(409);
+  expect((await response.json()).page.lines).toEqual([]);
+  await expect(page.locator('#delete-error')).toContainText('このページは削除されています');
+  await expect(page.locator('#delete-error').getByRole('link')).toHaveCount(0);
 });
 
 test('400 で保存を拒否された後も追加入力して保存できる', async ({ page }) => {

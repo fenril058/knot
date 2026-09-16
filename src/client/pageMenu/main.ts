@@ -36,6 +36,36 @@ function showError(elements: DialogElements, message: string): void {
   elements.error.hidden = false;
 }
 
+async function showConflict(
+  elements: DialogElements, response: Response, project: string, pageId: string, displayedTitle: string,
+): Promise<void> {
+  const fallback = '他の編集と競合しました。ダイアログを閉じて、ページ一覧で操作対象の状態を確認してください';
+  let body: { reason?: unknown; page?: { id?: unknown; title?: unknown; lines?: unknown } };
+  try {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+    body = await response.json() as typeof body;
+  } catch {
+    return showError(elements, fallback);
+  }
+  if (body?.reason === 'title') {
+    return showError(elements, '指定したタイトルはすでに使われています。別のタイトルを指定してください');
+  }
+  const page = body?.page;
+  if (body?.reason !== 'version' || page?.id !== pageId || typeof page.title !== 'string' || !Array.isArray(page.lines)) {
+    return showError(elements, fallback);
+  }
+  // pageToJson は deleted を返さず、pageMutations は 0 行を削除済みとして扱う。
+  if (page.lines.length === 0) {
+    return showError(elements, '他の編集と競合しました。このページは削除されています');
+  }
+
+  const link = document.createElement('a');
+  link.href = pageHref(project, page.title);
+  link.textContent = page.title === displayedTitle ? 'ページを再読み込みする' : '現在のページを開く';
+  elements.error.replaceChildren(document.createTextNode('他の編集と競合しました。'), link);
+  elements.error.hidden = false;
+}
+
 const root = requireElement('#page-menu-root', HTMLElement);
 const { project, title, pageId, version: versionText } = root.dataset;
 if (project === undefined || title === undefined || pageId === undefined || pageId === '' || versionText === undefined) {
@@ -95,9 +125,8 @@ rename.form.addEventListener('submit', (event) => {
         body: JSON.stringify({ pageId, newTitle, baseVersion: version, rewriteLinks: rewriteLinks.checked }),
       });
       if (!response.ok) {
-        return showError(rename, response.status === 409
-          ? '他の編集と競合しました。ページを再読み込みしてください'
-          : await errorMessage(response));
+        if (response.status === 409) return showConflict(rename, response, project, pageId, title);
+        return showError(rename, await errorMessage(response));
       }
       window.location.assign(pageHref(project, newTitle));
     } catch {
@@ -117,9 +146,8 @@ remove.form.addEventListener('submit', (event) => {
         body: JSON.stringify({ pageId, baseVersion: version }),
       });
       if (!response.ok) {
-        return showError(remove, response.status === 409
-          ? '他の編集と競合しました。ページを再読み込みしてください'
-          : await errorMessage(response));
+        if (response.status === 409) return showConflict(remove, response, project, pageId, title);
+        return showError(remove, await errorMessage(response));
       }
       window.location.assign(`/${encodeURIComponent(project)}`);
     } catch {
