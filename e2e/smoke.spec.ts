@@ -202,12 +202,20 @@ test('page menu は表示時の version を送り、stale delete の競合を表
   expect(response.status()).toBe(409);
   expect(response.request().postDataJSON()).toEqual({ pageId, baseVersion: 1 });
   await expect(page.locator('#delete-error')).toContainText('他の編集と競合しました');
-  await expect(page.locator('#delete-error').getByRole('link', { name: '現在のページを開く' }))
+  await expect(page.locator('#delete-error').getByRole('link', { name: 'ページを再読み込みする' }))
     .toHaveAttribute('href', `/e2e/${title}`);
   await expect(page).toHaveURL(`/e2e/${title}`);
   const current = await page.request.get(`/api/pages/e2e/${title}`);
   expect(current.ok()).toBe(true);
   expect((await current.json()).lines.map((line: { text: string }) => line.text)).toEqual([title, 'version 2']);
+
+  await page.route(`**/api/knot/pages/e2e/${title}`, (route) => route.fulfill({
+    status: 409, contentType: 'application/json', body: '{invalid',
+  }));
+  await dialog.getByRole('button', { name: '削除', exact: true }).click();
+  await expect(page.locator('#delete-error'))
+    .toHaveText('他の編集と競合しました。ダイアログを閉じて、ページ一覧で操作対象の状態を確認してください');
+  await expect(page.locator('#delete-error').getByRole('link')).toHaveCount(0);
 });
 
 test('page menu は表示時の pageId を送り、旧タイトルが再利用された stale rename を拒否する', async ({ page }) => {
