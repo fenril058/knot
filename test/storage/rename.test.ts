@@ -3,8 +3,15 @@ import assert from 'node:assert/strict';
 import { makeStorage } from '../helpers/storage.ts';
 import { seedPage } from '../helpers/pages.ts';
 import { BadCommitError } from '../../src/storage/types.ts';
+import { assertRenameConflictContract } from '../helpers/renameContract.ts';
 
 const now = 1700000000;
+
+void test('SQLite は rename の共通 conflict contract を満たす', async () => {
+  const { storage } = makeStorage();
+  const project = await storage.ensureProject('proj', now);
+  await assertRenameConflictContract(storage, project.id, 'u');
+});
 
 void test('rename はタイトル行の update コミットに帰着する', async () => {
   const { storage } = makeStorage();
