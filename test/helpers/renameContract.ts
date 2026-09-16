@@ -1,11 +1,21 @@
 import assert from 'node:assert/strict';
-import type { Storage } from '../../src/storage/types.ts';
+import { UnknownPageError, type Storage } from '../../src/storage/types.ts';
 
 export async function assertRenameConflictContract(
   storage: Storage,
   projectId: string,
   actorId: string,
 ): Promise<void> {
+  await assert.rejects(storage.renamePage({
+    projectId,
+    pageId: 'contract-missing',
+    baseVersion: 0,
+    newTitle: '',
+    rewriteLinks: false,
+    actorId,
+    now: 100,
+  }), (error: unknown) => error instanceof UnknownPageError);
+
   for (const [pageId, title, body] of [
     ['contract-target', 'Old', 'body'],
     ['contract-taken', 'Taken', 'occupied'],

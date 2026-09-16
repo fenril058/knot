@@ -748,6 +748,37 @@ void test('D1 commit, delete, and rename advance the project page mutation revis
   }
 });
 
+void test('D1 rename without backlink rewriting does not inspect the project revision', async () => {
+  const { server, db } = await testDatabase();
+  try {
+    const storage = await seedMutationProject(db);
+    await storage.commit({
+      projectId: 'project-1', pageId: 'target', commitId: 'commit-target', baseVersion: 0,
+      ops: [{ type: 'insert', id: 'target-title', after: '_head', text: 'Old' }],
+      actorId: 'actor-1', now: 100,
+    });
+    let revisionReads = 0;
+    const measuredDb: D1Binding = {
+      prepare(query) {
+        if (query.includes('SELECT revision FROM page_mutation_revisions WHERE project_id = ?')) {
+          revisionReads += 1;
+        }
+        return db.prepare(query);
+      },
+      batch: (statements) => db.batch(statements),
+    };
+
+    assert.deepEqual(await new D1Storage(measuredDb).renamePage({
+      projectId: 'project-1', pageId: 'target', baseVersion: 1, newTitle: 'New',
+      rewriteLinks: false, actorId: 'actor-1', now: 200,
+    }), { kind: 'applied', version: 2, rewritten: [] });
+    assert.equal(revisionReads, 0);
+    assert.equal((await storage.getPageById('target'))?.title, 'New');
+  } finally {
+    await server.close();
+  }
+});
+
 void test('D1 rename confirms every commit after the batch response is lost', async () => {
   const { server, db } = await testDatabase();
   try {
@@ -1045,7 +1076,7 @@ void test('D1 rename surfaces an unexpected unique constraint failure without re
 
     await assert.rejects(new D1Storage(failingDb).renamePage({
       projectId: 'project-1', pageId: 'target', baseVersion: 1, newTitle: 'New',
-      rewriteLinks: false, actorId: 'actor-1', now: 200,
+      rewriteLinks: true, actorId: 'actor-1', now: 200,
     }), /UNIQUE constraint failed/u);
     assert.equal(batchCalls, 1);
     assert.equal((await storage.getPageById('target'))?.title, 'Old');

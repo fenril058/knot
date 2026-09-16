@@ -305,7 +305,6 @@ export async function renamePageGuarded(
   input: RenameInput,
 ): Promise<RenameResult> {
   const { projectId, pageId, baseVersion, newTitle, rewriteLinks, actorId, now } = input;
-  if (newTitle === '') throw new BadCommitError('title must not be empty');
   const commitIds = new Map<string, string>();
   const commitIdFor = (id: string): string => {
     const existing = commitIds.get(id);
@@ -316,9 +315,10 @@ export async function renamePageGuarded(
   };
 
   for (let attempt = 0; attempt < MAX_GUARD_RETRIES; attempt += 1) {
-    const expectedRevision = await repository.getPageMutationRevision(projectId);
+    const expectedRevision = rewriteLinks ? await repository.getPageMutationRevision(projectId) : null;
     const page = await repository.getPageById(pageId);
     if (page === null || page.projectId !== projectId) throw new UnknownPageError(`unknown page: ${pageId}`);
+    if (newTitle === '') throw new BadCommitError('title must not be empty');
     if (baseVersion !== page.version) return { kind: 'conflict', reason: 'version', page };
     if (page.deleted) throw new UnknownPageError(`unknown page: ${pageId}`);
     if (newTitle === page.title) throw new BadCommitError('title is unchanged');
@@ -337,7 +337,8 @@ export async function renamePageGuarded(
       throw new StorageError('rename commit was unexpectedly already applied');
     }
 
-    const mutations = [requireExistingMutation(titlePrepared.mutation)];
+    const titleMutation = requireExistingMutation(titlePrepared.mutation);
+    const mutations = [titleMutation];
     const rewritten: { pageId: string; title: string; version: number }[] = [];
     if (rewriteLinks && titleLc(newTitle) !== page.titleLc) {
       const sources = await repository.listPagesLinkingTo(projectId, page.titleLc, pageId);
@@ -361,7 +362,10 @@ export async function renamePageGuarded(
       }
     }
     try {
-      if (await repository.tryApplyPageMutations(mutations, expectedRevision)) {
+      const applied = expectedRevision === null
+        ? await repository.tryApplyPageMutation(titleMutation)
+        : await repository.tryApplyPageMutations(mutations, expectedRevision);
+      if (applied) {
         return { kind: 'applied', version: titlePrepared.mutation.after.version, rewritten };
       }
     } catch (error) {

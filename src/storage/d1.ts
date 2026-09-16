@@ -107,12 +107,12 @@ function isD1UniqueConstraintError(error: unknown): boolean {
   return error instanceof Error && /(?:SQLITE_CONSTRAINT_UNIQUE|UNIQUE constraint failed)/u.test(error.message);
 }
 
-function isD1MutationConflict(error: unknown): boolean {
+function isD1SingleMutationConflict(error: unknown): boolean {
   return isD1UniqueConstraintError(error)
     || (error instanceof Error && /CHECK constraint failed: (?:page_mutation_guard|locked = 1)/iu.test(error.message));
 }
 
-function isD1MutationGuardConflict(error: unknown): boolean {
+function isD1GuardCheckFailure(error: unknown): boolean {
   return error instanceof Error && /CHECK constraint failed: (?:page_mutation_guard|locked = 1)/iu.test(error.message);
 }
 
@@ -539,7 +539,7 @@ export class D1Storage implements Storage {
       await this.#db.batch(statements);
       return true;
     } catch (error) {
-      if (isD1MutationConflict(error)) return false;
+      if (isD1SingleMutationConflict(error)) return false;
       throw error;
     }
   }
@@ -694,7 +694,7 @@ export class D1Storage implements Storage {
       await this.#db.batch(statements);
       return true;
     } catch (error) {
-      if (isD1MutationGuardConflict(error)) return false;
+      if (isD1GuardCheckFailure(error)) return false;
       throw error;
     }
   }
