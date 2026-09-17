@@ -6,5 +6,6 @@ dist/
 public/build/
 .worker-assets/
 .wrangler/
+.wrangler.production.jsonc
 test-results/
 playwright-report/

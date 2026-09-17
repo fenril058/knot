@@ -124,6 +124,81 @@ KNOT_BOOTSTRAP_EMAIL=owner@example.com \
 npm run d1:bootstrap -- --remote --config .dev/wrangler-d1-smoke.jsonc
 ```
 
+### Cloudflare Workers の一人利用配備
+
+`knot-dogfood` Worker は `workers.dev`、Static Assets、D1 を一つの配備として扱います。
+本番設定は `wrangler.jsonc` から `.wrangler.production.jsonc` に生成し、D1 ID と Access の設定値を Git に保存しません。
+生成時は `workers.dev` と preview URL を無効にします。
+初回配備後に Worker 全体を Access で保護し、その後で `workers.dev` を有効にします。
+公開直後に未認証の HTML、API、CSS、browser script が取得できないことを確認します。
+
+Cloudflare にログインし、`wrangler d1 list` で `knot-dogfood` が存在しないことを確認してから D1 を作ります。
+既存の同名 database がある場合は新規作成せず、ID と用途を確認します。
+次の `UUID` は `d1 create` が返した database ID に置き換えます。
+
+```sh
+direnv exec . wrangler whoami
+direnv exec . wrangler d1 create knot-dogfood --location apac
+KNOT_D1_DATABASE_ID=UUID direnv exec . npm run prepare:production-config
+direnv exec . wrangler d1 info knot-dogfood
+direnv exec . wrangler d1 migrations apply knot-dogfood --remote --config .wrangler.production.jsonc
+```
+
+異なる Account ID と Actor ID を決め、Access で許可するメールアドレスを D1 に登録します。
+ID とメールアドレスは Worker secret の対応付けと一致させます。
+初回配備では公開 URL が無いため、Access application 作成前の `audience` に仮の文字列を使えます。
+`.dev/worker-secrets.json` は Wrangler の `--secrets-file` 形式で、`KNOT_ACCESS_CONFIG` に `issuer`、`audience`、`email`、`accountId`、`actorId` を持つ JSON 文字列を入れます。
+このファイルは Git 管理外に置き、権限を所有者だけにします。
+
+```json
+{
+  "KNOT_ACCESS_CONFIG": "{\"issuer\":\"https://team.cloudflareaccess.com\",\"audience\":\"pending-access\",\"email\":\"owner@example.com\",\"accountId\":\"ACCOUNT_ID\",\"actorId\":\"ACTOR_ID\"}"
+}
+```
+
+```sh
+KNOT_BOOTSTRAP_ACCOUNT_ID=ACCOUNT_ID \
+KNOT_BOOTSTRAP_ACTOR_ID=ACTOR_ID \
+KNOT_BOOTSTRAP_ACCOUNT_NAME=owner \
+KNOT_BOOTSTRAP_DISPLAY_NAME=Owner \
+KNOT_BOOTSTRAP_EMAIL=EMAIL \
+direnv exec . npm run d1:bootstrap -- --remote --config .wrangler.production.jsonc
+direnv exec . npm run build:client
+direnv exec . npm run prepare:worker-assets
+direnv exec . wrangler deploy --dry-run --config .wrangler.production.jsonc
+direnv exec . wrangler deploy --config .wrangler.production.jsonc --secrets-file .dev/worker-secrets.json
+```
+
+Cloudflare dashboard の Workers & Pages で `knot-dogfood` の Access tab を開き、`All traffic` を選びます。
+一人のメールアドレスだけを Allow policy に指定し、`Everyone`、メールドメイン全体、`One-time PIN` のみを含む Allow rule は作りません。
+Access application の audience と team domain を確認し、`.dev/worker-secrets.json` の `audience` と `issuer` を実値へ更新して再配備します。
+`issuer` は `https://<team>.cloudflareaccess.com` 形式です。
+その後、同じ D1 ID で公開設定を再生成して配備します。
+
+```sh
+KNOT_D1_DATABASE_ID=UUID direnv exec . npm run prepare:production-config -- --enable-workers-dev
+direnv exec . wrangler deploy --config .wrangler.production.jsonc --secrets-file .dev/worker-secrets.json
+```
+
+公開 URL で Access を通過する前に `/`、`/api/pages/<project>`、`/assets/app.css`、`/assets/build/editor.js` を取得できないことを外部から確かめます。
+Access にログインした browser の storage state を `.dev/access-state.json` に保存し、次の smoke を実行します。
+smoke は browser ごとに別 project と sentinel page を作り、出力した page ID、version、本文を deploy 前後で比較するために保持します。
+実機 smartphone でも同じ URL から project、page、編集、保存、再読み込み、検索を確認します。
+
+```sh
+KNOT_PRODUCTION_URL=https://<worker>.<subdomain>.workers.dev \
+direnv exec . npm run smoke:production
+```
+
+新 version の deploy 後、保存した sentinel page の ID、version、本文、検索結果が変わらないことを確認し、追加編集を保存します。
+初期利用量は Workers dashboard の request 数と CPU time、D1 dashboard の rows read、rows written、storage を読み、issue に観測値を記録します。
+Cloudflare Free の上限は変更されるため、配備時点の [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/) と [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/) で比較します。
+
+重要データは D1 以外にも保管します。
+たとえば `wrangler d1 export knot-dogfood --remote --output .dev/knot-dogfood.sql` で SQL を取得し、D1 とは別の保管先へ複製します。
+この export と D1 Time Travel は完全な backup / restore の保証にはなりません。
+attachment、import、local editor sync はこの配備では扱いません。
+
 ## 3. リバースプロキシ
 
 リバースプロキシは `/files/` と `/assets/` を含むすべてのパスを knot に転送します。

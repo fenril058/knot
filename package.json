@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
     "build:client": "rolldown -c",
     "prepare:worker-assets": "node scripts/prepare-worker-assets.ts",
+    "prepare:production-config": "node scripts/prepare-production-config.ts",
     "build:worker": "npm run build:client && npm run prepare:worker-assets && wrangler deploy --dry-run --outdir dist/worker",
     "worker:types": "wrangler types",
     "d1:bootstrap": "node scripts/bootstrap-d1.ts",
@@ -25,7 +26,8 @@
     "lint": "oxlint src public scripts test e2e",
     "lint:dead-code": "knip",
     "quality": "npm run typecheck && npm run lint && npm run lint:dead-code && npm run check:worker",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "smoke:production": "playwright test --config playwright.production.config.ts"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
