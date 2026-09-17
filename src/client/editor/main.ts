@@ -25,6 +25,8 @@ import {
 
 const SAVE_DELAY_MS = 500;
 const KEEPALIVE_BODY_LIMIT = 64 * 1024;
+const STORAGE_WARNING = 'ブラウザに未保存内容を保存できません';
+const RECOVERY_WARNING = '再読み込み後に未保存内容を自動復元できません';
 
 const root = document.querySelector<HTMLElement>('#editor-root');
 const statusElement = document.querySelector<HTMLElement>('#save-status');
@@ -141,31 +143,38 @@ function ownedKey(baseKey: string): string {
   return `${baseKey}/editor:${editorId}`;
 }
 
+function newEditorId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 function rememberEditor(baseKey: string): void {
   try {
     sessionStorage.setItem(baseKey, editorId);
+    ownershipUnavailable = false;
+    if (storageWarning === RECOVERY_WARNING) storageWarning = undefined;
   } catch (error) {
     console.error('failed to remember the editor recovery record', error);
     ownershipUnavailable = true;
-    storageWarning = 'ブラウザに未保存内容を保存できません';
+    storageWarning = RECOVERY_WARNING;
   }
 }
 
 function initializeStorage(): void {
   const baseKey = storageKey;
   const navigation = performance.getEntriesByType('navigation')[0];
+  editorId = newEditorId();
   try {
     const previous = navigation !== undefined && 'type' in navigation
       && (navigation.type === 'reload' || navigation.type === 'back_forward')
       ? sessionStorage.getItem(baseKey)
       : null;
     hadEditorReference = previous !== null;
-    editorId = previous ?? crypto.randomUUID();
+    if (previous !== null) editorId = previous;
   } catch (error) {
     console.error('failed to read the editor recovery ownership', error);
-    editorId = crypto.randomUUID();
     ownershipUnavailable = true;
-    storageWarning = 'ブラウザに未保存内容を保存できません';
+    storageWarning = RECOVERY_WARNING;
   }
   storageKey = ownedKey(baseKey);
   rememberEditor(baseKey);
@@ -174,7 +183,9 @@ function initializeStorage(): void {
 function readInitialPending(): EditorRecord | null {
   const record = readPending(storageKey);
   if (record !== null) return record;
-  const fallbackKeys = [pendingKey(title, initialPageId), pendingKey(title), legacyPendingKey(title)];
+  const fallbackKeys = initialPageId === undefined
+    ? [pendingKey(title), legacyPendingKey(title)]
+    : [pendingKey(title, initialPageId), pendingKey(title), legacyPendingKey(title)];
   for (const fallbackKey of fallbackKeys) {
     if (fallbackKey === storageKey) continue;
     const fallbackRecord = readPending(fallbackKey);
@@ -196,14 +207,22 @@ function readInitialPending(): EditorRecord | null {
 
 async function chooseAvailableRecord(): Promise<EditorRecord | null> {
   const baseKey = pendingKey(title, initialPageId);
-  const available: EditorRecord[] = [];
+  const available: Array<{ record: EditorRecord; texts: string[] }> = [];
   try {
     for (let index = 0; index < localStorage.length; index += 1) {
       const key = localStorage.key(index);
       if (key === null || !key.startsWith(`${baseKey}/editor:`) || key === storageKey) continue;
       const raw = localStorage.getItem(key);
       const record = raw === null ? null : parseEditorRecord(raw);
-      if (record !== null) available.push(record);
+      if (record === null) continue;
+      try {
+        const texts = record.kind === 'conflict-draft' || record.kind === 'unsaved-draft'
+          ? record.texts
+          : expectedTexts(record);
+        available.push({ record, texts });
+      } catch {
+        // A malformed record owned by another editor must not prevent editing.
+      }
     }
   } catch (error) {
     console.error('failed to list editor recovery records', error);
@@ -213,12 +232,9 @@ async function chooseAvailableRecord(): Promise<EditorRecord | null> {
   if (available.length === 0) return null;
 
   let selected: EditorRecord | null = null;
-  const items = available.map((record) => {
+  const items = available.map(({ record, texts }) => {
     const item = document.createElement('li');
     const button = document.createElement('button');
-    const texts = record.kind === 'conflict-draft' || record.kind === 'unsaved-draft'
-      ? record.texts
-      : expectedTexts(record);
     button.type = 'button';
     button.textContent = `復元する: ${texts.slice(0, 3).join(' / ').slice(0, 120)}`;
     button.addEventListener('click', () => {
@@ -390,9 +406,7 @@ async function executeEffects(effects: readonly SyncEffect[], keepalive = false)
     }
   }
   if (persistenceAttempted) {
-    storageWarning = persistenceFailed || ownershipUnavailable
-      ? 'ブラウザに未保存内容を保存できません'
-      : undefined;
+    storageWarning = persistenceFailed ? STORAGE_WARNING : ownershipUnavailable ? RECOVERY_WARNING : undefined;
     renderStatus();
   }
   for (const effect of effects) {
