@@ -4,10 +4,11 @@ const port = Number(process.env.E2E_PORT ?? 4173);
 
 export default defineConfig({
   testDir: 'e2e',
+  testIgnore: /production\//,
   projects: [
     {
       name: 'chromium',
-      testIgnore: /mobile\.spec\.ts/,
+      testIgnore: [/mobile\.spec\.ts/, /production\//],
       use: { browserName: 'chromium' },
     },
     {

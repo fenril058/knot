@@ -124,6 +124,154 @@ KNOT_BOOTSTRAP_EMAIL=owner@example.com \
 npm run d1:bootstrap -- --remote --config .dev/wrangler-d1-smoke.jsonc
 ```
 
+### Cloudflare Workers の一人利用配備
+
+`knot-dogfood` Worker は `workers.dev`、Static Assets、D1 を一つの配備として扱います。
+本番設定は `wrangler.jsonc` から `.wrangler.production.jsonc` に生成し、D1 ID と Access の設定値を Git に保存しません。
+生成時は `workers.dev` と preview URL を無効にします。
+初回配備後に Worker 全体を Access で保護し、その後で `workers.dev` を有効にします。
+公開直後に未認証の HTML、API、CSS、browser script が取得できないことを確認します。
+
+Cloudflare にログインし、`wrangler d1 list` で `knot-dogfood` が存在しないことを確認してから D1 を作ります。
+既存の同名 database がある場合は新規作成せず、ID と用途を確認します。
+次の `UUID` は `d1 create` が返した database ID に置き換えます。
+
+```sh
+direnv exec . wrangler whoami
+direnv exec . wrangler d1 create knot-dogfood --location apac
+KNOT_D1_DATABASE_ID=UUID direnv exec . npm run prepare:production-config
+direnv exec . wrangler d1 info knot-dogfood
+direnv exec . wrangler d1 migrations apply knot-dogfood --remote --config .wrangler.production.jsonc
+```
+
+異なる Account ID と Actor ID を決め、Access で許可するメールアドレスを D1 に登録します。
+ID とメールアドレスは Worker secret の対応付けと一致させます。
+初回配備では公開 URL が無いため、Access application 作成前の `audience` に仮の文字列を使えます。
+`.dev/worker-secrets.json` は Wrangler の `--secrets-file` 形式で、`KNOT_ACCESS_CONFIG` に `issuer`、`audience`、`email`、`accountId`、`actorId` を持つ JSON 文字列を入れます。
+このファイルは Git 管理外に置き、権限を所有者だけにします。
+
+```json
+{
+  "KNOT_ACCESS_CONFIG": "{\"issuer\":\"https://team.cloudflareaccess.com\",\"audience\":\"pending-access\",\"email\":\"owner@example.com\",\"accountId\":\"ACCOUNT_ID\",\"actorId\":\"ACTOR_ID\"}"
+}
+```
+
+```sh
+KNOT_BOOTSTRAP_ACCOUNT_ID=ACCOUNT_ID \
+KNOT_BOOTSTRAP_ACTOR_ID=ACTOR_ID \
+KNOT_BOOTSTRAP_ACCOUNT_NAME=owner \
+KNOT_BOOTSTRAP_DISPLAY_NAME=Owner \
+KNOT_BOOTSTRAP_EMAIL=EMAIL \
+direnv exec . npm run d1:bootstrap -- --remote --config .wrangler.production.jsonc
+direnv exec . npm run build:client
+direnv exec . npm run prepare:worker-assets
+direnv exec . wrangler deploy --dry-run --config .wrangler.production.jsonc
+direnv exec . wrangler deploy --config .wrangler.production.jsonc --secrets-file .dev/worker-secrets.json
+```
+
+Cloudflare dashboard の Workers & Pages で `knot-dogfood` の Access tab を開き、`All traffic` を選びます。
+一人のメールアドレスだけを Allow policy に指定し、`Everyone`、メールドメイン全体、`One-time PIN` のみを含む Allow rule は作りません。
+Access application の audience と team domain を確認し、`.dev/worker-secrets.json` の `audience` と `issuer` を実値へ更新して再配備します。
+`issuer` は `https://<team>.cloudflareaccess.com` 形式です。
+その後、同じ D1 ID で公開設定を再生成して配備します。
+
+```sh
+KNOT_D1_DATABASE_ID=UUID direnv exec . npm run prepare:production-config -- --enable-workers-dev
+direnv exec . wrangler deploy --config .wrangler.production.jsonc --secrets-file .dev/worker-secrets.json
+```
+
+公開 URL で Access を通過する前に `/`、`/api/pages/<project>`、`/assets/app.css`、`/assets/build/editor.js` を取得できないことを外部から確かめます。
+Access にログインした browser の storage state を `.dev/access-state.json` に保存し、次の smoke を実行します。
+smoke は browser ごとに別 project と sentinel page を作り、出力した page ID、version、本文を deploy 前後で比較するために保持します。
+実行のたびに作られた project と page は D1 に残ります。
+実機 smartphone でも同じ URL から project、page、編集、保存、再読み込み、検索を確認します。
+
+```sh
+KNOT_PRODUCTION_URL=https://<worker>.<subdomain>.workers.dev \
+direnv exec . npm run smoke:production
+```
+
+新 version の deploy 後、保存した sentinel page の ID、version、本文、検索結果が変わらないことを確認し、追加編集を保存します。
+確認が終わった smoke 用 project は、D1 に残る名前を列挙してから削除できます。
+sentinel の project 名は smoke の出力にもありますが、競合テスト用 project 名は D1 の一覧から調べます。
+列挙結果に含まれる各 project について、詳細照会の `PROJECT_NAME` を正確な名前に置き換えて page を確認します。
+
+```sh
+direnv exec . wrangler d1 execute knot-dogfood --remote \
+  --config .wrangler.production.jsonc \
+  --command "SELECT name FROM projects WHERE name LIKE 'dogfood-smoke-%' OR name LIKE 'dogfood-conflict-%'" \
+  --yes
+direnv exec . wrangler d1 execute knot-dogfood --remote \
+  --config .wrangler.production.jsonc \
+  --command "SELECT p.name, g.title FROM projects p LEFT JOIN pages g ON g.project_id = p.id WHERE p.name = 'PROJECT_NAME'" \
+  --yes
+```
+
+確認した正確な名前で削除 SQL の `PROJECT_NAME` を置き換え、`.dev/cleanup-dogfood-smoke.sql` に保存します。
+削除する project ごとに実行し、他の project 名を含む広い条件には置き換えません。
+
+```sql
+DELETE FROM pages_fts WHERE page_id IN (SELECT id FROM pages WHERE project_id = (SELECT id FROM projects WHERE name = 'PROJECT_NAME'));
+DELETE FROM page_visits WHERE page_id IN (SELECT id FROM pages WHERE project_id = (SELECT id FROM projects WHERE name = 'PROJECT_NAME'));
+DELETE FROM links WHERE source_page_id IN (SELECT id FROM pages WHERE project_id = (SELECT id FROM projects WHERE name = 'PROJECT_NAME'));
+DELETE FROM commits WHERE page_id IN (SELECT id FROM pages WHERE project_id = (SELECT id FROM projects WHERE name = 'PROJECT_NAME'));
+DELETE FROM title_history WHERE page_id IN (SELECT id FROM pages WHERE project_id = (SELECT id FROM projects WHERE name = 'PROJECT_NAME'));
+DELETE FROM lines WHERE page_id IN (SELECT id FROM pages WHERE project_id = (SELECT id FROM projects WHERE name = 'PROJECT_NAME'));
+DELETE FROM pages WHERE project_id = (SELECT id FROM projects WHERE name = 'PROJECT_NAME');
+DELETE FROM projects WHERE name = 'PROJECT_NAME';
+```
+
+```sh
+direnv exec . wrangler d1 execute knot-dogfood --remote \
+  --config .wrangler.production.jsonc \
+  --file .dev/cleanup-dogfood-smoke.sql --yes
+```
+
+初期利用量は Workers dashboard の request 数と CPU time、D1 dashboard の rows read、rows written、storage を読み、issue に観測値を記録します。
+Cloudflare Free の上限は変更されるため、配備時点の [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/) と [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/) で比較します。
+
+重要データは D1 以外にも保管します。
+D1 の全体 export は FTS5 仮想テーブルがあると失敗するため、通常テーブルを指定して SQL を取得します。
+CI はこの手順の export と復元のテーブル一覧を D1 migration 適用後の通常テーブルと照合します。
+次のコピーは D1 とは別のローカルディスク上に保存し、所有者だけが読める権限にします。
+
+```sh
+direnv exec . wrangler d1 export knot-dogfood --remote \
+  --config .wrangler.production.jsonc \
+  --table accounts --table actors --table commits --table d1_migrations \
+  --table lines --table links --table page_mutation_guard \
+  --table page_mutation_revisions --table page_visits --table pages \
+  --table projects --table title_history \
+  --output .dev/knot-dogfood-data.sql --skip-confirmation
+chmod 600 .dev/knot-dogfood-data.sql
+```
+
+この SQL に FTS5 の検索 index と SQLite index は含まれません。
+2026-09-17 に隔離した local D1 で migration、通常テーブルの import、reindex を行い、同じ page ID の read と search が復旧することを確認しました。
+検証時は次の手順で dump の schema と `d1_migrations` のデータを除き、新規 DB に migration を先に適用しました。
+`.dev/restore-state` は未使用の場所を指定し、既存の local D1 の状態と混ぜません。
+
+```sh
+umask 077
+sqlite3 .dev/restore-extract.sqlite < .dev/knot-dogfood-data.sql
+sqlite3 .dev/restore-extract.sqlite \
+  '.dump --data-only actors accounts projects pages lines commits title_history links page_visits page_mutation_guard page_mutation_revisions' \
+  > .dev/restore-data.sql
+direnv exec . wrangler d1 migrations apply knot --local \
+  --config wrangler.jsonc --persist-to .dev/restore-state
+direnv exec . wrangler d1 execute knot --local \
+  --config wrangler.jsonc --persist-to .dev/restore-state \
+  --file .dev/restore-data.sql --yes
+direnv exec . node scripts/reindex-d1.ts \
+  --config wrangler.jsonc --persist-to .dev/restore-state
+```
+
+復元先の page read と search を元の ID・本文・検索結果と照合します。
+remote D1 へ復元する場合は書き込みを止め、新しい DB で migration、通常テーブルの import、`node scripts/reindex-d1.ts --remote --config <復元先の設定>`、page read と search の順に確認してから切り替えます。
+remote D1 への復元と切り替え自体は未検証です。
+この別コピーは完全な backup / restore の保証にはならず、Time Travel も別コピーの代わりにはなりません。
+attachment、import、local editor sync はこの配備では扱いません。
+
 ## 3. リバースプロキシ
 
 リバースプロキシは `/files/` と `/assets/` を含むすべてのパスを knot に転送します。

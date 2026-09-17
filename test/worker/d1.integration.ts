@@ -26,6 +26,10 @@ const access = {
 const accessKeys = await generateKeyPair('RS256');
 const accessKey: JWTVerifyGetKey = async () => accessKeys.publicKey;
 
+function sorted(values: string[]): string[] {
+  return values.toSorted((left, right) => left.localeCompare(right));
+}
+
 async function accessToken(): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   return new SignJWT({ email: access.email })
@@ -350,6 +354,68 @@ void test('D1 migrations are forward-only, repeatable, and upgrade a partially m
     assert.notEqual(await partialDb.prepare("SELECT name FROM sqlite_master WHERE name = 'pages'").first(), null);
   } finally {
     await partialServer.close();
+  }
+});
+
+void test('D1 backup and restore commands cover every ordinary table', async () => {
+  const { server, db } = await testDatabase();
+  try {
+    const tables = await db.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'pages_fts%'",
+    ).all<{ name: string }>();
+    const ordinary = tables.results.map((row) => row.name)
+      .filter((name) => name !== 'd1_migrations' && !name.startsWith('_cf_'));
+    const ops = await readFile('docs/ops.md', 'utf8');
+    const exportCommand = ops.match(/wrangler d1 export knot-dogfood --remote(?<command>[\s\S]*?)--output \.dev\/knot-dogfood-data\.sql/u)?.groups?.command;
+    const restoreCommand = ops.match(/'\.dump --data-only (?<tables>[^']+)'/u)?.groups?.tables;
+    assert.ok(exportCommand, 'production D1 export command is missing');
+    assert.ok(restoreCommand, 'production D1 restore command is missing');
+    const exported = [...exportCommand.matchAll(/--table ([a-z_0-9]+)/gu)].map((match) => match[1] ?? '');
+    assert.deepEqual(sorted(exported), sorted([...ordinary, 'd1_migrations']));
+    assert.deepEqual(sorted(restoreCommand.split(/\s+/u)), sorted(ordinary));
+  } finally {
+    await server.close();
+  }
+});
+
+void test('documented smoke cleanup removes a project and its dependent rows', async () => {
+  const { server, db } = await testDatabase();
+  try {
+    const seed = [
+      "INSERT INTO actors VALUES ('actor', 'actor', 'Actor', 1)",
+      "INSERT INTO accounts (id, actor_id, name, created) VALUES ('account', 'actor', 'account', 1)",
+      "INSERT INTO projects VALUES ('project', 'dogfood-smoke-test', 'Smoke', 1, 1)",
+      "INSERT INTO projects VALUES ('conflict', 'dogfood-conflict-test', 'Conflict', 1, 1)",
+      "INSERT INTO projects VALUES ('unrelated', 'notes', 'Notes', 1, 1)",
+      "INSERT INTO pages VALUES ('page', 'project', 'Page', 'page', 1, 0, 0, NULL, 1, 1)",
+      "INSERT INTO lines VALUES ('line', 'page', 0, 'Page', 1, 1, 1, 'actor')",
+      "INSERT INTO commits VALUES ('commit', 'page', 0, 1, 'actor', 1, '[]', 'hash')",
+      "INSERT INTO title_history VALUES ('page', 'Old', 'old', 1, 2)",
+      "INSERT INTO links VALUES ('project', 'page', 'page', 'Page')",
+      "INSERT INTO page_visits VALUES ('account', 'page', 1, 1, 1)",
+      "INSERT INTO pages_fts (page_id, project_id, content) VALUES ('page', 'project', 'Page')",
+      "INSERT INTO page_mutation_revisions VALUES ('project', 1)",
+    ];
+    for (const statement of seed) await db.prepare(statement).run();
+    const ops = await readFile('docs/ops.md', 'utf8');
+    const discoverySql = ops.match(/--command "(SELECT name FROM projects WHERE name LIKE [^"]+)"/u)?.[1];
+    assert.ok(discoverySql, 'documented smoke project discovery query is missing');
+    const discovered = await db.prepare(discoverySql).all<{ name: string }>();
+    assert.deepEqual(sorted(discovered.results.map((row) => row.name)), ['dogfood-conflict-test', 'dogfood-smoke-test']);
+    const sql = ops.match(/```sql\n(DELETE FROM pages_fts[\s\S]*?)\n```/u)?.[1];
+    assert.ok(sql, 'documented cleanup SQL is missing');
+    for (const statement of sql.replaceAll('PROJECT_NAME', 'dogfood-smoke-test').split(';').map((part) => part.trim()).filter(Boolean)) {
+      await db.prepare(statement).run();
+    }
+    assert.equal(await db.prepare("SELECT id FROM projects WHERE id = 'project'").first(), null);
+    assert.equal(await db.prepare("SELECT id FROM pages WHERE id = 'page'").first(), null);
+    assert.equal(await db.prepare("SELECT page_id FROM pages_fts WHERE page_id = 'page'").first(), null);
+    assert.equal(await db.prepare("SELECT project_id FROM page_mutation_revisions WHERE project_id = 'project'").first(), null);
+    assert.notEqual(await db.prepare("SELECT id FROM projects WHERE id = 'conflict'").first(), null);
+    assert.notEqual(await db.prepare("SELECT id FROM projects WHERE id = 'unrelated'").first(), null);
+    assert.notEqual(await db.prepare("SELECT id FROM accounts WHERE id = 'account'").first(), null);
+  } finally {
+    await server.close();
   }
 });
 
