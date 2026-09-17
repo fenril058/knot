@@ -34,7 +34,12 @@ test('Access protects HTML, API, CSS and browser script', async ({ baseURL }) =>
   try {
     for (const path of ['/', '/api/pages/dogfood-smoke', '/assets/app.css', '/assets/build/editor.js']) {
       const response = await anonymous.get(path, { maxRedirects: 0 });
-      expect(response.status(), `${path} is available without Access`).not.toBe(200);
+      expect(response.status(), `${path} did not redirect to Access`).toBe(302);
+      const location = response.headers().location;
+      expect(location, `${path} has no Access login location`).toBeDefined();
+      const redirect = new URL(location ?? '', baseURL);
+      expect(redirect.hostname).toMatch(/\.cloudflareaccess\.com$/u);
+      expect(redirect.pathname).toContain('/cdn-cgi/access/login/');
     }
   } finally {
     await anonymous.dispose();
