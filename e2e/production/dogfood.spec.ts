@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { expect, request, test } from '@playwright/test';
-import { replaceEditorDocument, replaceEditorLine } from '../helpers.ts';
+import { replaceEditorLine } from '../helpers.ts';
 
 const mutationHeaders = { 'X-Knot-Client': 'dogfood-smoke' };
 
@@ -41,7 +41,7 @@ test('Access protects HTML, API, CSS and browser script', async ({ baseURL }) =>
   }
 });
 
-test('authenticated browser creates, edits, reloads and searches persistent content', async ({ page }) => {
+test('authenticated browser creates, edits, reloads and searches persistent content', async ({ page, isMobile }) => {
   const suffix = randomUUID().slice(0, 12);
   const project = `dogfood-smoke-${suffix}`;
   const title = `sentinel-${suffix}`;
@@ -54,7 +54,10 @@ test('authenticated browser creates, edits, reloads and searches persistent cont
 
   await page.goto(`/${project}/${title}`);
   await page.locator('#edit-page-button').click();
-  await replaceEditorDocument(page, [title, 'before deploy']);
+  const editor = page.locator('#editor-root .cm-content');
+  await editor.click();
+  await page.keyboard.press(isMobile ? 'Meta+A' : 'Control+A');
+  await page.keyboard.insertText([title, 'before deploy'].join('\n'));
   await expect(page.locator('#save-status')).toHaveText('保存済み');
   const snapshot = await page.request.get(`/api/pages/${project}/${title}`);
   expect(snapshot.ok()).toBe(true);

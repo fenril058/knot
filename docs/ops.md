@@ -195,8 +195,24 @@ direnv exec . npm run smoke:production
 Cloudflare Free の上限は変更されるため、配備時点の [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/) と [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/) で比較します。
 
 重要データは D1 以外にも保管します。
-たとえば `wrangler d1 export knot-dogfood --remote --output .dev/knot-dogfood.sql` で SQL を取得し、D1 とは別の保管先へ複製します。
-この export と D1 Time Travel は完全な backup / restore の保証にはなりません。
+D1 の全体 export は FTS5 仮想テーブルがあると失敗するため、通常テーブルを指定して SQL を取得します。
+次のコピーは D1 とは別のローカルディスク上に保存し、所有者だけが読める権限にします。
+
+```sh
+direnv exec . wrangler d1 export knot-dogfood --remote \
+  --config .wrangler.production.jsonc \
+  --table accounts --table actors --table commits --table d1_migrations \
+  --table lines --table links --table page_mutation_guard \
+  --table page_mutation_revisions --table page_visits --table pages \
+  --table projects --table title_history \
+  --output .dev/knot-dogfood-data.sql --skip-confirmation
+chmod 600 .dev/knot-dogfood-data.sql
+```
+
+この SQL に FTS5 の検索 index と SQLite index は含まれません。
+データの別コピーとして扱い、完全な backup / restore 手順として扱いません。
+初期 dogfood では復元手順の検証は未完了です。
+Time Travel も別コピーの代わりにはなりません。
 attachment、import、local editor sync はこの配備では扱いません。
 
 ## 3. リバースプロキシ
