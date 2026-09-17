@@ -32,6 +32,9 @@ const editButtonElement = document.querySelector<HTMLButtonElement>('#edit-page-
 const conflictPanelElement = document.querySelector<HTMLElement>('#edit-conflict');
 const conflictListElement = document.querySelector<HTMLOListElement>('#edit-conflict-list');
 const resolveConflictButtonElement = document.querySelector<HTMLButtonElement>('#resolve-edit-conflict');
+const recoveryDialogElement = document.querySelector<HTMLDialogElement>('#recovery-dialog');
+const recoveryRecordsElement = document.querySelector<HTMLUListElement>('#recovery-records');
+const startFreshButtonElement = document.querySelector<HTMLButtonElement>('#start-fresh-edit');
 if (
   root === null
   || statusElement === null
@@ -39,6 +42,9 @@ if (
   || conflictPanelElement === null
   || conflictListElement === null
   || resolveConflictButtonElement === null
+  || recoveryDialogElement === null
+  || recoveryRecordsElement === null
+  || startFreshButtonElement === null
 ) {
   throw new Error('editor UI element is missing');
 }
@@ -48,6 +54,9 @@ const editButton = editButtonElement;
 const conflictPanel = conflictPanelElement;
 const conflictList = conflictListElement;
 const resolveConflictButton = resolveConflictButtonElement;
+const recoveryDialog = recoveryDialogElement;
+const recoveryRecords = recoveryRecordsElement;
+const startFreshButton = startFreshButtonElement;
 
 const data = editorRoot.dataset;
 if (data.project === undefined || data.title === undefined || data.userName === undefined || data.cspNonce === undefined) {
@@ -118,17 +127,54 @@ function readPending(key: string): EditorRecord | null {
 
 const initialPageId = data.pageId;
 let storageKey = pendingKey(title, initialPageId);
+let editorId: string;
+let hadEditorReference = false;
 let engine: SyncEngine;
 let view: EditorView;
 let timer: number | undefined;
 let statusMessage: string | undefined;
 let storageWarning: string | undefined;
+let ownershipUnavailable = false;
 let suppressChanges = false;
+
+function ownedKey(baseKey: string): string {
+  return `${baseKey}/editor:${editorId}`;
+}
+
+function rememberEditor(baseKey: string): void {
+  try {
+    sessionStorage.setItem(baseKey, editorId);
+  } catch (error) {
+    console.error('failed to remember the editor recovery record', error);
+    ownershipUnavailable = true;
+    storageWarning = 'ブラウザに未保存内容を保存できません';
+  }
+}
+
+function initializeStorage(): void {
+  const baseKey = storageKey;
+  const navigation = performance.getEntriesByType('navigation')[0];
+  try {
+    const previous = navigation !== undefined && 'type' in navigation
+      && (navigation.type === 'reload' || navigation.type === 'back_forward')
+      ? sessionStorage.getItem(baseKey)
+      : null;
+    hadEditorReference = previous !== null;
+    editorId = previous ?? crypto.randomUUID();
+  } catch (error) {
+    console.error('failed to read the editor recovery ownership', error);
+    editorId = crypto.randomUUID();
+    ownershipUnavailable = true;
+    storageWarning = 'ブラウザに未保存内容を保存できません';
+  }
+  storageKey = ownedKey(baseKey);
+  rememberEditor(baseKey);
+}
 
 function readInitialPending(): EditorRecord | null {
   const record = readPending(storageKey);
   if (record !== null) return record;
-  const fallbackKeys = [pendingKey(title), legacyPendingKey(title)];
+  const fallbackKeys = [pendingKey(title, initialPageId), pendingKey(title), legacyPendingKey(title)];
   for (const fallbackKey of fallbackKeys) {
     if (fallbackKey === storageKey) continue;
     const fallbackRecord = readPending(fallbackKey);
@@ -141,12 +187,62 @@ function readInitialPending(): EditorRecord | null {
       localStorage.removeItem(fallbackKey);
     } catch (error) {
       console.error('failed to migrate the editor recovery record', error);
-      storageKey = fallbackKey;
       storageWarning = 'ブラウザに未保存内容を保存できません';
     }
     return migratedRecord;
   }
   return null;
+}
+
+async function chooseAvailableRecord(): Promise<EditorRecord | null> {
+  const baseKey = pendingKey(title, initialPageId);
+  const available: EditorRecord[] = [];
+  try {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key === null || !key.startsWith(`${baseKey}/editor:`) || key === storageKey) continue;
+      const raw = localStorage.getItem(key);
+      const record = raw === null ? null : parseEditorRecord(raw);
+      if (record !== null) available.push(record);
+    }
+  } catch (error) {
+    console.error('failed to list editor recovery records', error);
+    storageWarning = 'ブラウザに未保存内容を保存できません';
+    return null;
+  }
+  if (available.length === 0) return null;
+
+  let selected: EditorRecord | null = null;
+  const items = available.map((record) => {
+    const item = document.createElement('li');
+    const button = document.createElement('button');
+    const texts = record.kind === 'conflict-draft' || record.kind === 'unsaved-draft'
+      ? record.texts
+      : expectedTexts(record);
+    button.type = 'button';
+    button.textContent = `復元する: ${texts.slice(0, 3).join(' / ').slice(0, 120)}`;
+    button.addEventListener('click', () => {
+      selected = record;
+      recoveryDialog.close();
+    });
+    item.append(button);
+    return item;
+  });
+  recoveryRecords.replaceChildren(...items);
+  const chosen = await new Promise<EditorRecord | null>((resolve) => {
+    recoveryDialog.addEventListener('close', () => resolve(selected), { once: true });
+    startFreshButton.addEventListener('click', () => recoveryDialog.close(), { once: true });
+    recoveryDialog.showModal();
+  });
+  if (chosen !== null) {
+    try {
+      localStorage.setItem(storageKey, serializeEditorRecord(chosen));
+    } catch (error) {
+      console.error('failed to copy the editor recovery record', error);
+      storageWarning = 'ブラウザに未保存内容を保存できません';
+    }
+  }
+  return chosen;
 }
 
 function renderStatus(): void {
@@ -205,7 +301,9 @@ function clearConflictPanel(): void {
 
 function syncEditorLocation(previousTitle: string): void {
   const oldKey = storageKey;
-  storageKey = pendingKey(engine.currentTitle, engine.pageId);
+  const baseKey = pendingKey(engine.currentTitle, engine.pageId);
+  storageKey = ownedKey(baseKey);
+  rememberEditor(baseKey);
   if (storageKey !== oldKey) {
     try {
       const pending = localStorage.getItem(oldKey);
@@ -213,7 +311,7 @@ function syncEditorLocation(previousTitle: string): void {
         localStorage.setItem(storageKey, pending);
         localStorage.removeItem(oldKey);
       }
-      storageWarning = undefined;
+      if (!ownershipUnavailable) storageWarning = undefined;
     } catch (error) {
       console.error('failed to move the editor recovery record', error);
       storageWarning = 'ブラウザに未保存内容を保存できません';
@@ -292,7 +390,9 @@ async function executeEffects(effects: readonly SyncEffect[], keepalive = false)
     }
   }
   if (persistenceAttempted) {
-    storageWarning = persistenceFailed ? 'ブラウザに未保存内容を保存できません' : undefined;
+    storageWarning = persistenceFailed || ownershipUnavailable
+      ? 'ブラウザに未保存内容を保存できません'
+      : undefined;
     renderStatus();
   }
   for (const effect of effects) {
@@ -467,7 +567,8 @@ async function restorePending(record: EditorRecord): Promise<Recovery | null> {
 }
 
 async function start(): Promise<void> {
-  const pending = readInitialPending();
+  initializeStorage();
+  const pending = readInitialPending() ?? (hadEditorReference ? null : await chooseAvailableRecord());
   const recovery = pending === null ? null : await restorePending(pending);
   const page = recovery === null
     ? await fetchPage(project, title, initialPageId)
