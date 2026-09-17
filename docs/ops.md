@@ -183,6 +183,7 @@ direnv exec . wrangler deploy --config .wrangler.production.jsonc --secrets-file
 公開 URL で Access を通過する前に `/`、`/api/pages/<project>`、`/assets/app.css`、`/assets/build/editor.js` を取得できないことを外部から確かめます。
 Access にログインした browser の storage state を `.dev/access-state.json` に保存し、次の smoke を実行します。
 smoke は browser ごとに別 project と sentinel page を作り、出力した page ID、version、本文を deploy 前後で比較するために保持します。
+実行のたびに作られた project と page は D1 に残ります。
 実機 smartphone でも同じ URL から project、page、編集、保存、再読み込み、検索を確認します。
 
 ```sh
@@ -191,11 +192,37 @@ direnv exec . npm run smoke:production
 ```
 
 新 version の deploy 後、保存した sentinel page の ID、version、本文、検索結果が変わらないことを確認し、追加編集を保存します。
+確認が終わった smoke 用 project は、出力された正確な project 名を指定して D1 から削除できます。
+まず次の `SELECT` の `PROJECT_NAME` を置き換えて名前と page を照合し、削除 SQL でも同じ名前に置き換えて `.dev/cleanup-dogfood-smoke.sql` に保存します。
+削除する project ごとに実行し、他の project 名を含む広い条件には置き換えません。
+
+```sql
+DELETE FROM pages_fts WHERE page_id IN (SELECT id FROM pages WHERE project_id = (SELECT id FROM projects WHERE name = 'PROJECT_NAME'));
+DELETE FROM page_visits WHERE page_id IN (SELECT id FROM pages WHERE project_id = (SELECT id FROM projects WHERE name = 'PROJECT_NAME'));
+DELETE FROM links WHERE source_page_id IN (SELECT id FROM pages WHERE project_id = (SELECT id FROM projects WHERE name = 'PROJECT_NAME'));
+DELETE FROM commits WHERE page_id IN (SELECT id FROM pages WHERE project_id = (SELECT id FROM projects WHERE name = 'PROJECT_NAME'));
+DELETE FROM title_history WHERE page_id IN (SELECT id FROM pages WHERE project_id = (SELECT id FROM projects WHERE name = 'PROJECT_NAME'));
+DELETE FROM lines WHERE page_id IN (SELECT id FROM pages WHERE project_id = (SELECT id FROM projects WHERE name = 'PROJECT_NAME'));
+DELETE FROM pages WHERE project_id = (SELECT id FROM projects WHERE name = 'PROJECT_NAME');
+DELETE FROM projects WHERE name = 'PROJECT_NAME';
+```
+
+```sh
+direnv exec . wrangler d1 execute knot-dogfood --remote \
+  --config .wrangler.production.jsonc \
+  --command "SELECT p.name, g.title FROM projects p LEFT JOIN pages g ON g.project_id = p.id WHERE p.name = 'PROJECT_NAME'" \
+  --yes
+direnv exec . wrangler d1 execute knot-dogfood --remote \
+  --config .wrangler.production.jsonc \
+  --file .dev/cleanup-dogfood-smoke.sql --yes
+```
+
 初期利用量は Workers dashboard の request 数と CPU time、D1 dashboard の rows read、rows written、storage を読み、issue に観測値を記録します。
 Cloudflare Free の上限は変更されるため、配備時点の [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/) と [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/) で比較します。
 
 重要データは D1 以外にも保管します。
 D1 の全体 export は FTS5 仮想テーブルがあると失敗するため、通常テーブルを指定して SQL を取得します。
+CI はこの手順の export と復元のテーブル一覧を D1 migration 適用後の通常テーブルと照合します。
 次のコピーは D1 とは別のローカルディスク上に保存し、所有者だけが読める権限にします。
 
 ```sh

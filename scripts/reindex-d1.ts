@@ -21,7 +21,7 @@ for (let index = 0; index < args.length; index += 1) {
 }
 if (remote && persistTo !== undefined) throw new Error('--persist-to only applies to local D1');
 
-// getPlatformProxy reads the complete Worker config, but reindex only uses DB.
+// Suppress Wrangler's missing-secret warning; reindex only uses DB.
 process.env.KNOT_ACCESS_CONFIG ??= '{}';
 const platform = await getPlatformProxy<{ DB: D1Binding }>({
   configPath,

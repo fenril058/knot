@@ -14,6 +14,7 @@ const source = await readFile(resolve(repositoryRoot, 'wrangler.jsonc'), 'utf8')
 // The tracked config uses standalone JSONC comments, so removing comment lines preserves string values.
 const parsed: unknown = JSON.parse(source.replace(/^\s*\/\/.*$/gmu, ''));
 if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error('wrangler.jsonc is invalid');
+if ('route' in parsed || 'routes' in parsed) throw new Error('wrangler.jsonc must not define a public route');
 
 const config = {
   ...parsed,
