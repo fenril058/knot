@@ -192,8 +192,22 @@ direnv exec . npm run smoke:production
 ```
 
 新 version の deploy 後、保存した sentinel page の ID、version、本文、検索結果が変わらないことを確認し、追加編集を保存します。
-確認が終わった smoke 用 project は、出力された正確な project 名を指定して D1 から削除できます。
-まず次の `SELECT` の `PROJECT_NAME` を置き換えて名前と page を照合し、削除 SQL でも同じ名前に置き換えて `.dev/cleanup-dogfood-smoke.sql` に保存します。
+確認が終わった smoke 用 project は、D1 に残る名前を列挙してから削除できます。
+sentinel の project 名は smoke の出力にもありますが、競合テスト用 project 名は D1 の一覧から調べます。
+列挙結果に含まれる各 project について、詳細照会の `PROJECT_NAME` を正確な名前に置き換えて page を確認します。
+
+```sh
+direnv exec . wrangler d1 execute knot-dogfood --remote \
+  --config .wrangler.production.jsonc \
+  --command "SELECT name FROM projects WHERE name LIKE 'dogfood-smoke-%' OR name LIKE 'dogfood-conflict-%'" \
+  --yes
+direnv exec . wrangler d1 execute knot-dogfood --remote \
+  --config .wrangler.production.jsonc \
+  --command "SELECT p.name, g.title FROM projects p LEFT JOIN pages g ON g.project_id = p.id WHERE p.name = 'PROJECT_NAME'" \
+  --yes
+```
+
+確認した正確な名前で削除 SQL の `PROJECT_NAME` を置き換え、`.dev/cleanup-dogfood-smoke.sql` に保存します。
 削除する project ごとに実行し、他の project 名を含む広い条件には置き換えません。
 
 ```sql
@@ -208,10 +222,6 @@ DELETE FROM projects WHERE name = 'PROJECT_NAME';
 ```
 
 ```sh
-direnv exec . wrangler d1 execute knot-dogfood --remote \
-  --config .wrangler.production.jsonc \
-  --command "SELECT p.name, g.title FROM projects p LEFT JOIN pages g ON g.project_id = p.id WHERE p.name = 'PROJECT_NAME'" \
-  --yes
 direnv exec . wrangler d1 execute knot-dogfood --remote \
   --config .wrangler.production.jsonc \
   --file .dev/cleanup-dogfood-smoke.sql --yes

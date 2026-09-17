@@ -385,6 +385,8 @@ void test('documented smoke cleanup removes a project and its dependent rows', a
       "INSERT INTO actors VALUES ('actor', 'actor', 'Actor', 1)",
       "INSERT INTO accounts (id, actor_id, name, created) VALUES ('account', 'actor', 'account', 1)",
       "INSERT INTO projects VALUES ('project', 'dogfood-smoke-test', 'Smoke', 1, 1)",
+      "INSERT INTO projects VALUES ('conflict', 'dogfood-conflict-test', 'Conflict', 1, 1)",
+      "INSERT INTO projects VALUES ('unrelated', 'notes', 'Notes', 1, 1)",
       "INSERT INTO pages VALUES ('page', 'project', 'Page', 'page', 1, 0, 0, NULL, 1, 1)",
       "INSERT INTO lines VALUES ('line', 'page', 0, 'Page', 1, 1, 1, 'actor')",
       "INSERT INTO commits VALUES ('commit', 'page', 0, 1, 'actor', 1, '[]', 'hash')",
@@ -396,6 +398,10 @@ void test('documented smoke cleanup removes a project and its dependent rows', a
     ];
     for (const statement of seed) await db.prepare(statement).run();
     const ops = await readFile('docs/ops.md', 'utf8');
+    const discoverySql = ops.match(/--command "(SELECT name FROM projects WHERE name LIKE [^"]+)"/u)?.[1];
+    assert.ok(discoverySql, 'documented smoke project discovery query is missing');
+    const discovered = await db.prepare(discoverySql).all<{ name: string }>();
+    assert.deepEqual(sorted(discovered.results.map((row) => row.name)), ['dogfood-conflict-test', 'dogfood-smoke-test']);
     const sql = ops.match(/```sql\n(DELETE FROM pages_fts[\s\S]*?)\n```/u)?.[1];
     assert.ok(sql, 'documented cleanup SQL is missing');
     for (const statement of sql.replaceAll('PROJECT_NAME', 'dogfood-smoke-test').split(';').map((part) => part.trim()).filter(Boolean)) {
@@ -405,6 +411,8 @@ void test('documented smoke cleanup removes a project and its dependent rows', a
     assert.equal(await db.prepare("SELECT id FROM pages WHERE id = 'page'").first(), null);
     assert.equal(await db.prepare("SELECT page_id FROM pages_fts WHERE page_id = 'page'").first(), null);
     assert.equal(await db.prepare("SELECT project_id FROM page_mutation_revisions WHERE project_id = 'project'").first(), null);
+    assert.notEqual(await db.prepare("SELECT id FROM projects WHERE id = 'conflict'").first(), null);
+    assert.notEqual(await db.prepare("SELECT id FROM projects WHERE id = 'unrelated'").first(), null);
     assert.notEqual(await db.prepare("SELECT id FROM accounts WHERE id = 'account'").first(), null);
   } finally {
     await server.close();
