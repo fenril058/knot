@@ -210,9 +210,29 @@ chmod 600 .dev/knot-dogfood-data.sql
 ```
 
 この SQL に FTS5 の検索 index と SQLite index は含まれません。
-データの別コピーとして扱い、完全な backup / restore 手順として扱いません。
-初期 dogfood では復元手順の検証は未完了です。
-Time Travel も別コピーの代わりにはなりません。
+2026-09-17 に隔離した local D1 で migration、通常テーブルの import、reindex を行い、同じ page ID の read と search が復旧することを確認しました。
+検証時は次の手順で dump の schema と `d1_migrations` のデータを除き、新規 DB に migration を先に適用しました。
+`.dev/restore-state` は未使用の場所を指定し、既存の local D1 の状態と混ぜません。
+
+```sh
+umask 077
+sqlite3 .dev/restore-extract.sqlite < .dev/knot-dogfood-data.sql
+sqlite3 .dev/restore-extract.sqlite \
+  '.dump --data-only actors accounts projects pages lines commits title_history links page_visits page_mutation_guard page_mutation_revisions' \
+  > .dev/restore-data.sql
+direnv exec . wrangler d1 migrations apply knot --local \
+  --config wrangler.jsonc --persist-to .dev/restore-state
+direnv exec . wrangler d1 execute knot --local \
+  --config wrangler.jsonc --persist-to .dev/restore-state \
+  --file .dev/restore-data.sql --yes
+direnv exec . node scripts/reindex-d1.ts \
+  --config wrangler.jsonc --persist-to .dev/restore-state
+```
+
+復元先の page read と search を元の ID・本文・検索結果と照合します。
+remote D1 へ復元する場合は書き込みを止め、新しい DB で migration、通常テーブルの import、`node scripts/reindex-d1.ts --remote --config <復元先の設定>`、page read と search の順に確認してから切り替えます。
+remote D1 への復元と切り替え自体は未検証です。
+この別コピーは完全な backup / restore の保証にはならず、Time Travel も別コピーの代わりにはなりません。
 attachment、import、local editor sync はこの配備では扱いません。
 
 ## 3. リバースプロキシ
