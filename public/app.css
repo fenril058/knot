@@ -55,6 +55,8 @@ dialog form { display: grid; gap: 1rem; }
 .edit-conflict-values dt { font-weight: 700; }
 .edit-conflict-values dd { margin: 0.25rem 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 @media (max-width: 45rem) { .edit-conflict-values { grid-template-columns: 1fr; } }
+#recovery-records { display: grid; gap: 0.5rem; padding-left: 1.5rem; }
+#recovery-records button { max-width: 100%; overflow-wrap: anywhere; text-align: left; }
 
 #editor-root .cm-telomere-gutter .cm-gutterElement { display: flex; align-items: stretch; }
 #editor-root .cm-telomere-gutter .telomere { display: block; min-height: 1.4em; margin-right: 0; }

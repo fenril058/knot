@@ -37,6 +37,16 @@ await storage.addAccount(
   },
   now,
 );
+await storage.addAccount(
+  {
+    id: ulid(),
+    actor: { id: ulid(), name: 'recovery-e2e', displayName: 'recovery-e2e' },
+    name: 'recovery-e2e',
+    passwordHash: hashPassword('recovery-e2e-password'),
+    isAdmin: false,
+  },
+  now,
+);
 await storage.ensureProject('e2e', now);
 
 const port = Number(process.env.E2E_PORT ?? 4173);

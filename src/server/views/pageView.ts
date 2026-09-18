@@ -52,6 +52,15 @@ function editConflictPanel(): Html {
 </section>`;
 }
 
+function recoveryDialog(): Html {
+  return html`<dialog id="recovery-dialog" aria-labelledby="recovery-dialog-title">
+<h2 id="recovery-dialog-title">未保存の編集があります</h2>
+<p>復元する内容を選んでください。別のタブで編集中の内容も含まれる場合があります。</p>
+<ul id="recovery-records"></ul>
+<button type="button" id="start-fresh-edit">復元せずに編集する</button>
+</dialog>`;
+}
+
 export function pageViewPage(
   project: Project,
   page: PageSnapshot,
@@ -73,6 +82,7 @@ export function pageViewPage(
 <button type="button" id="edit-page-button">編集</button>
 <div id="save-status" aria-live="polite" hidden></div>
 ${editConflictPanel()}
+${recoveryDialog()}
 <div id="page-menu-root" data-project="${project.name}" data-title="${page.title}" data-page-id="${page.id}" data-version="${page.version}">
 <details id="page-actions" class="page-actions">
 <summary>操作</summary>
@@ -140,6 +150,7 @@ export function pageNotFoundPage(
 <button type="button" id="edit-page-button">このタイトルで新規作成する</button>
 <div id="save-status" aria-live="polite" hidden></div>
 ${editConflictPanel()}
+${recoveryDialog()}
 <div
   id="editor-root"
   class="page-body"

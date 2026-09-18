@@ -8,6 +8,14 @@ export async function loginProjectE2e(target: Page): Promise<void> {
   expect(response.ok()).toBe(true);
 }
 
+export async function loginRecoveryE2e(target: Page): Promise<void> {
+  const response = await target.request.post('/api/knot/session', {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: { name: 'recovery-e2e', password: 'recovery-e2e-password' },
+  });
+  expect(response.ok()).toBe(true);
+}
+
 export async function replaceEditorDocument(target: Page, texts: string[]): Promise<void> {
   const editor = target.locator('#editor-root .cm-content');
   await editor.click();

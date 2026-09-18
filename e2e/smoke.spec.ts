@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginProjectE2e, replaceEditorDocument, replaceEditorLine } from './helpers.ts';
+import { loginProjectE2e, loginRecoveryE2e, replaceEditorDocument, replaceEditorLine } from './helpers.ts';
 
 declare global {
   interface Window {
@@ -420,6 +420,153 @@ test('400 で保存を拒否された後も追加入力して保存できる', a
 
   await page.goto('/e2e/recover-after-400');
   await expect(page.locator('.page-body')).toContainText('rejected text corrected');
+});
+
+test('randomUUID が使えなくても編集を開始できる', async ({ page }) => {
+  await loginRecoveryE2e(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(crypto, 'randomUUID', { value: undefined });
+  });
+  await page.goto('/e2e/no-random-uuid');
+  await page.locator('#edit-page-button').click();
+  await expect(page.locator('#editor-root .cm-line')).toHaveText(['no-random-uuid']);
+});
+
+test('不正な回復候補があっても編集を開始できる', async ({ page }) => {
+  await loginRecoveryE2e(page);
+  const title = 'invalid-recovery-candidate';
+  await page.goto(`/e2e/${title}`);
+  await page.evaluate((value) => {
+    localStorage.setItem(`knot:pending:e2e/title:${value}/editor:invalid`, JSON.stringify({
+      commitId: 'invalid-recovery',
+      baseVersion: 0,
+      ops: [{ type: 'update', id: 'missing-line', text: 'draft' }],
+      baseLines: [],
+      title: value,
+    }));
+  }, title);
+  await page.locator('#edit-page-button').click();
+  await expect(page.locator('#editor-root .cm-line')).toHaveText([title]);
+});
+
+test('sessionStorage が使えないときは保存状態を正しく示し、手動で草稿を復元できる', async ({ page }) => {
+  await loginRecoveryE2e(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'sessionStorage', {
+      get: () => { throw new DOMException('blocked', 'SecurityError'); },
+    });
+  });
+  const title = 'session-storage-blocked';
+  await page.route(`**/api/knot/pages/e2e/${title}/commits`, (route) => route.fulfill({
+    status: 400,
+    contentType: 'application/json',
+    body: JSON.stringify({ error: 'bad_commit', message: 'simulated rejection' }),
+  }));
+  await page.goto(`/e2e/${title}`);
+  await page.locator('#edit-page-button').click();
+  await replaceEditorDocument(page, [title, 'local draft']);
+  await expect(page.locator('#save-status')).toContainText('エラー: simulated rejection');
+  await expect(page.locator('#save-status')).toContainText('再読み込み後に未保存内容を自動復元できません');
+  const saved = await page.evaluate((value) => Object.entries(localStorage)
+    .filter(([key]) => key.startsWith(`knot:pending:e2e/title:${value}/editor:`))
+    .map(([, record]) => JSON.parse(record) as unknown), title);
+  expect(saved).toContainEqual(expect.objectContaining({ kind: 'unsaved-draft', texts: [title, 'local draft'] }));
+
+  await page.reload();
+  await page.locator('#edit-page-button').click();
+  await expect(page.locator('#recovery-dialog')).toBeVisible();
+  await page.locator('#recovery-records').getByRole('button', { name: /local draft/ }).click();
+  await expect(page.locator('#editor-root .cm-line')).toHaveText([title, 'local draft']);
+});
+
+test('同一ページの別タブが保存しても未保存の回復記録を保持し、各タブ自身の記録だけを復元する', async ({ page }) => {
+  await loginRecoveryE2e(page);
+  const title = 'separate-tab-recovery';
+  const created = await page.request.post(`/api/knot/pages/e2e/${title}/commits`, {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: {
+      commitId: 'separate-tab-recovery-create',
+      baseVersion: 0,
+      ops: [
+        { type: 'insert', id: 'separate-title', after: '_head', text: title },
+        { type: 'insert', id: 'separate-first', after: 'separate-title', text: 'first base' },
+        { type: 'insert', id: 'separate-second', after: 'separate-first', text: 'second base' },
+      ],
+    },
+  });
+  expect(created.ok()).toBe(true);
+  const { pageId } = await created.json();
+
+  const other = await page.context().newPage();
+  await Promise.all([page.goto(`/e2e/${title}`), other.goto(`/e2e/${title}`)]);
+  await Promise.all([page.locator('#edit-page-button').click(), other.locator('#edit-page-button').click()]);
+  await other.route(`**/api/knot/pages/e2e/${title}/commits`, (route) => route.fulfill({
+    status: 400,
+    contentType: 'application/json',
+    body: JSON.stringify({ error: 'bad_commit', message: 'simulated rejection' }),
+  }));
+  await replaceEditorLine(other, 2, 'second draft');
+  await expect(other.locator('#save-status')).toHaveText('エラー: simulated rejection');
+
+  await replaceEditorLine(page, 1, 'first saved');
+  await expect(page.locator('#save-status')).toHaveText('保存済み');
+  const records = await page.evaluate((id) => Object.entries(localStorage)
+    .filter(([key]) => key.startsWith(`knot:pending:e2e/page:${id}`))
+    .map(([, value]) => JSON.parse(value) as unknown), pageId);
+  expect(records).toContainEqual(expect.objectContaining({ kind: 'unsaved-draft', texts: [title, 'first base', 'second draft'] }));
+
+  const popupPromise = other.waitForEvent('popup');
+  await other.evaluate((url) => window.open(url, '_blank'), `/e2e/${title}`);
+  const popup = await popupPromise;
+  await popup.waitForLoadState();
+  const baseKey = `knot:pending:e2e/page:${pageId}`;
+  const ownerReference = await other.evaluate((key) => sessionStorage.getItem(key), baseKey);
+  expect(ownerReference).not.toBeNull();
+  expect(await popup.evaluate((key) => sessionStorage.getItem(key), baseKey)).toBe(ownerReference);
+  await popup.locator('#edit-page-button').click();
+  await expect(popup.locator('#recovery-dialog')).toBeVisible();
+  await popup.locator('#start-fresh-edit').click();
+  await expect(popup.locator('#editor-root .cm-line')).toHaveText([title, 'first saved', 'second base']);
+  await popup.close();
+
+  const fresh = await page.context().newPage();
+  await fresh.goto(`/e2e/${title}`);
+  await fresh.locator('#edit-page-button').click();
+  await expect(fresh.locator('#recovery-dialog')).toBeVisible();
+  await fresh.locator('#start-fresh-edit').click();
+  await expect(fresh.locator('#editor-root .cm-line')).toHaveText([title, 'first saved', 'second base']);
+  await fresh.route(`**/api/knot/pages/e2e/${title}/commits`, (route) => route.fulfill({
+    status: 400,
+    contentType: 'application/json',
+    body: JSON.stringify({ error: 'bad_commit', message: 'simulated rejection' }),
+  }));
+  await replaceEditorLine(fresh, 1, 'first other draft');
+  await expect(fresh.locator('#save-status')).toHaveText('エラー: simulated rejection');
+  await fresh.close();
+
+  await page.reload();
+  await page.locator('#edit-page-button').click();
+  await expect(page.locator('#editor-root .cm-line')).toHaveText([title, 'first saved', 'second base']);
+
+  await other.reload();
+  await other.locator('#edit-page-button').click();
+  await expect(other.locator('#editor-root .cm-line')).toHaveText([title, 'first base', 'second draft']);
+  await other.goto('/e2e/another-page');
+  await other.goto(`/e2e/${title}`);
+  await other.locator('#edit-page-button').click();
+  await expect(other.locator('#recovery-dialog')).toBeVisible();
+  await other.locator('#recovery-records').getByRole('button', { name: /second draft/ }).click();
+  await expect(other.locator('#editor-root .cm-line')).toHaveText([title, 'first base', 'second draft']);
+  await other.close();
+
+  const reopened = await page.context().newPage();
+  await reopened.goto(`/e2e/${title}`);
+  await reopened.locator('#edit-page-button').click();
+  await expect(reopened.locator('#recovery-dialog')).toBeVisible();
+  await expect(reopened.locator('#recovery-records button')).toHaveCount(3);
+  await reopened.locator('#recovery-records').getByRole('button', { name: /second draft/ }).first().click();
+  await expect(reopened.locator('#editor-root .cm-line')).toHaveText([title, 'first base', 'second draft']);
+  await reopened.close();
 });
 
 test('同一行の並行編集はリモート変更を undo せず、手元の内容を明示的に保存できる', async ({ page }) => {
