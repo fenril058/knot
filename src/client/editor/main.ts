@@ -600,6 +600,8 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
   syncEditorLocation(title);
   const initialLines = recovery?.texts
     ?? (page === null ? [title] : page.snapshot.lines.map(({ text }) => text));
+  // 未保存の変更があると doc は recovery.texts になる一方、行 ID はサーバ確定行から引くため、
+  // 未保存の行挿入がある場合は click した行とずれる。契約が「可能な限り対応行」なので許容する。
   const initialLineNumber = initialTarget === undefined
     ? undefined
     : (() => {
@@ -608,7 +610,6 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
       })();
 
   editorRoot.replaceChildren();
-  editorRoot.classList.add('editor-active');
   if (editButton !== null) editButton.hidden = true;
   document.querySelector<HTMLElement>('#page-menu-root')?.setAttribute('hidden', '');
   view = new EditorView({
@@ -649,6 +650,9 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
       }),
     ],
   });
+  // editor-active は view を代入した後に付ける。keydown handler はこの class だけを見て
+  // view.focus() を呼ぶので、先に付けると view 未代入の窓ができる。
+  editorRoot.classList.add('editor-active');
   if (initialLineNumber !== undefined) {
     const selectedLine = view.state.doc.line(Math.min(initialLineNumber, view.state.doc.lines));
     view.dispatch({ selection: { anchor: selectedLine.from } });
@@ -727,6 +731,9 @@ document.addEventListener('keydown', (event) => {
   if (!event.ctrlKey && !event.metaKey) return;
   // 入力欄と CodeMirror 本体の中では素通りさせる（macOS の ctrl+e は行末移動）。
   if (event.target instanceof Element && event.target.closest(typingTargetSelector) !== null) return;
+  // 操作メニューのダイアログは #page-menu-root の子で、start() がその親を hidden にする。
+  // 開いたまま起動すると、modal が画面から消えても open のまま残り、文書全体が inert になる。
+  if (document.querySelector('dialog[open]') !== null) return;
   event.preventDefault();
   if (editorRoot.classList.contains('editor-active')) {
     view.focus();

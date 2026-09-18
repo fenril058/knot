@@ -40,7 +40,7 @@ export function deferred(): { promise: Promise<void>; resolve: () => void } {
 
 // テロメアは行の左端 4px と margin 0.5rem を占め、click しても編集は始まらない。
 // x = 20 はそれを外して行の文字列先頭を押す位置。
-const lineRowClickPosition = { x: 20, y: 8 };
+export const lineRowClickPosition = { x: 20, y: 8 };
 
 // SSR 本文の行を click して編集を開始する。
 // 未作成ページには行が無く、作成ボタンだけが編集開始の面になる。

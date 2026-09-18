@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { expect, request, test, type Page } from '@playwright/test';
-import { replaceEditorLine } from '../helpers.ts';
+import { lineRowClickPosition, replaceEditorLine } from '../helpers.ts';
 
 const mutationHeaders = { 'X-Knot-Client': 'dogfood-smoke' };
 
@@ -28,12 +28,11 @@ function pageSnapshot(value: unknown): { id: string; version: number; texts: str
   return { id: value.id, version: value.version, texts };
 }
 
-// テロメアは行の左端 4px と margin 0.5rem を占める。x = 20 はそれを外した位置。
 async function activateExistingEditor(page: Page): Promise<void> {
   const rows = page.locator('#editor-root .line-row');
   const count = await rows.count();
   if (count === 0) throw new Error('SSR editor row is missing');
-  await rows.nth(Math.min(1, count - 1)).click({ position: { x: 20, y: 8 } });
+  await rows.nth(Math.min(1, count - 1)).click({ position: lineRowClickPosition });
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
 }
 
