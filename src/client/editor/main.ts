@@ -122,7 +122,7 @@ function readPending(key: string): EditorRecord | null {
     return record;
   } catch (error) {
     console.error('failed to read the editor recovery record', error);
-    storageWarning = 'ブラウザに未保存内容を保存できません';
+    storageWarning = STORAGE_WARNING;
     return null;
   }
 }
@@ -198,7 +198,7 @@ function readInitialPending(): EditorRecord | null {
       localStorage.removeItem(fallbackKey);
     } catch (error) {
       console.error('failed to migrate the editor recovery record', error);
-      storageWarning = 'ブラウザに未保存内容を保存できません';
+      storageWarning = STORAGE_WARNING;
     }
     return migratedRecord;
   }
@@ -226,7 +226,7 @@ async function chooseAvailableRecord(): Promise<EditorRecord | null> {
     }
   } catch (error) {
     console.error('failed to list editor recovery records', error);
-    storageWarning = 'ブラウザに未保存内容を保存できません';
+    storageWarning = STORAGE_WARNING;
     return null;
   }
   if (available.length === 0) return null;
@@ -255,7 +255,7 @@ async function chooseAvailableRecord(): Promise<EditorRecord | null> {
       localStorage.setItem(storageKey, serializeEditorRecord(chosen));
     } catch (error) {
       console.error('failed to copy the editor recovery record', error);
-      storageWarning = 'ブラウザに未保存内容を保存できません';
+      storageWarning = STORAGE_WARNING;
     }
   }
   return chosen;
@@ -330,7 +330,7 @@ function syncEditorLocation(previousTitle: string): void {
       if (!ownershipUnavailable) storageWarning = undefined;
     } catch (error) {
       console.error('failed to move the editor recovery record', error);
-      storageWarning = 'ブラウザに未保存内容を保存できません';
+      storageWarning = STORAGE_WARNING;
     }
   }
   if (engine.currentTitle !== previousTitle) {

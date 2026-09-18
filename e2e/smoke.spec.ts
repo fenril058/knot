@@ -563,7 +563,7 @@ test('同一ページの別タブが保存しても未保存の回復記録を�
   await reopened.goto(`/e2e/${title}`);
   await reopened.locator('#edit-page-button').click();
   await expect(reopened.locator('#recovery-dialog')).toBeVisible();
-  expect(await reopened.locator('#recovery-records button').count()).toBeGreaterThanOrEqual(2);
+  await expect(reopened.locator('#recovery-records button')).toHaveCount(3);
   await reopened.locator('#recovery-records').getByRole('button', { name: /second draft/ }).first().click();
   await expect(reopened.locator('#editor-root .cm-line')).toHaveText([title, 'first base', 'second draft']);
   await reopened.close();
