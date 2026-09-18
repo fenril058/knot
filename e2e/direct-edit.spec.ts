@@ -153,3 +153,32 @@ test('Editor activation の fetch failure 後は SSR を保って再試行でき
   expect(fetchCount).toBe(2);
 });
 
+
+test('click せずキーボードだけで編集を開始し、Escape で抜けて戻れる', async ({ page }, testInfo) => {
+  await loginDirectEditE2e(page);
+  const title = `direct-edit-keyboard-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createPage(page, title, ['keyboard body']);
+
+  await page.goto(`/e2e/${title}`);
+  const editor = page.locator('#editor-root .cm-content');
+  await expect(editor).toHaveCount(0);
+
+  await page.keyboard.press('Control+e');
+  await expect(editor).toBeFocused();
+
+  // Escape が無いと、エディタに入った利用者は Tab で次の UI へ抜けられない。
+  await page.keyboard.press('Escape');
+  await expect(editor).not.toBeFocused();
+
+  await page.keyboard.press('Control+e');
+  await expect(editor).toBeFocused();
+  await page.keyboard.press('End');
+  await page.keyboard.insertText(' edited');
+  await expect(page.locator('#save-status')).toHaveText('保存済み');
+
+  const persisted = await page.request.get(`/api/pages/e2e/${title}`);
+  expect((await persisted.json()).lines.map((line: { text: string }) => line.text)).toEqual([
+    title,
+    'keyboard body edited',
+  ]);
+});

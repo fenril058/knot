@@ -618,7 +618,14 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
       EditorView.cspNonce.of(cspNonce),
       historyExtension(),
       lineWysiwyg({ project, allowedImageHosts, allowedMediaHosts, knownPages }),
-      keymap.of([...editorKeymap(userName), ...defaultKeymap, ...historyKeymap]),
+      // blur は defaultKeymap より後ろに置く。補完の Escape は Prec.highest で先に処理され、
+      // 選択の simplifySelection も先に試されて、どちらも該当しないときだけ抜ける。
+      keymap.of([
+        ...editorKeymap(userName),
+        ...defaultKeymap,
+        ...historyKeymap,
+        { key: 'Escape', run: (target) => { target.contentDOM.blur(); return true; } },
+      ]),
       pasteHandlers({
         uploadFile: (file) => uploadFile(project, file),
         onUploadError: (message) => {
@@ -710,6 +717,29 @@ function beginEditing(initialTarget?: InitialEditTarget): void {
 }
 
 editButton?.addEventListener('click', () => beginEditing());
+
+const typingTargetSelector = 'input, select, textarea, [contenteditable="true"]';
+
+// Cosense の ctrl(cmd) + e「エディタにフォーカス」に合わせる。本文を tab order に載せないのは、
+// エディタに Tab でフォーカスすると次の Tab がタブ文字の入力になり、以降の UI へ到達できなくなるため。
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'e' || event.altKey || event.shiftKey) return;
+  if (!event.ctrlKey && !event.metaKey) return;
+  // 入力欄と CodeMirror 本体の中では素通りさせる（macOS の ctrl+e は行末移動）。
+  if (event.target instanceof Element && event.target.closest(typingTargetSelector) !== null) return;
+  event.preventDefault();
+  if (editorRoot.classList.contains('editor-active')) {
+    view.focus();
+    return;
+  }
+  // 行を指していないので最終行から始める。先頭行はタイトル行で、そこに caret を置くと
+  // そのまま入力した利用者がページをリネームしてしまう。
+  const rows = Array.from(editorRoot.querySelectorAll<HTMLElement>('.line-row'));
+  const lastRow = rows.at(-1);
+  beginEditing(lastRow === undefined || !lastRow.id.startsWith('L')
+    ? undefined
+    : { lineId: lastRow.id.slice(1), lineNumber: rows.length });
+});
 
 if (initialPageId !== undefined) {
   editorRoot.addEventListener('click', (event) => {
