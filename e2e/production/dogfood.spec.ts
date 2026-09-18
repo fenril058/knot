@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { expect, request, test } from '@playwright/test';
+import { expect, request, test, type Page } from '@playwright/test';
 import { replaceEditorLine } from '../helpers.ts';
 
 const mutationHeaders = { 'X-Knot-Client': 'dogfood-smoke' };
@@ -26,6 +26,15 @@ function pageSnapshot(value: unknown): { id: string; version: number; texts: str
     texts.push(entry.text);
   }
   return { id: value.id, version: value.version, texts };
+}
+
+// テロメアは行の左端 4px と margin 0.5rem を占める。x = 20 はそれを外した位置。
+async function activateExistingEditor(page: Page): Promise<void> {
+  const rows = page.locator('#editor-root .line-row');
+  const count = await rows.count();
+  if (count === 0) throw new Error('SSR editor row is missing');
+  await rows.nth(Math.min(1, count - 1)).click({ position: { x: 20, y: 8 } });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
 }
 
 test('Access protects HTML, API, CSS and browser script', async ({ baseURL }) => {
@@ -58,7 +67,8 @@ test('authenticated browser creates, edits, reloads and searches persistent cont
   await expect(page).toHaveURL(`/${project}`);
 
   await page.goto(`/${project}/${title}`);
-  await page.locator('#edit-page-button').click();
+  await expect(page.locator('#edit-page-button')).toHaveCount(0);
+  await activateExistingEditor(page);
   const editor = page.locator('#editor-root .cm-content');
   await editor.click();
   await page.keyboard.press(isMobile ? 'Meta+A' : 'Control+A');
@@ -71,7 +81,8 @@ test('authenticated browser creates, edits, reloads and searches persistent cont
 
   await page.reload();
   await expect(page.locator('.page-body')).toContainText('before deploy');
-  await page.locator('#edit-page-button').click();
+  await expect(page.locator('#edit-page-button')).toHaveCount(0);
+  await activateExistingEditor(page);
   await replaceEditorLine(page, 1, 'edited before deploy');
   await expect(page.locator('#save-status')).toHaveText('保存済み');
   const edited = pageSnapshot(await (await page.request.get(`/api/pages/${project}/${title}`)).json());
@@ -112,7 +123,7 @@ test('two browser contexts reject stale edit and stale delete', async ({ browser
     const snapshot = pageSnapshot(await initial.json());
 
     await Promise.all([page.goto(`/${project}/${title}`), other.goto(`/${project}/${title}`)]);
-    await Promise.all([page.locator('#edit-page-button').click(), other.locator('#edit-page-button').click()]);
+    await Promise.all([activateExistingEditor(page), activateExistingEditor(other)]);
     await replaceEditorLine(page, 1, 'saved first');
     await expect(page.locator('#save-status')).toHaveText('保存済み');
     await replaceEditorLine(other, 1, 'stale second');

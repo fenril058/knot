@@ -1,24 +1,18 @@
 import { test, expect } from '@playwright/test';
-import { loginProjectE2e, loginRecoveryE2e, replaceEditorDocument, replaceEditorLine } from './helpers.ts';
+import {
+  activateEditor,
+  deferred,
+  loginProjectE2e,
+  loginRecoveryE2e,
+  replaceEditorDocument,
+  replaceEditorLine,
+  startEditing,
+} from './helpers.ts';
 
 declare global {
   interface Window {
     cspViolationLog: string[];
   }
-}
-
-function deferred(): { promise: Promise<void>; resolve: () => void } {
-  let resolver: (() => void) | undefined;
-  const promise = new Promise<void>((resolve) => {
-    resolver = resolve;
-  });
-  return {
-    promise,
-    resolve: () => {
-      if (resolver === undefined) throw new Error('deferred promise resolver is missing');
-      resolver();
-    },
-  };
 }
 
 test('プロジェクト一覧から keyboard で作成し、入力エラーと重複を理解できる', async ({ page }) => {
@@ -133,7 +127,7 @@ test('エディタで書いて自動保存され、再読み込みで内容が�
   expect(login.ok()).toBe(true);
 
   await page.goto('/e2e/hello');
-  await page.locator('#edit-page-button').click();
+  await activateEditor(page);
   const editor = page.locator('#editor-root .cm-content');
   await expect(page).toHaveURL(/\/e2e\/hello$/);
   await expect(editor).toBeFocused();
@@ -152,7 +146,7 @@ test('エディタで書いて自動保存され、再読み込みで内容が�
   await collectViolations();
 
   await page.goto('/e2e/hello');
-  await page.locator('#edit-page-button').click();
+  await activateEditor(page);
   await expect(page.locator('#editor-root .cm-content')).toContainText('knot editor smoke body');
   await collectViolations();
 
@@ -398,7 +392,7 @@ test('400 で保存を拒否された後も追加入力して保存できる', a
   });
 
   await page.goto('/e2e/recover-after-400');
-  await page.locator('#edit-page-button').click();
+  await activateEditor(page);
   const editor = page.locator('#editor-root .cm-content');
   await expect(page).toHaveURL(/\/e2e\/recover-after-400$/);
   await expect(editor).toBeFocused();
@@ -410,7 +404,7 @@ test('400 で保存を拒否された後も追加入力して保存できる', a
   await expect(page.locator('#save-status')).toHaveText('エラー: simulated rejection');
 
   await page.reload();
-  await page.locator('#edit-page-button').click();
+  await activateEditor(page);
   await expect(page.locator('#editor-root .cm-content')).toContainText('rejected text');
   await page.locator('#editor-root .cm-content').click();
   await page.keyboard.press('Control+End');
@@ -428,7 +422,7 @@ test('randomUUID が使えなくても編集を開始できる', async ({ page }
     Object.defineProperty(crypto, 'randomUUID', { value: undefined });
   });
   await page.goto('/e2e/no-random-uuid');
-  await page.locator('#edit-page-button').click();
+  await activateEditor(page);
   await expect(page.locator('#editor-root .cm-line')).toHaveText(['no-random-uuid']);
 });
 
@@ -445,7 +439,7 @@ test('不正な回復候補があっても編集を開始できる', async ({ pa
       title: value,
     }));
   }, title);
-  await page.locator('#edit-page-button').click();
+  await activateEditor(page);
   await expect(page.locator('#editor-root .cm-line')).toHaveText([title]);
 });
 
@@ -463,7 +457,7 @@ test('sessionStorage が使えないときは保存状態を正しく示し、�
     body: JSON.stringify({ error: 'bad_commit', message: 'simulated rejection' }),
   }));
   await page.goto(`/e2e/${title}`);
-  await page.locator('#edit-page-button').click();
+  await activateEditor(page);
   await replaceEditorDocument(page, [title, 'local draft']);
   await expect(page.locator('#save-status')).toContainText('エラー: simulated rejection');
   await expect(page.locator('#save-status')).toContainText('再読み込み後に未保存内容を自動復元できません');
@@ -473,7 +467,7 @@ test('sessionStorage が使えないときは保存状態を正しく示し、�
   expect(saved).toContainEqual(expect.objectContaining({ kind: 'unsaved-draft', texts: [title, 'local draft'] }));
 
   await page.reload();
-  await page.locator('#edit-page-button').click();
+  await startEditing(page);
   await expect(page.locator('#recovery-dialog')).toBeVisible();
   await page.locator('#recovery-records').getByRole('button', { name: /local draft/ }).click();
   await expect(page.locator('#editor-root .cm-line')).toHaveText([title, 'local draft']);
@@ -499,7 +493,7 @@ test('同一ページの別タブが保存しても未保存の回復記録を�
 
   const other = await page.context().newPage();
   await Promise.all([page.goto(`/e2e/${title}`), other.goto(`/e2e/${title}`)]);
-  await Promise.all([page.locator('#edit-page-button').click(), other.locator('#edit-page-button').click()]);
+  await Promise.all([activateEditor(page), activateEditor(other)]);
   await other.route(`**/api/knot/pages/e2e/${title}/commits`, (route) => route.fulfill({
     status: 400,
     contentType: 'application/json',
@@ -523,7 +517,7 @@ test('同一ページの別タブが保存しても未保存の回復記録を�
   const ownerReference = await other.evaluate((key) => sessionStorage.getItem(key), baseKey);
   expect(ownerReference).not.toBeNull();
   expect(await popup.evaluate((key) => sessionStorage.getItem(key), baseKey)).toBe(ownerReference);
-  await popup.locator('#edit-page-button').click();
+  await startEditing(popup);
   await expect(popup.locator('#recovery-dialog')).toBeVisible();
   await popup.locator('#start-fresh-edit').click();
   await expect(popup.locator('#editor-root .cm-line')).toHaveText([title, 'first saved', 'second base']);
@@ -531,7 +525,7 @@ test('同一ページの別タブが保存しても未保存の回復記録を�
 
   const fresh = await page.context().newPage();
   await fresh.goto(`/e2e/${title}`);
-  await fresh.locator('#edit-page-button').click();
+  await startEditing(fresh);
   await expect(fresh.locator('#recovery-dialog')).toBeVisible();
   await fresh.locator('#start-fresh-edit').click();
   await expect(fresh.locator('#editor-root .cm-line')).toHaveText([title, 'first saved', 'second base']);
@@ -545,15 +539,15 @@ test('同一ページの別タブが保存しても未保存の回復記録を�
   await fresh.close();
 
   await page.reload();
-  await page.locator('#edit-page-button').click();
+  await activateEditor(page);
   await expect(page.locator('#editor-root .cm-line')).toHaveText([title, 'first saved', 'second base']);
 
   await other.reload();
-  await other.locator('#edit-page-button').click();
+  await activateEditor(other);
   await expect(other.locator('#editor-root .cm-line')).toHaveText([title, 'first base', 'second draft']);
   await other.goto('/e2e/another-page');
   await other.goto(`/e2e/${title}`);
-  await other.locator('#edit-page-button').click();
+  await startEditing(other);
   await expect(other.locator('#recovery-dialog')).toBeVisible();
   await other.locator('#recovery-records').getByRole('button', { name: /second draft/ }).click();
   await expect(other.locator('#editor-root .cm-line')).toHaveText([title, 'first base', 'second draft']);
@@ -561,7 +555,7 @@ test('同一ページの別タブが保存しても未保存の回復記録を�
 
   const reopened = await page.context().newPage();
   await reopened.goto(`/e2e/${title}`);
-  await reopened.locator('#edit-page-button').click();
+  await startEditing(reopened);
   await expect(reopened.locator('#recovery-dialog')).toBeVisible();
   await expect(reopened.locator('#recovery-records button')).toHaveCount(3);
   await reopened.locator('#recovery-records').getByRole('button', { name: /second draft/ }).first().click();
@@ -593,10 +587,7 @@ test('同一行の並行編集はリモート変更を undo せず、手元の�
 
   const other = await page.context().newPage();
   await Promise.all([page.goto(`/e2e/${title}`), other.goto(`/e2e/${title}`)]);
-  await Promise.all([
-    page.locator('#edit-page-button').click(),
-    other.locator('#edit-page-button').click(),
-  ]);
+  await Promise.all([activateEditor(page), activateEditor(other)]);
 
   await replaceEditorDocument(page, [title, 'remote updated', 'server change']);
   await expect(page.locator('#save-status')).toHaveText('保存済み');
@@ -621,7 +612,7 @@ test('同一行の並行編集はリモート変更を undo せず、手元の�
 
   await replaceEditorLine(other, 2, 'edited during conflict');
   await other.reload();
-  await other.locator('#edit-page-button').click();
+  await activateEditor(other);
   await expect(other.locator('#edit-conflict')).toBeVisible();
   await expect(other.locator('#editor-root .cm-content')).toContainText('edited during conflict');
 
@@ -663,7 +654,7 @@ test('異なる行の並行編集はカーソルと undo 履歴を維持して�
 
   const other = await page.context().newPage();
   await Promise.all([page.goto(`/e2e/${title}`), other.goto(`/e2e/${title}`)]);
-  await Promise.all([page.locator('#edit-page-button').click(), other.locator('#edit-page-button').click()]);
+  await Promise.all([activateEditor(page), activateEditor(other)]);
 
   await replaceEditorDocument(page, [title, 'first remote', 'remote inserted', 'second base', 'tail']);
   await expect(page.locator('#save-status')).toHaveText('保存済み');
@@ -766,7 +757,7 @@ test('編集開始前にリネームされても pageId から最新版を開く
   });
   expect(renamed.ok()).toBe(true);
 
-  await page.locator('#edit-page-button').click();
+  await activateEditor(page);
 
   await expect(page).toHaveURL(`/e2e/${newTitle}`);
   await expect(page.locator('#editor-root .cm-content')).toContainText(newTitle);
@@ -824,7 +815,7 @@ test('pageId とタイトルの回復キーから未保存草稿を復元する'
   expect(renamed.ok()).toBe(true);
 
   await page.goto(`/e2e/${newTitle}`);
-  await page.locator('#edit-page-button').click();
+  await activateEditor(page);
   const editor = page.locator('#editor-root .cm-content');
   await expect(page).toHaveURL(`/e2e/${newTitle}`);
   await expect(editor).toContainText('local draft');
@@ -894,7 +885,7 @@ test('pageId とタイトルの回復キーから未保存草稿を復元する'
     },
   });
   await page.reload();
-  await page.locator('#edit-page-button').click();
+  await activateEditor(page);
 
   const editor = page.locator('#editor-root .cm-content');
   await expect(editor).toContainText('remote body');
@@ -936,7 +927,7 @@ test('pageId とタイトルの回復キーから未保存草稿を復元する'
     },
   });
   await page.reload();
-  await page.locator('#edit-page-button').click();
+  await activateEditor(page);
 
   await expect(page.locator('#editor-root .cm-content')).toContainText('draft after send');
   await expect(page.locator('#save-status')).toHaveText('保存済み');
@@ -966,7 +957,9 @@ test('選択行だけ原文にし、それ以外の行を整形表示する', as
 
   await page.goto('/e2e/line-wysiwyg');
   await expect(page.locator('.page-body .line-indent-prefix')).toHaveCount(1);
-  await page.locator('#edit-page-button').click();
+  // このページの本文 1 行目はリンクで始まる。リンクの click は navigation を優先する contract なので、
+  // 編集開始にはリンクを含まないタイトル行を使う。
+  await activateEditor(page, 0);
 
   const formatted = page.locator('.cm-wysiwyg-line[data-line-number="2"]');
   await expect(formatted.locator('a')).toHaveAttribute('href', '/e2e/linked');
@@ -976,7 +969,7 @@ test('選択行だけ原文にし、それ以外の行を整形表示する', as
   await formatted.locator('a').click();
   await expect(page).toHaveURL(/\/e2e\/linked$/);
   await page.goBack();
-  await page.locator('#edit-page-button').click();
+  await activateEditor(page, 0);
 
   await page.locator('.cm-wysiwyg-line[data-line-number="2"] strong').click();
   await expect(page.locator('#editor-root .cm-line').nth(1)).toContainText('[linked] [* bold]');
@@ -986,7 +979,7 @@ test('選択行だけ原文にし、それ以外の行を整形表示する', as
   await expect(page).toHaveURL(/\/e2e\/linked$/);
 
   await page.goBack();
-  await page.locator('#edit-page-button').click();
+  await activateEditor(page, 0);
   await page.locator('.cm-wysiwyg-line[data-line-number="2"] strong').click();
   await page.keyboard.press('Shift+ArrowDown');
   await expect(page.locator('.cm-wysiwyg-line[data-line-number="3"]')).toHaveCount(0);
@@ -1051,7 +1044,9 @@ test('編集表示はSSRと同じリンク解決とブロック再分類を行�
   await expect(page.locator('.page-body .icon-img')).toHaveAttribute('src', 'https://i.gyazo.com/example.png');
   await expect(page.locator('.page-body')).not.toContainText('relative.png');
 
-  await page.locator('#edit-page-button').click();
+  // このページの本文 1 行目はリンクで始まる。リンクの click は navigation を優先する contract なので、
+  // 編集開始にはリンクを含まないタイトル行を使う。
+  await activateEditor(page, 0);
   const links = page.locator('.cm-wysiwyg-line[data-line-number="2"]');
   await expect(links.locator('a[href="/e2e/Canonical_Target"]')).toHaveCount(2);
   await expect(links.locator('.empty-link')).toHaveText('Missing');

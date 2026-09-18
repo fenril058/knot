@@ -98,10 +98,11 @@ test('mobile browser でページを探して編集し、再読み込み後も�
   await expect(page).toHaveURL(`/e2e/${title}`);
   await expectMobileLayout(page, expectedWidth);
   await expect(page.locator('.page-body')).toContainText('変更前の既存行');
+  await expect(page.getByRole('button', { name: '編集', exact: true })).toHaveCount(0);
 
-  const editButton = page.getByRole('button', { name: '編集', exact: true });
-  await expect(editButton).toBeInViewport();
-  await editButton.tap();
+  const existingSsrLine = page.locator('.page-body .line-row').nth(1);
+  await expect(existingSsrLine).toBeInViewport();
+  await existingSsrLine.tap();
   const editor = page.locator('#editor-root .cm-content');
   await expect(editor).toBeFocused();
   await expect(editor).toBeInViewport();
@@ -117,10 +118,9 @@ test('mobile browser でページを探して編集し、再読み込み後も�
       finalLineText,
     )
   );
-  const existingLine = page.locator('.cm-wysiwyg-line[data-line-number="2"]');
-  await expect(existingLine).toBeInViewport();
-  await existingLine.tap();
-  await expect(editor).toBeFocused();
+  const activeExistingLine = page.locator('#editor-root .cm-line').nth(1);
+  await expect(activeExistingLine).toContainText('変更前の既存行');
+  await expect(activeExistingLine).toBeInViewport();
   await page.keyboard.press('End');
   // Playwright does not open a software keyboard; insertText dispatches the input event
   // that adds the newline and text to CodeMirror's contenteditable element.
@@ -130,6 +130,8 @@ test('mobile browser でページを探して編集し、再読み込み後も�
     '変更前の既存行',
     'mobile で追加した行',
   ]);
+  const existingLine = page.locator('.cm-wysiwyg-line[data-line-number="2"]');
+  await expect(existingLine).toBeInViewport();
   await existingLine.tap();
   await expect(editor).toBeFocused();
   await page.keyboard.press('Home');

@@ -40,7 +40,6 @@ const startFreshButtonElement = document.querySelector<HTMLButtonElement>('#star
 if (
   root === null
   || statusElement === null
-  || editButtonElement === null
   || conflictPanelElement === null
   || conflictListElement === null
   || resolveConflictButtonElement === null
@@ -580,7 +579,9 @@ async function restorePending(record: EditorRecord): Promise<Recovery | null> {
   return { engine: restored, effects, texts: textsAfterEffects(result.page, effects) };
 }
 
-async function start(): Promise<void> {
+type InitialEditTarget = { lineId: string; lineNumber: number };
+
+async function start(initialTarget?: InitialEditTarget): Promise<void> {
   initializeStorage();
   const pending = readInitialPending() ?? (hadEditorReference ? null : await chooseAvailableRecord());
   const recovery = pending === null ? null : await restorePending(pending);
@@ -599,10 +600,16 @@ async function start(): Promise<void> {
   syncEditorLocation(title);
   const initialLines = recovery?.texts
     ?? (page === null ? [title] : page.snapshot.lines.map(({ text }) => text));
+  const initialLineNumber = initialTarget === undefined
+    ? undefined
+    : (() => {
+        const confirmedIndex = engine.confirmedLines.findIndex(({ id }) => id === initialTarget.lineId);
+        return confirmedIndex === -1 ? initialTarget.lineNumber : confirmedIndex + 1;
+      })();
 
   editorRoot.replaceChildren();
   editorRoot.classList.add('editor-active');
-  editButton.hidden = true;
+  if (editButton !== null) editButton.hidden = true;
   document.querySelector<HTMLElement>('#page-menu-root')?.setAttribute('hidden', '');
   view = new EditorView({
     doc: initialLines.join('\n'),
@@ -635,6 +642,10 @@ async function start(): Promise<void> {
       }),
     ],
   });
+  if (initialLineNumber !== undefined) {
+    const selectedLine = view.state.doc.line(Math.min(initialLineNumber, view.state.doc.lines));
+    view.dispatch({ selection: { anchor: selectedLine.from } });
+  }
   renderStatus();
   view.focus();
   if (recovery !== null) await executeEffects(recovery.effects);
@@ -663,16 +674,54 @@ resolveConflictButton.addEventListener('click', () => {
 });
 
 let starting = false;
-editButton.addEventListener('click', () => {
+
+const editorActivationBlockSelector = [
+  'a',
+  'button',
+  'input',
+  'select',
+  'textarea',
+  'summary',
+  'details',
+  'video',
+  'audio',
+  '[role="button"]',
+  '[role="link"]',
+  '[contenteditable="true"]',
+  '.telomere',
+].join(', ');
+
+function blocksEditorActivation(target: Element): boolean {
+  return target.closest(editorActivationBlockSelector) !== null;
+}
+
+function beginEditing(initialTarget?: InitialEditTarget): void {
   if (starting) return;
   starting = true;
-  editButton.disabled = true;
-  void start().catch((error: unknown) => {
+  if (editButton !== null) editButton.disabled = true;
+  void start(initialTarget).catch((error: unknown) => {
     console.error(error);
     starting = false;
-    editButton.disabled = false;
+    if (editButton !== null) editButton.disabled = false;
     saveStatus.hidden = false;
     saveStatus.textContent = 'エラー';
     saveStatus.dataset.status = 'error';
   });
-});
+}
+
+editButton?.addEventListener('click', () => beginEditing());
+
+if (initialPageId !== undefined) {
+  editorRoot.addEventListener('click', (event) => {
+    if (starting || !(event.target instanceof Element)) return;
+    const selection = window.getSelection();
+    if (selection !== null && !selection.isCollapsed) return;
+    if (blocksEditorActivation(event.target)) return;
+    const row = event.target.closest<HTMLElement>('.line-row');
+    if (row === null || row.parentElement !== editorRoot || !row.id.startsWith('L')) return;
+    const rows = Array.from(editorRoot.querySelectorAll<HTMLElement>('.line-row'));
+    const index = rows.indexOf(row);
+    if (index < 0) return;
+    beginEditing({ lineId: row.id.slice(1), lineNumber: index + 1 });
+  });
+}
