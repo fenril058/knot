@@ -119,7 +119,7 @@ test('starting 中の連続 click では Editor bootstrap を二重起動しな�
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
 });
 
-test('Editor activation の fetch failure 後は SSR を保って再試行できる', async ({ page }, testInfo) => {
+test('編集開始の fetch failure 後は SSR を保って再試行できる', async ({ page }, testInfo) => {
   await loginDirectEditE2e(page);
   const title = `direct-edit-retry-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
   await createPage(page, title, ['body']);
@@ -180,7 +180,7 @@ test('click せずキーボードだけで編集を開始し、Escape で抜け�
   ]);
 });
 
-test('activation 前に行が増えても、click した行の内容に caret が入る', async ({ page }, testInfo) => {
+test('編集開始の前に行が増えても、click した行の内容に caret が入る', async ({ page }, testInfo) => {
   await loginDirectEditE2e(page);
   const title = `direct-edit-stable-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
   await createPage(page, title, ['alpha', 'beta']);
@@ -231,4 +231,33 @@ test('操作ダイアログを開いたままのショートカットでは編�
   // 起動すると #page-menu-root ごと hidden になり、modal が open のまま画面から消えて文書が inert になる。
   await expect(dialog).toBeVisible();
   await expect(page.locator('#editor-root .cm-content')).toHaveCount(0);
+});
+
+test('SSR 本文のリンク click は navigation のままで、編集を開始しない', async ({ page }, testInfo) => {
+  await loginDirectEditE2e(page);
+  const suffix = `${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  const target = `direct-edit-link-target-${suffix}`;
+  const title = `direct-edit-link-${suffix}`;
+  await createPage(page, target, ['target body']);
+  await createPage(page, title, [`[${target}]`]);
+
+  // 起動すると必ずこの fetch が出る。navigation で中断されても記録は残るので、
+  // 「起動しなかった」を遷移後にも観測できる。
+  let activationFetchCount = 0;
+  await page.route(
+    (url) => url.pathname === `/api/pages/e2e/${title}` && url.searchParams.has('pageId'),
+    async (route) => {
+      activationFetchCount += 1;
+      await route.continue();
+    },
+  );
+
+  await page.goto(`/e2e/${title}`);
+  const link = page.locator('#editor-root .line-row').nth(1).locator('a');
+  await expect(link).toHaveAttribute('href', `/e2e/${target}`);
+  await link.click();
+
+  await expect(page).toHaveURL(new RegExp(`/e2e/${target}$`));
+  await expect(page.locator('.page-body')).toContainText('target body');
+  expect(activationFetchCount).toBe(0);
 });

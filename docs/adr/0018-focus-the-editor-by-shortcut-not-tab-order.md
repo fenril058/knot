@@ -12,7 +12,7 @@ Cosense は同じ理由で Tab 方式を採らず、`ctrl(cmd) + g`（検索フ�
 knot もこれに合わせる。
 
 Cosense では、一度もクリックしていない状態からキーボードだけで編集を開始することはできず、未実装の要望として残っている。
-knot は activation を Editor bootstrap が持つため、SSR 表示直後の未 activation 状態からも `ctrl(cmd) + e` で編集を開始する。
+knot は編集開始の状態を Editor bootstrap が持つため、まだ編集を開始していない SSR 表示直後からも `ctrl(cmd) + e` で開始できる。
 ここは Cosense の制約を模倣しない。
 
 行を指していない起動では最終行に caret を置く。
