@@ -21,8 +21,9 @@ void test('既存ページの正規 URL は SSR 本文と直接編集用の要�
 
   assert.equal(res.status, 200);
   const body = await res.text();
-  assert.match(body, /id="edit-page-button"[^>]*>編集<\/button>/);
+  assert.doesNotMatch(body, /id="edit-page-button"/);
   assert.match(body, /id="editor-root"[^>]*class="page-body"/);
+  assert.match(body, /class="line-row"/);
   assert.match(body, /line one/);
   assert.equal(dataAttribute(body, 'project'), 'proj');
   assert.equal(dataAttribute(body, 'page-id').length, 26);

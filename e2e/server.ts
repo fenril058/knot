@@ -47,6 +47,18 @@ await storage.addAccount(
   },
   now,
 );
+// spec ごとにアカウントを分けるのは、login rate limit が ip と name の組で 10 分間 10 回までだから
+// （src/server/app.ts の loginLimiter）。同じ name を全 spec で使うと 429 で落ちる。
+await storage.addAccount(
+  {
+    id: ulid(),
+    actor: { id: ulid(), name: 'direct-edit-e2e', displayName: 'direct-edit-e2e' },
+    name: 'direct-edit-e2e',
+    passwordHash: hashPassword('direct-edit-e2e-password'),
+    isAdmin: false,
+  },
+  now,
+);
 await storage.ensureProject('e2e', now);
 
 const port = Number(process.env.E2E_PORT ?? 4173);

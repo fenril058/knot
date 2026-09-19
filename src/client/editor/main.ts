@@ -40,7 +40,6 @@ const startFreshButtonElement = document.querySelector<HTMLButtonElement>('#star
 if (
   root === null
   || statusElement === null
-  || editButtonElement === null
   || conflictPanelElement === null
   || conflictListElement === null
   || resolveConflictButtonElement === null
@@ -580,7 +579,9 @@ async function restorePending(record: EditorRecord): Promise<Recovery | null> {
   return { engine: restored, effects, texts: textsAfterEffects(result.page, effects) };
 }
 
-async function start(): Promise<void> {
+type InitialEditTarget = { lineId: string; lineNumber: number };
+
+async function start(initialTarget?: InitialEditTarget): Promise<void> {
   initializeStorage();
   const pending = readInitialPending() ?? (hadEditorReference ? null : await chooseAvailableRecord());
   const recovery = pending === null ? null : await restorePending(pending);
@@ -599,10 +600,17 @@ async function start(): Promise<void> {
   syncEditorLocation(title);
   const initialLines = recovery?.texts
     ?? (page === null ? [title] : page.snapshot.lines.map(({ text }) => text));
+  // 未保存の変更があると doc は recovery.texts になる一方、行 ID はサーバ確定行から引くため、
+  // 未保存の行挿入がある場合は click した行とずれる。契約が「可能な限り対応行」なので許容する。
+  const initialLineNumber = initialTarget === undefined
+    ? undefined
+    : (() => {
+        const confirmedIndex = engine.confirmedLines.findIndex(({ id }) => id === initialTarget.lineId);
+        return confirmedIndex === -1 ? initialTarget.lineNumber : confirmedIndex + 1;
+      })();
 
   editorRoot.replaceChildren();
-  editorRoot.classList.add('editor-active');
-  editButton.hidden = true;
+  if (editButton !== null) editButton.hidden = true;
   document.querySelector<HTMLElement>('#page-menu-root')?.setAttribute('hidden', '');
   view = new EditorView({
     doc: initialLines.join('\n'),
@@ -611,7 +619,14 @@ async function start(): Promise<void> {
       EditorView.cspNonce.of(cspNonce),
       historyExtension(),
       lineWysiwyg({ project, allowedImageHosts, allowedMediaHosts, knownPages }),
-      keymap.of([...editorKeymap(userName), ...defaultKeymap, ...historyKeymap]),
+      // blur は defaultKeymap より後ろに置く。補完の Escape は Prec.highest で先に処理され、
+      // 選択の simplifySelection も先に試されて、どちらも該当しないときだけ抜ける。
+      keymap.of([
+        ...editorKeymap(userName),
+        ...defaultKeymap,
+        ...historyKeymap,
+        { key: 'Escape', run: (target) => { target.contentDOM.blur(); return true; } },
+      ]),
       pasteHandlers({
         uploadFile: (file) => uploadFile(project, file),
         onUploadError: (message) => {
@@ -635,6 +650,13 @@ async function start(): Promise<void> {
       }),
     ],
   });
+  // editor-active は view を代入した後に付ける。keydown handler はこの class だけを見て
+  // view.focus() を呼ぶので、先に付けると view 未代入の窓ができる。
+  editorRoot.classList.add('editor-active');
+  if (initialLineNumber !== undefined) {
+    const selectedLine = view.state.doc.line(Math.min(initialLineNumber, view.state.doc.lines));
+    view.dispatch({ selection: { anchor: selectedLine.from } });
+  }
   renderStatus();
   view.focus();
   if (recovery !== null) await executeEffects(recovery.effects);
@@ -663,16 +685,80 @@ resolveConflictButton.addEventListener('click', () => {
 });
 
 let starting = false;
-editButton.addEventListener('click', () => {
+
+const editorActivationBlockSelector = [
+  'a',
+  'button',
+  'input',
+  'select',
+  'textarea',
+  'summary',
+  'details',
+  'video',
+  'audio',
+  '[role="button"]',
+  '[role="link"]',
+  '[contenteditable="true"]',
+  '.telomere',
+].join(', ');
+
+function blocksEditorActivation(target: Element): boolean {
+  return target.closest(editorActivationBlockSelector) !== null;
+}
+
+function beginEditing(initialTarget?: InitialEditTarget): void {
   if (starting) return;
   starting = true;
-  editButton.disabled = true;
-  void start().catch((error: unknown) => {
+  if (editButton !== null) editButton.disabled = true;
+  void start(initialTarget).catch((error: unknown) => {
     console.error(error);
     starting = false;
-    editButton.disabled = false;
+    if (editButton !== null) editButton.disabled = false;
     saveStatus.hidden = false;
     saveStatus.textContent = 'エラー';
     saveStatus.dataset.status = 'error';
   });
+}
+
+editButton?.addEventListener('click', () => beginEditing());
+
+const typingTargetSelector = 'input, select, textarea, [contenteditable="true"]';
+
+// Cosense の ctrl(cmd) + e「エディタにフォーカス」に合わせる。本文を tab order に載せないのは、
+// エディタに Tab でフォーカスすると次の Tab がタブ文字の入力になり、以降の UI へ到達できなくなるため。
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'e' || event.altKey || event.shiftKey) return;
+  if (!event.ctrlKey && !event.metaKey) return;
+  // 入力欄と CodeMirror 本体の中では素通りさせる（macOS の ctrl+e は行末移動）。
+  if (event.target instanceof Element && event.target.closest(typingTargetSelector) !== null) return;
+  // 操作メニューのダイアログは #page-menu-root の子で、start() がその親を hidden にする。
+  // 開いたまま起動すると、modal が画面から消えても open のまま残り、文書全体が inert になる。
+  if (document.querySelector('dialog[open]') !== null) return;
+  event.preventDefault();
+  if (editorRoot.classList.contains('editor-active')) {
+    view.focus();
+    return;
+  }
+  // 行を指していないので最終行から始める。先頭行はタイトル行で、そこに caret を置くと
+  // そのまま入力した利用者がページをリネームしてしまう。
+  const rows = Array.from(editorRoot.querySelectorAll<HTMLElement>('.line-row'));
+  const lastRow = rows.at(-1);
+  beginEditing(lastRow === undefined || !lastRow.id.startsWith('L')
+    ? undefined
+    : { lineId: lastRow.id.slice(1), lineNumber: rows.length });
 });
+
+if (initialPageId !== undefined) {
+  editorRoot.addEventListener('click', (event) => {
+    if (starting || !(event.target instanceof Element)) return;
+    const selection = window.getSelection();
+    if (selection !== null && !selection.isCollapsed) return;
+    if (blocksEditorActivation(event.target)) return;
+    const row = event.target.closest<HTMLElement>('.line-row');
+    if (row === null || row.parentElement !== editorRoot || !row.id.startsWith('L')) return;
+    const rows = Array.from(editorRoot.querySelectorAll<HTMLElement>('.line-row'));
+    const index = rows.indexOf(row);
+    if (index < 0) return;
+    beginEditing({ lineId: row.id.slice(1), lineNumber: index + 1 });
+  });
+}

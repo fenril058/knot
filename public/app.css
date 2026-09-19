@@ -9,6 +9,9 @@ a { color: #2c6ea3; }
 .card.pinned { border-color: #f1c40f; }
 .card img.card-image { width: 100%; height: 100px; object-fit: cover; }
 .line-row { display: flex; align-items: flex-start; }
+/* 空行は高さが 0 になり、行クリックで編集を開始できる面が無くなる。
+   全行に掛けるのは、Editor 側のテロメアと同じ 1.4em に揃えて activation 時の行送りのずれを消すため。 */
+#editor-root:not(.editor-active) > .line-row { min-height: 1.4em; }
 .line-indent-prefix, .cm-wysiwyg-indent-prefix { white-space: pre; letter-spacing: .25rem; flex-shrink: 0; }
 .line-indent-content, .cm-wysiwyg-indent-content { position: relative; }
 .line-indent-content::before, .cm-wysiwyg-indent-content::before {
