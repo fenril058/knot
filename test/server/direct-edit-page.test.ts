@@ -41,6 +41,21 @@ void test('既存ページの正規 URL は SSR 本文と直接編集用の要�
   assert.match(body, /<script type="module" src="\/assets\/build\/editor\.js"><\/script>/);
 });
 
+void test('既存ページの見出しはタイトル行そのもので、本文の外に重複しない', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'Alpha', ['line one'], s.clock.t);
+
+  const body = await (await s.request('/proj/Alpha', {}, cookie)).text();
+
+  assert.equal(body.match(/<h1[\s>]/g)?.length, 1);
+  assert.match(
+    body,
+    /<div class="line-row" id="L[^"]+">\s*<span class="telomere[^"]*"[^>]*><\/span>\s*<h1 class="line-title">Alpha<\/h1>/,
+  );
+});
+
 void test('不在ページの正規 URL は同じ場所で作成を始める SSR 文書を返す', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);

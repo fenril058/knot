@@ -78,7 +78,6 @@ export function pageViewPage(
   return layout(page.title, html`
 <nav class="page-nav"><a href="/${encodeURIComponent(project.name)}">${project.displayName}</a></nav>
 <main>
-<h1>${page.title}</h1>
 <div id="save-status" aria-live="polite" hidden></div>
 ${editConflictPanel()}
 ${recoveryDialog()}

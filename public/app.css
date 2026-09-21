@@ -12,6 +12,9 @@ a { color: #2c6ea3; }
 /* 空行は高さが 0 になり、行クリックで編集を開始できる面が無くなる。
    全行に掛けるのは、Editor 側のテロメアと同じ 1.4em に揃えて activation 時の行送りのずれを消すため。 */
 #editor-root:not(.editor-active) > .line-row { min-height: 1.4em; }
+/* タイトル行の見出し。Editor 側の .cm-wysiwyg-title と同じ字送りにして、
+   起動前後でタイトルの見え方が変わらないようにする。 */
+.line-title { font-size: 1.25em; line-height: 1.4; margin: 0; }
 .line-indent-prefix, .cm-wysiwyg-indent-prefix { white-space: pre; letter-spacing: .25rem; flex-shrink: 0; }
 .line-indent-content, .cm-wysiwyg-indent-content { position: relative; }
 .line-indent-content::before, .cm-wysiwyg-indent-content::before {

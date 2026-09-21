@@ -24,6 +24,14 @@ export async function loginDirectEditE2e(target: Page): Promise<void> {
   expect(response.ok()).toBe(true);
 }
 
+export async function loginTitleE2e(target: Page): Promise<void> {
+  const response = await target.request.post('/api/knot/session', {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: { name: 'title-e2e', password: 'title-e2e-password' },
+  });
+  expect(response.ok()).toBe(true);
+}
+
 export function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolver: (() => void) | undefined;
   const promise = new Promise<void>((resolve) => {
@@ -41,6 +49,20 @@ export function deferred(): { promise: Promise<void>; resolve: () => void } {
 // テロメアは行の左端 4px と margin 0.5rem を占め、click しても編集は始まらない。
 // x = 20 はそれを外して行の文字列先頭を押す位置。
 export const lineRowClickPosition = { x: 20, y: 8 };
+
+// タイトルが画面上に何個見えているかを数える。閲覧時の見出しも Editor のタイトル行も、
+// タイトル文字列だけを持つ葉要素として現れるので、表現が変わっても同じ数え方で観測できる。
+export async function visibleTitleCount(target: Page, title: string): Promise<number> {
+  return target.evaluate((expected) => {
+    const main = document.querySelector('main');
+    if (main === null) throw new Error('main element is missing');
+    return Array.from(main.querySelectorAll<HTMLElement>('*')).filter((element) =>
+      element.children.length === 0
+      && element.textContent?.trim() === expected
+      && element.checkVisibility()
+    ).length;
+  }, title);
+}
 
 // SSR 本文の行を click して編集を開始する。
 // 未作成ページには行が無く、作成ボタンだけが編集開始の面になる。

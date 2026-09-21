@@ -1,4 +1,4 @@
-import { html, raw } from 'hono/html';
+import { html } from 'hono/html';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import {
   presentationLines,
@@ -61,7 +61,9 @@ export function renderLines(
   const plans = presentationLines(lines.map(({ text }) => text).join('\n'), knownPages, projectName, config);
   return plans.map((line, index) => {
     let rendered: RenderedHtml;
-    if (line.role === 'title') rendered = raw('');
+    // タイトル行そのものを文書の見出しとして描く。閲覧表示のタイトルを本文の外に別途置くと、
+    // Editor 起動時に本文の先頭行としても現れてタイトルが二重に見える。
+    if (line.role === 'title') rendered = html`<h1 class="line-title">${line.text}</h1>`;
     else if (line.role === 'line') rendered = html`<div>${line.nodes.map(renderNode)}</div>`;
     else if (line.role === 'codeHeader') rendered = html`<div class="code-header">${line.text}</div>`;
     else if (line.role === 'codeLine') rendered = html`<div class="code-line">${line.text}</div>`;

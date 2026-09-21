@@ -22,6 +22,12 @@ function renderOne(text: string, known: [string, string][] = [], config = cfg): 
   return htmlOf(out[1]!);
 }
 
+void test('タイトル行は本文の中で見出しとして描画される', () => {
+  const lines = [{ id: 'title', text: '<b>Title</b>' }, { id: 'l1', text: 'body' }];
+  const out = renderLines(lines, new Map(), 'proj', cfg);
+  assert.equal(htmlOf(out[0]!), '<h1 class="line-title">&lt;b&gt;Title&lt;/b&gt;</h1>');
+});
+
 void test('プレーンテキストはエスケープされる', () => {
   assert.equal(renderOne('<script>alert(1)</script>'), '<div>&lt;script&gt;alert(1)&lt;/script&gt;</div>');
 });

@@ -49,12 +49,23 @@ await storage.addAccount(
 );
 // spec ごとにアカウントを分けるのは、login rate limit が ip と name の組で 10 分間 10 回までだから
 // （src/server/app.ts の loginLimiter）。同じ name を全 spec で使うと 429 で落ちる。
+// title の spec は direct-edit と mobile にまたがるので、spec ではなく題材で 1 つ分ける。
 await storage.addAccount(
   {
     id: ulid(),
     actor: { id: ulid(), name: 'direct-edit-e2e', displayName: 'direct-edit-e2e' },
     name: 'direct-edit-e2e',
     passwordHash: hashPassword('direct-edit-e2e-password'),
+    isAdmin: false,
+  },
+  now,
+);
+await storage.addAccount(
+  {
+    id: ulid(),
+    actor: { id: ulid(), name: 'title-e2e', displayName: 'title-e2e' },
+    name: 'title-e2e',
+    passwordHash: hashPassword('title-e2e-password'),
     isAdmin: false,
   },
   now,
