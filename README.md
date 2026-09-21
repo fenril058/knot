@@ -51,6 +51,14 @@ Cosense の添付配信に使われる `storage.googleapis.com/scrapbox-file-dis
 
 あとは http://127.0.0.1:3000/notes を開くと、一覧の「新規作成」ボタンや `/notes/<タイトル>/edit` への直接アクセスでページを書ける。
 
+## Cloudflare Workers への配備
+
+knot はローカルの Node.js + SQLite に加え、Cloudflare Workers + D1 にも配備できる。
+Worker 版は Cloudflare Access で保護する一人利用を対象とする。
+添付ファイル、Cosense import、外部エディタ同期（knot sync）には対応していない。
+remote D1 への復元と切り替えは未検証。
+設定、配備、バックアップと復元の手順は [運用ガイド](docs/ops.md#cloudflare-workers-の一人利用配備) を参照。
+
 ## 外部エディタ同期（knot sync）
 
 ページを「1 ページ = 1 テキストファイル」でローカルに書き出し、Emacs や Vim などの外部エディタで編集して手動 pull / push で同期できる。
@@ -79,7 +87,7 @@ direnv exec . node src/cli/main.ts sync status --dir ./wiki --remote
 - 競合したページ（ローカル・リモート双方が変更されている）はファイルを上書きせず、`.knot/conflicts/<pageId>/remote.txt` にリモート本文を書き出して報告する。
   手でマージしてから push するか、`knot sync push --force` で最新版に対して一度だけローカル内容を再送する。
 - このテキスト形式は行メタデータ（行ごとの作成者・時刻）を持たないベストエフォートの経路。
-  完全なバックアップは `knot export` / `knot backup` を使う。
+  Node.js + SQLite 環境の完全なバックアップは `knot export` / `knot backup` を使う。
 - リモートでタイトルの大文字小文字だけを変更した場合、ファイル内容は更新されるがファイル名の大文字小文字は元のまま残る（v1 の既知の制限）。
 - 同期ディレクトリはそのまま git 管理できる。
   ただしトークンと同期状態が入る `.knot/` は必ず gitignore する（`sync init` 実行後に案内が出る）。
@@ -100,7 +108,7 @@ direnv exec . node src/cli/main.ts sync status --dir ./wiki --remote
 { "allowedImageHosts": ["i.gyazo.com", "gyazo.com", "scrapbox.io", "lh3.googleusercontent.com"] }
 ```
 
-サイト内にアップロードした添付（`/files/…`）は allowlist に関係なく表示される。
+Node.js + SQLite 環境でサイト内にアップロードした添付（`/files/…`）は allowlist に関係なく表示される。
 
 ## E2E テスト（Playwright）
 
