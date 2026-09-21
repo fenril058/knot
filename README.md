@@ -108,7 +108,7 @@ direnv exec . node src/cli/main.ts sync status --dir ./wiki --remote
 { "allowedImageHosts": ["i.gyazo.com", "gyazo.com", "scrapbox.io", "lh3.googleusercontent.com"] }
 ```
 
-サイト内にアップロードした添付（`/files/…`）は allowlist に関係なく表示される。
+Node.js + SQLite 環境でサイト内にアップロードした添付（`/files/…`）は allowlist に関係なく表示される。
 
 ## E2E テスト（Playwright）
 
