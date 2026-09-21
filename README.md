@@ -51,6 +51,13 @@ Cosense の添付配信に使われる `storage.googleapis.com/scrapbox-file-dis
 
 あとは http://127.0.0.1:3000/notes を開くと、一覧の「新規作成」ボタンや `/notes/<タイトル>/edit` への直接アクセスでページを書ける。
 
+## 配備方法
+
+knot はローカルの Node.js + SQLite に加え、Cloudflare Workers + D1 にも配備できる。
+Worker 版は Cloudflare Access で保護する一人利用を対象とする。
+attachment、import、local editor sync には対応していない。
+設定、配備、バックアップの手順は [運用ガイド](docs/ops.md#cloudflare-workers-の一人利用配備) を参照。
+
 ## 外部エディタ同期（knot sync）
 
 ページを「1 ページ = 1 テキストファイル」でローカルに書き出し、Emacs や Vim などの外部エディタで編集して手動 pull / push で同期できる。
