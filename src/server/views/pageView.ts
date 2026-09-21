@@ -79,7 +79,6 @@ export function pageViewPage(
 <nav class="page-nav"><a href="/${encodeURIComponent(project.name)}">${project.displayName}</a></nav>
 <main>
 <h1>${page.title}</h1>
-<button type="button" id="edit-page-button">編集</button>
 <div id="save-status" aria-live="polite" hidden></div>
 ${editConflictPanel()}
 ${recoveryDialog()}

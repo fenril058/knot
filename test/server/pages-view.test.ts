@@ -16,7 +16,7 @@ void test('GET /:project/:title: レンダリング結果・空リンク・テ�
   assert.match(body, /href="\/proj\/Beta"[^>]*>Beta</);
   assert.match(body, /class="telomere/);
   assert.match(body, /Beta/);
-  assert.match(body, /id="edit-page-button"[^>]*>編集<\/button>/);
+  assert.doesNotMatch(body, /id="edit-page-button"/);
   assert.match(body, /<nav class="page-nav"><a href="\/proj">proj<\/a><\/nav>/);
   assert.match(body, /data-known-pages="[^"]*Beta[^"]*"/);
   void alphaId;
