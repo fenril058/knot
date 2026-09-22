@@ -1,26 +1,13 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import {
+  createE2ePage as createPage,
   deferred,
   lineRowClickPosition,
   loginDirectEditE2e,
+  loginE2eAccount,
   loginTitleE2e,
   visibleTitleCount,
 } from './helpers.ts';
-
-async function createPage(page: Page, title: string, bodyLines: string[]): Promise<void> {
-  const texts = [title, ...bodyLines];
-  const ops = texts.map((text, index) => ({
-    type: 'insert' as const,
-    id: `${title}-line-${index}`,
-    after: index === 0 ? '_head' : `${title}-line-${index - 1}`,
-    text,
-  }));
-  const response = await page.request.post(`/api/knot/pages/e2e/${title}/commits`, {
-    headers: { 'X-Knot-Client': 'e2e' },
-    data: { commitId: `${title}-create`, baseVersion: 0, ops },
-  });
-  expect(response.ok()).toBe(true);
-}
 
 test('desktop はクリックした SSR 本文行から直接編集を開始する', async ({ page }, testInfo) => {
   await loginDirectEditE2e(page);
@@ -335,4 +322,136 @@ test('SSR 本文のリンク click は navigation のままで、編集を開始
   await expect(page).toHaveURL(new RegExp(`/e2e/${target}$`));
   await expect(page.locator('.page-body')).toContainText('target body');
   expect(activationFetchCount).toBe(0);
+});
+
+// viewport 1280px の閲覧表示で確実に 2 行以上へ折り返す長さ。
+const LONG_BODY_LINE = '長い行が編集中も折り返すことを確かめるための本文です。'.repeat(5);
+
+test('編集を開始しても長い行は折り返したまま横スクロールにならない', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'wrap-e2e');
+  const title = `editor-wrap-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createPage(page, title, [LONG_BODY_LINE, 'short body']);
+
+  await page.goto(`/e2e/${title}`);
+  const ssrHeights = await page.locator('#editor-root .line-row').evaluateAll((rows) =>
+    rows.map((row) => row.getBoundingClientRect().height)
+  );
+  // 閲覧時は通常の block として折り返っている。この比較の基準になる。
+  expect(ssrHeights[1]!).toBeGreaterThan(ssrHeights[2]! * 1.5);
+
+  await page.locator('#editor-root .line-row').nth(2).click({ position: lineRowClickPosition });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+
+  const scroller = await page.locator('#editor-root .cm-scroller').evaluate((element) => ({
+    scrollWidth: element.scrollWidth,
+    clientWidth: element.clientWidth,
+  }));
+  expect(scroller.scrollWidth).toBeLessThanOrEqual(scroller.clientWidth);
+
+  const editorHeights = await page.locator('#editor-root .cm-line').evaluateAll((lines) =>
+    lines.map((line) => line.getBoundingClientRect().height)
+  );
+  // 非 active の整形表示行も折り返す。基準は active 行（short body）1 行ぶんの高さ。
+  expect(editorHeights[1]!).toBeGreaterThan(editorHeights[2]! * 1.5);
+
+  // 折り返した行を編集して保存できる。
+  // 折り返した行の中央は視覚行の外に落ちうるので、locator の中央 click ではなく
+  // 1 本目の視覚行の先頭を座標で押して、caret の位置を決める。
+  const longLine = page.locator('#editor-root .cm-line').nth(1);
+  const longLineBox = (await longLine.boundingBox())!;
+  await page.mouse.click(longLineBox.x + 2, longLineBox.y + 4);
+  await expect(longLine).toHaveText(LONG_BODY_LINE);
+
+  // 原文表示に切り替わった行そのものも折り返す。整形表示のときだけ折り返して
+  // raw では横スクロールへ戻る、という状態にならないことを直接固定する。
+  const raw = await page.evaluate(() => {
+    const rawScroller = document.querySelector('#editor-root .cm-scroller');
+    const lines = Array.from(document.querySelectorAll('#editor-root .cm-line'));
+    if (rawScroller === null) throw new Error('editor scroller is missing');
+    return {
+      scrollWidth: rawScroller.scrollWidth,
+      clientWidth: rawScroller.clientWidth,
+      activeHeight: lines[1]!.getBoundingClientRect().height,
+      shortHeight: lines[2]!.getBoundingClientRect().height,
+    };
+  });
+  expect(raw.scrollWidth).toBeLessThanOrEqual(raw.clientWidth);
+  expect(raw.activeHeight).toBeGreaterThan(raw.shortHeight * 1.5);
+
+  await page.keyboard.insertText('!');
+  await expect(page.locator('#save-status')).toHaveText('保存済み');
+
+  const persisted = await page.request.get(`/api/pages/e2e/${title}`);
+  expect(persisted.ok()).toBe(true);
+  expect((await persisted.json()).lines.map((line: { text: string }) => line.text)).toEqual([
+    title,
+    `!${LONG_BODY_LINE}`,
+    'short body',
+  ]);
+});
+
+test('分割できない長い行も、原文表示のまま折り返す', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'wrap-e2e');
+  const title = `editor-wrap-unbreakable-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  const unbreakable = `https://example.com/${'x'.repeat(400)}`;
+  await createPage(page, title, [unbreakable, 'short body']);
+
+  await page.goto(`/e2e/${title}`);
+  await page.locator('#editor-root .line-row').nth(2).click({ position: lineRowClickPosition });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+
+  // 分割できる位置を持たない行を原文表示へ切り替える。
+  const target = page.locator('#editor-root .cm-line').nth(1);
+  const box = (await target.boundingBox())!;
+  await page.mouse.click(box.x + 2, box.y + 4);
+  await expect(target).toHaveText(unbreakable);
+
+  const layout = await page.evaluate(() => {
+    const scroller = document.querySelector('#editor-root .cm-scroller');
+    const lines = Array.from(document.querySelectorAll('#editor-root .cm-line'));
+    if (scroller === null) throw new Error('editor scroller is missing');
+    return {
+      scrollWidth: scroller.scrollWidth,
+      clientWidth: scroller.clientWidth,
+      activeHeight: lines[1]!.getBoundingClientRect().height,
+      shortHeight: lines[2]!.getBoundingClientRect().height,
+    };
+  });
+  expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth);
+  expect(layout.activeHeight).toBeGreaterThan(layout.shortHeight * 1.5);
+});
+
+test('折り返さない code 行があっても他の行の折り返しは止まらない', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'wrap-e2e');
+  const title = `editor-wrap-code-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createPage(page, title, [
+    LONG_BODY_LINE,
+    'code:sample.txt',
+    ` ${'x'.repeat(400)}`,
+    'short body',
+  ]);
+
+  await page.goto(`/e2e/${title}`);
+  await page.locator('#editor-root .line-row').nth(4).click({ position: lineRowClickPosition });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+
+  // code 行は閲覧表示でも折り返さない（.code-line は white-space: pre）。
+  // そのはみ出しがその行だけに収まり、他の行の折り返しを止めないことを見る。
+  const layout = await page.evaluate(() => {
+    const scroller = document.querySelector('#editor-root .cm-scroller');
+    if (scroller === null) throw new Error('editor scroller is missing');
+    return {
+      clientWidth: scroller.clientWidth,
+      lineWidths: Array.from(
+        document.querySelectorAll('#editor-root .cm-line'),
+        (line) => Math.round(line.getBoundingClientRect().width),
+      ),
+      lineHeights: Array.from(
+        document.querySelectorAll('#editor-root .cm-line'),
+        (line) => line.getBoundingClientRect().height,
+      ),
+    };
+  });
+  for (const width of layout.lineWidths) expect(width).toBeLessThanOrEqual(layout.clientWidth);
+  expect(layout.lineHeights[1]!).toBeGreaterThan(layout.lineHeights[4]! * 1.5);
 });

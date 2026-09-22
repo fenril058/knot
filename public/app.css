@@ -47,7 +47,10 @@ dialog form { display: grid; gap: 1rem; }
 
 #editor-root.editor-active { max-width: 960px; margin: 0 auto; }
 #editor-root .cm-editor { min-height: 70vh; border: 1px solid #ddd; border-radius: 4px; }
-#editor-root .cm-content { padding: 1rem; }
+/* 折り返さない行（code 行は white-space: pre）が 1 本あるだけで .cm-content の
+   min-content 幅がそこまで広がり、flex item として縮めなくなって本文全体の折り返しが
+   止まる。min-width: 0 にして、はみ出しをその行だけに閉じ込める。 */
+#editor-root .cm-content { padding: 1rem; min-width: 0; }
 #editor-root .cm-focused { outline: 2px solid #2c6ea3; outline-offset: 2px; }
 #save-status { min-height: 1.5em; margin-bottom: 0.5rem; color: #555; text-align: right; }
 #save-status[data-status="error"] { color: #c0392b; }
