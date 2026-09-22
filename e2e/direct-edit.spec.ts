@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import {
   createE2ePage as createPage,
   expectSameTextBox,
@@ -584,4 +584,126 @@ test('引用行の色も編集開始で変わらない', async ({ page }, testIn
   await page.locator('#editor-root .line-row').nth(2).click({ position: lineRowClickPosition });
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
   expect(await colorOf()).toBe(before);
+});
+
+function longBody(lineCount: number): string[] {
+  return Array.from({ length: lineCount }, (_, index) => `body line ${index}`);
+}
+
+// 触った行が画面のどこにあるか。scrollY そのものではなくこちらを見るのは、本文の上にある
+// UI が増減すると、同じ見え方のままでも scroll anchoring が scrollY を動かすため。
+async function rowViewportTop(page: Page, rowText: string): Promise<{ top: number; viewportHeight: number }> {
+  return page.evaluate((expected) => {
+    const rows = document.querySelectorAll('#editor-root .line-row, #editor-root .cm-line');
+    const row = Array.from(rows).find((candidate) => candidate.textContent?.trim() === expected);
+    if (row === undefined) throw new Error(`no row renders ${JSON.stringify(expected)}`);
+    return { top: Math.round(row.getBoundingClientRect().top), viewportHeight: window.innerHeight };
+  }, rowText);
+}
+
+function expectInViewport(state: { top: number; viewportHeight: number }): void {
+  expect(state.top).toBeGreaterThanOrEqual(0);
+  expect(state.top).toBeLessThan(state.viewportHeight);
+}
+
+test('長いページの途中から編集を始めても scroll 位置と触った行を見失わない', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'scroll-e2e');
+  const title = `editor-scroll-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createPage(page, title, longBody(100));
+
+  await page.goto(`/e2e/${title}`);
+  await page.evaluate(() => window.scrollTo(0, 1200));
+  const before = await rowViewportTop(page, 'body line 69');
+  expectInViewport(before);
+
+  await page.locator('#editor-root .line-row').nth(70).click({ position: lineRowClickPosition });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+
+  const after = await rowViewportTop(page, 'body line 69');
+  expectInViewport(after);
+  // 行の高さ未満のずれに収める。ずれが行の高さを超えると、別の行を触ったのと同じになる。
+  expect(Math.abs(after.top - before.top)).toBeLessThan(22);
+});
+
+test('ショートカットで編集を始めても caret のある行が画面内に残る', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'scroll-e2e');
+  const title = `editor-scroll-shortcut-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createPage(page, title, longBody(100));
+
+  await page.goto(`/e2e/${title}`);
+  await page.evaluate(() => window.scrollTo(0, 1200));
+  await page.keyboard.press('Control+e');
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+
+  // ADR 0018 どおり最終行から始まる。scroll 位置は保たれるので、caret 側を画面へ寄せる。
+  expectInViewport(await rowViewportTop(page, 'body line 99'));
+});
+
+test('編集開始に失敗しても scroll 位置を保って再試行できる', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'scroll-e2e');
+  const title = `editor-scroll-retry-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createPage(page, title, longBody(100));
+
+  let fetchCount = 0;
+  await page.route(
+    (url) => url.pathname === `/api/pages/e2e/${title}` && url.searchParams.has('pageId'),
+    async (route) => {
+      fetchCount += 1;
+      if (fetchCount === 1) {
+        await route.fulfill({ status: 500, contentType: 'text/plain', body: 'simulated activation failure' });
+        return;
+      }
+      await route.continue();
+    },
+  );
+
+  await page.goto(`/e2e/${title}`);
+  await page.evaluate(() => window.scrollTo(0, 1200));
+  const row = page.locator('#editor-root .line-row').nth(70);
+  await row.click({ position: lineRowClickPosition });
+  await expect(page.locator('#save-status')).toHaveText('エラー');
+
+  // 失敗の時点で #save-status が現れて本文の上が 1 行ぶん伸びる。基準はそのあとに取る。
+  // 前後で本文の上にある UI を揃えておかないと、比べているのが復元ではなく
+  // ブラウザの scroll anchoring になる。
+  const before = await rowViewportTop(page, 'body line 69');
+  expectInViewport(before);
+
+  await row.click({ position: lineRowClickPosition });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  const after = await rowViewportTop(page, 'body line 69');
+  expectInViewport(after);
+  expect(Math.abs(after.top - before.top)).toBeLessThan(22);
+});
+
+test('上端が画面の外に出ている行から編集を始めてもページが飛ばない', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'scroll-e2e');
+  const title = `editor-scroll-partial-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  // 折り返して背の高い行を 1 本挟む。上端だけ画面の外に出した状態で、その行を押す。
+  const tall = '上端が画面の外へ出た行から編集を始めてもページが飛ばないことを確かめる本文です。'.repeat(12);
+  const after = Array.from({ length: 40 }, (_, index) => `after line ${index}`);
+  await createPage(page, title, [...longBody(40), tall, ...after]);
+
+  await page.goto(`/e2e/${title}`);
+  const tallRow = page.locator('#editor-root .line-row').nth(41);
+  const tallBox = (await tallRow.boundingBox())!;
+  // 折り返しの本数は font で変わるので、はみ出させる量は行の高さから決める。
+  // 固定値にすると、行がそれより低い環境で直後の行まで画面の外に出てしまう。
+  expect(tallBox.height).toBeGreaterThan(60);
+  const offScreen = Math.round(tallBox.height / 2);
+  const tallTopInDocument = await tallRow.evaluate((row) => row.getBoundingClientRect().top + window.scrollY);
+  await page.evaluate((top) => window.scrollTo(0, top), tallTopInDocument + offScreen);
+  expect(await tallRow.evaluate((row) => Math.round(row.getBoundingClientRect().top))).toBe(-offScreen);
+
+  const before = await rowViewportTop(page, 'after line 0');
+  expectInViewport(before);
+
+  // 画面に残っている下側を押す。
+  const visible = (await tallRow.boundingBox())!;
+  await page.mouse.click(visible.x + 20, visible.y + visible.height - 6);
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+
+  const settled = await rowViewportTop(page, 'after line 0');
+  expectInViewport(settled);
+  expect(Math.abs(settled.top - before.top)).toBeLessThan(22);
 });
