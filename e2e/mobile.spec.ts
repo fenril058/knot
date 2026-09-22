@@ -2,7 +2,10 @@ import { test, expect, type Page, type Response } from '@playwright/test';
 import {
   createE2ePage,
   expectSameTextBox,
+  firstRectCenter,
+  firstVisualLineLength,
   lineTextBoxes,
+  linkRowTargets,
   loginE2eAccount,
   loginProjectE2e,
   loginTitleE2e,
@@ -349,4 +352,58 @@ test('mobile browser は長いページの途中から編集を始めても scro
   expect(after.top).toBeGreaterThanOrEqual(0);
   expect(after.top).toBeLessThan(after.viewportHeight);
   expect(Math.abs(after.top - before.top)).toBeLessThan(22);
+});
+
+test('mobile browser は link だけの行を、遷移と編集のどちらにも tap で到達できる', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'link-mobile-e2e');
+
+  const suffix = `${testInfo.project.name}-${testInfo.repeatEachIndex}`;
+  // 折り返し位置は font と幅で決まるので、行末ぴったりで終わるラベルの長さを実測する。
+  await createE2ePage(page, `mobile-link-probe-${suffix}`, [`[${'あ'.repeat(400)}]`]);
+  await page.goto(`/e2e/mobile-link-probe-${suffix}`);
+  const capacity = await firstVisualLineLength(page, 1);
+  expect(capacity).toBeGreaterThan(4);
+  const labels = [capacity, capacity + 1, capacity + 2, capacity * 2].map((length) => 'あ'.repeat(length));
+
+  const target = `mobile-link-target-${suffix}`;
+  const title = `mobile-link-only-${suffix}`;
+  await createE2ePage(page, target, ['target body']);
+  await createE2ePage(page, title, [`[${target}]`, ...labels.map((label) => `[${label}]`)]);
+
+  await page.goto(`/e2e/${title}`);
+  await expectMobileLayout(page, expectedWidth);
+
+  // どの長さのラベルでも、行末に余白ぶんのリンクでない面が残る。
+  const targets = await linkRowTargets(page);
+  expect(targets).toHaveLength(labels.length + 1);
+  for (const entry of targets) {
+    expect({ length: entry.label.length, wideEnough: entry.trailingGap >= 40, hit: entry.trailingHit })
+      .toEqual({ length: entry.label.length, wideEnough: true, hit: 'row' });
+  }
+
+  // 面が残っていることと、tap が届くことは別。ブラウザの touch adjustment は tap を
+  // 近くのリンクへ吸い寄せるので、リンク寄りの数十 px は hit testing 上リンクの外でも
+  // tap すると遷移する。契約は「行末から 24px の帯は実 tap で届く」なので、その帯の
+  // 内側の端と外側の端の両方を実際に押す。
+  const worst = targets.reduce((min, entry) => (entry.trailingGap < min.trailingGap ? entry : min));
+  const rawLine = page.locator('#editor-root .cm-line', { hasText: `[${worst.label}]` });
+  for (const inset of [4, 24]) {
+    await page.goto(`/e2e/${title}`);
+    const row = await linkRowTargets(page);
+    const entry = row.find((candidate) => candidate.label === worst.label)!;
+    await page.touchscreen.tap(entry.rowRight - inset, entry.y);
+    await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+    await expect(page).toHaveURL(`/e2e/${title}`);
+    await expect(rawLine).toHaveCount(1);
+    await expect(rawLine.locator('a')).toHaveCount(0);
+  }
+  await expectMobileLayout(page, expectedWidth);
+
+  // リンク自体の tap は遷移のまま。ラベルが折り返しても当たるよう、1 つ目の矩形を押す。
+  await page.reload();
+  const linkPoint = await firstRectCenter(page, '#editor-root .line-row:nth-of-type(2) a');
+  await page.touchscreen.tap(linkPoint.x, linkPoint.y);
+  await expect(page).toHaveURL(new RegExp(`/e2e/${target}$`));
 });

@@ -32,6 +32,8 @@ const accountNames = [
   'quote-e2e',
   'scroll-e2e',
   'scroll-mobile-e2e',
+  'link-e2e',
+  'link-mobile-e2e',
 ];
 for (const name of accountNames) {
   await storage.addAccount(
