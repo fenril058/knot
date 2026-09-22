@@ -305,6 +305,7 @@ ${pageNav(project.name, projectLink(project), { pageMenu: true })}
 ${editConflictPanel()}
 ${recoveryDialog()}
 <div class="page">
+<p id="edit-hint" class="edit-hint" hidden>キーボード: <kbd>Ctrl</kbd> + <kbd>E</kbd>（macOS は <kbd>⌘</kbd> + <kbd>E</kbd>）で編集、<kbd>Escape</kbd> で編集から抜ける</p>
 <div
   id="editor-root"
   class="page-body"

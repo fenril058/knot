@@ -60,6 +60,8 @@ const accountNames = [
   'covered-mobile-e2e',
   'image-e2e',
   'image-mobile-e2e',
+  'hint-e2e',
+  'hint-mobile-e2e',
 ];
 for (const name of accountNames) {
   await storage.addAccount(

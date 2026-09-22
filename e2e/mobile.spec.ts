@@ -1271,3 +1271,23 @@ test('mobile browser でも、本文の画像を tap すると画像を大きく
   await expect(page.locator('#editor-root .cm-line').nth(1)).toHaveText('[https://i.gyazo.com/wide.png]');
   await expect(page.locator('.telomere-info')).toBeHidden();
 });
+
+test('mobile browser でもキーボード操作の案内が本文の幅を壊さない', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'hint-mobile-e2e');
+
+  const title = `mobile-edit-hint-${testInfo.project.name}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, ['body']);
+
+  await page.goto(`/e2e/${title}`);
+  // 案内は画面の狭い端末にも出る。折り返しても本文の幅を押し広げない。
+  await expect(page.locator('#edit-hint')).toBeVisible();
+  await expectMobileLayout(page, expectedWidth);
+
+  const beforeBoxes = await lineTextBoxes(page);
+  await page.locator('#editor-root .line-row').nth(1).tap();
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expect(page.locator('#edit-hint')).toBeVisible();
+  expect(await lineTextBoxes(page)).toEqual(beforeBoxes);
+});
