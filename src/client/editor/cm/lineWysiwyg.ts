@@ -228,6 +228,10 @@ function buildDecorations(view: EditorView, config: LineWysiwygConfig): Decorati
   const builder = new RangeSetBuilder<Decoration>();
   try {
     for (const line of displayLines(view.state, config)) {
+      // SSR の h1 は Editor 起動時に置換されるため、編集中も先頭行を見出しとして公開する。
+      if (line.role === 'title') {
+        builder.add(line.from, line.from, Decoration.line({ attributes: { role: 'heading', 'aria-level': '1' } }));
+      }
       if (editing.has(line.number)) continue;
       const widget = new FormattedLineWidget(line);
       if (line.from === line.to) {

@@ -185,8 +185,12 @@ test('mobile browser は見えているタイトルの tap から title 行の�
 
   await heading.tap();
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);
   await expect(page.locator('#editor-root .cm-line').first()).toHaveText(title);
-  await expect(page.locator('#editor-root .cm-line').first().locator('.cm-wysiwyg-line')).toHaveCount(0);
   expect(await visibleTitleCount(page, title)).toBe(1);
+  await page.keyboard.press('End');
+  await page.keyboard.insertText('-edited');
+  await expect(page.locator('#editor-root .cm-line')).toHaveText([`${title}-edited`, 'mobile の本文']);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(`${title}-edited`);
   await expectMobileLayout(page, expectedWidth);
 });

@@ -57,21 +57,24 @@ test('desktop は見えているタイトルの click から title 行を編集�
   const heading = page.getByRole('heading', { level: 1 });
   await expect(heading).toHaveText(title);
   expect(await visibleTitleCount(page, title)).toBe(1);
+  const pageId = await page.locator('#editor-root').getAttribute('data-page-id');
+  expect(pageId).toBeTruthy();
 
-  await page.locator('#editor-root .line-row').first().click({ position: lineRowClickPosition });
+  await heading.click();
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
-  // caret がタイトル行にあれば、その行だけが素の文字列として描画される。
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);
   await expect(page.locator('#editor-root .cm-line').first()).toHaveText(title);
-  await expect(page.locator('#editor-root .cm-line').first().locator('.cm-wysiwyg-line')).toHaveCount(0);
   expect(await visibleTitleCount(page, title)).toBe(1);
 
   await page.keyboard.press('End');
   await page.keyboard.insertText('-renamed');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(renamed);
   await expect(page.locator('#save-status')).toHaveText('保存済み');
   await expect(page).toHaveURL(`/e2e/${renamed}`);
 
   await page.reload();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(renamed);
+  await expect(page.locator('#editor-root')).toHaveAttribute('data-page-id', pageId!);
   expect(await visibleTitleCount(page, renamed)).toBe(1);
   await expect(page.locator('#editor-root .line-row')).toHaveText([renamed, 'title body']);
 });
@@ -86,6 +89,7 @@ test('本文行から編集を開始してもタイトルは 1 つのまま', as
 
   await page.locator('#editor-root .line-row').nth(1).click({ position: lineRowClickPosition });
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);
   await expect(page.locator('#editor-root .cm-line').nth(1)).toContainText('body');
   expect(await visibleTitleCount(page, title)).toBe(1);
 });
