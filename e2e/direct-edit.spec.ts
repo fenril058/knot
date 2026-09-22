@@ -1,5 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
-import { deferred, lineRowClickPosition, loginDirectEditE2e } from './helpers.ts';
+import {
+  deferred,
+  lineRowClickPosition,
+  loginDirectEditE2e,
+  loginTitleE2e,
+  visibleTitleCount,
+} from './helpers.ts';
 
 async function createPage(page: Page, title: string, bodyLines: string[]): Promise<void> {
   const texts = [title, ...bodyLines];
@@ -39,6 +45,73 @@ test('desktop はクリックした SSR 本文行から直接編集を開始す�
     'first body',
     'second body edited',
   ]);
+});
+
+test('desktop は見えているタイトルの click から title 行を編集して rename できる', async ({ page }, testInfo) => {
+  await loginTitleE2e(page);
+  const title = `direct-edit-title-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  const renamed = `${title}-renamed`;
+  await createPage(page, title, ['title body']);
+
+  await page.goto(`/e2e/${title}`);
+  const heading = page.getByRole('heading', { level: 1 });
+  await expect(heading).toHaveText(title);
+  expect(await visibleTitleCount(page, title)).toBe(1);
+  const pageId = await page.locator('#editor-root').getAttribute('data-page-id');
+  expect(pageId).toBeTruthy();
+
+  await heading.click();
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);
+  await expect(page.locator('#editor-root .cm-line').first()).toHaveText(title);
+  expect(await visibleTitleCount(page, title)).toBe(1);
+
+  await page.keyboard.press('End');
+  await page.keyboard.insertText('-renamed');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(renamed);
+  await expect(page.locator('#save-status')).toHaveText('保存済み');
+  await expect(page).toHaveURL(`/e2e/${renamed}`);
+
+  await page.reload();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(renamed);
+  await expect(page.locator('#editor-root')).toHaveAttribute('data-page-id', pageId!);
+  expect(await visibleTitleCount(page, renamed)).toBe(1);
+  await expect(page.locator('#editor-root .line-row')).toHaveText([renamed, 'title body']);
+});
+
+test('本文行から編集を開始してもタイトルは 1 つのまま', async ({ page }, testInfo) => {
+  await loginTitleE2e(page);
+  const title = `direct-edit-title-body-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createPage(page, title, ['body']);
+
+  await page.goto(`/e2e/${title}`);
+  expect(await visibleTitleCount(page, title)).toBe(1);
+
+  await page.locator('#editor-root .line-row').nth(1).click({ position: lineRowClickPosition });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);
+  await expect(page.locator('#editor-root .cm-line').nth(1)).toContainText('body');
+  expect(await visibleTitleCount(page, title)).toBe(1);
+});
+
+test('JavaScript 無効でもタイトルは見出しとして 1 つだけ残る', async ({ browser }, testInfo) => {
+  const context = await browser.newContext({ javaScriptEnabled: false });
+  const noScriptPage = await context.newPage();
+  try {
+    await loginTitleE2e(noScriptPage);
+    const title = `direct-edit-title-noscript-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+    await createPage(noScriptPage, title, ['body']);
+
+    await noScriptPage.goto(`/e2e/${title}`);
+    const heading = noScriptPage.getByRole('heading', { level: 1 });
+    await expect(heading).toHaveCount(1);
+    await expect(heading).toHaveText(title);
+    // 見出しは本文の先頭行そのもので、本文の外に重複して出ない。
+    await expect(noScriptPage.locator('main > h1')).toHaveCount(0);
+    await expect(noScriptPage.locator('#editor-root .line-row')).toHaveText([title, 'body']);
+  } finally {
+    await context.close();
+  }
 });
 
 test('本文がまだない既存ページにも直接編集の click target がある', async ({ page }, testInfo) => {
@@ -173,6 +246,8 @@ test('click せずキーボードだけで編集を開始し、Escape で抜け�
   await page.keyboard.insertText(' edited');
   await expect(page.locator('#save-status')).toHaveText('保存済み');
 
+  // ADR 0018 どおり最終行から始まるので、タイトル行は変わらず URL も動かない。
+  await expect(page).toHaveURL(`/e2e/${title}`);
   const persisted = await page.request.get(`/api/pages/e2e/${title}`);
   expect((await persisted.json()).lines.map((line: { text: string }) => line.text)).toEqual([
     title,

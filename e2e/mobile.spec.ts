@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Response } from '@playwright/test';
-import { loginProjectE2e } from './helpers.ts';
+import { loginProjectE2e, loginTitleE2e, visibleTitleCount } from './helpers.ts';
 
 const expectedViewportWidths: Record<string, number> = {
   'mobile-chromium': 360,
@@ -151,8 +151,46 @@ test('mobile browser でページを探して編集し、再読み込み後も�
   await expectMobileLayout(page, expectedWidth);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);
   await expect(page.locator('.page-body .line-row')).toHaveText([
-    '',
+    title,
     'mobile で変更した既存行',
     'mobile で追加した行',
   ]);
+});
+
+test('mobile browser は見えているタイトルの tap から title 行の編集に入る', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginTitleE2e(page);
+
+  const title = `mobile-title-tap-${testInfo.project.name}-${testInfo.repeatEachIndex}`;
+  const created = await page.request.post(`/api/knot/pages/e2e/${title}/commits`, {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: {
+      commitId: `${title}-create`,
+      baseVersion: 0,
+      ops: [
+        { type: 'insert', id: `${title}-title`, after: '_head', text: title },
+        { type: 'insert', id: `${title}-existing`, after: `${title}-title`, text: 'mobile の本文' },
+      ],
+    },
+  });
+  expect(created.ok()).toBe(true);
+
+  await page.goto(`/e2e/${title}`);
+  await expectMobileLayout(page, expectedWidth);
+  const heading = page.getByRole('heading', { level: 1 });
+  await expect(heading).toHaveText(title);
+  await expect(heading).toBeInViewport();
+  expect(await visibleTitleCount(page, title)).toBe(1);
+
+  await heading.tap();
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);
+  await expect(page.locator('#editor-root .cm-line').first()).toHaveText(title);
+  expect(await visibleTitleCount(page, title)).toBe(1);
+  await page.keyboard.press('End');
+  await page.keyboard.insertText('-edited');
+  await expect(page.locator('#editor-root .cm-line')).toHaveText([`${title}-edited`, 'mobile の本文']);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(`${title}-edited`);
+  await expectMobileLayout(page, expectedWidth);
 });
