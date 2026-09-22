@@ -42,6 +42,78 @@ export async function createE2ePage(target: Page, title: string, bodyLines: stri
   expect(response.ok()).toBe(true);
 }
 
+export type TextBox = { x: number; y: number; width: number; height: number };
+
+// 1px 単位へ丸める。sub-pixel の端数まで一致を求めると、比べたい「字と位置」ではなく
+// inline box の組み立て方の違いを見てしまう。ずれの実測値は px 単位だったので、
+// この粒度でも検出できる。
+function round(value: number): number {
+  return Math.round(value);
+}
+
+// 本文行に描かれた文字の矩形。行の箱ではなく文字の矩形を見るので、閲覧表示と
+// CodeMirror で DOM 構造が違っても「文字がどこにどう並んでいるか」だけを比べられる。
+// テロメアは閲覧表示では行の中、編集表示では gutter にあるので、どちらでも除く。
+// y は #editor-root 上端からの相対値。本文より上にある UI の増減と混ざらないようにする。
+export async function lineTextBoxes(target: Page): Promise<TextBox[]> {
+  const boxes = await target.evaluate(() => {
+    const root = document.querySelector('#editor-root');
+    if (root === null) throw new Error('editor root is missing');
+    const rootTop = root.getBoundingClientRect().top;
+    const rows = root.querySelectorAll('.line-row, .cm-line');
+    return Array.from(rows, (row) => {
+      const rects: DOMRect[] = [];
+      const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode() !== null) {
+        const node = walker.currentNode;
+        if (node.parentElement?.closest('.telomere') != null) continue;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        rects.push(...Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0));
+      }
+      // 文字の無い行は両方の表示で 0 になる。空行を題材にするなら、ここではなく
+      // 行の箱の高さを別に見る必要がある。
+      if (rects.length === 0) return { x: 0, y: 0, width: 0, height: 0 };
+      const left = Math.min(...rects.map((rect) => rect.left));
+      const right = Math.max(...rects.map((rect) => rect.right));
+      const top = Math.min(...rects.map((rect) => rect.top));
+      const bottom = Math.max(...rects.map((rect) => rect.bottom));
+      return { x: left, y: top - rootTop, width: right - left, height: bottom - top };
+    });
+  });
+  return boxes.map(({ x, y, width, height }) => ({
+    x: round(x),
+    y: round(y),
+    width: round(width),
+    height: round(height),
+  }));
+}
+
+// 同じ行が同じ字・同じ位置で描かれていること。
+export function expectSameTextBox(index: number, before: TextBox, after: TextBox): void {
+  expect({ index, ...after }).toEqual({ index, ...before });
+}
+
+// その文字列だけを持つ葉要素の字の指定。閲覧表示では h1 や div、CodeMirror では
+// .cm-line や整形表示の span と、表現が変わっても同じ数え方で観測できる。
+export async function textStyleOf(target: Page, text: string): Promise<Record<string, string>> {
+  return target.evaluate((expected) => {
+    const root = document.querySelector('#editor-root');
+    if (root === null) throw new Error('editor root is missing');
+    const element = Array.from(root.querySelectorAll<HTMLElement>('*')).find((candidate) =>
+      candidate.children.length === 0 && candidate.textContent === expected
+    );
+    if (element === undefined) throw new Error(`no leaf element renders ${JSON.stringify(expected)}`);
+    const style = getComputedStyle(element);
+    return {
+      fontFamily: style.fontFamily,
+      fontSize: style.fontSize,
+      fontWeight: style.fontWeight,
+      lineHeight: style.lineHeight,
+    };
+  }, text);
+}
+
 export function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolver: (() => void) | undefined;
   const promise = new Promise<void>((resolve) => {

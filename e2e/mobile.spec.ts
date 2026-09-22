@@ -1,9 +1,12 @@
 import { test, expect, type Page, type Response } from '@playwright/test';
 import {
   createE2ePage,
+  expectSameTextBox,
+  lineTextBoxes,
   loginE2eAccount,
   loginProjectE2e,
   loginTitleE2e,
+  textStyleOf,
   visibleTitleCount,
 } from './helpers.ts';
 
@@ -231,4 +234,42 @@ test('mobile browser は編集を開始しても長い行を折り返したま�
     lines.map((line) => line.getBoundingClientRect().height)
   );
   expect(editorHeights[1]!).toBeGreaterThan(editorHeights[2]! * 1.5);
+});
+
+const PARITY_LONG_LINE = '編集開始の前後で字と位置が変わらないことを確かめる本文です。'.repeat(2);
+// 引用行は要素そのものが違う（blockquote と q）。対象外で、#188 の残りとして #201 で扱う。
+const PARITY_BODY = [
+  PARITY_LONG_LINE,
+  '  indented body',
+  '[* bold] and #hashtag',
+  'spaced    gap   here',
+  'table:sample',
+  ' left\tright',
+  'short body',
+];
+
+test('mobile browser でも編集開始の前後で本文の字と位置が変わらない', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'parity-e2e');
+
+  const title = `mobile-parity-${testInfo.project.name}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, PARITY_BODY);
+
+  await page.goto(`/e2e/${title}`);
+  const beforeTitleStyle = await textStyleOf(page, title);
+  const beforeBodyStyle = await textStyleOf(page, PARITY_LONG_LINE);
+  const beforeBoxes = await lineTextBoxes(page);
+  // 文字を持たない行があると lineTextBoxes が 0 を返し、一致の assertion が素通りする。
+  for (const box of beforeBoxes) expect(box.width).toBeGreaterThan(0);
+
+  await page.locator('#editor-root .line-row').nth(PARITY_BODY.length).tap();
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expectMobileLayout(page, expectedWidth);
+
+  expect(await textStyleOf(page, title)).toEqual(beforeTitleStyle);
+  expect(await textStyleOf(page, PARITY_LONG_LINE)).toEqual(beforeBodyStyle);
+  const afterBoxes = await lineTextBoxes(page);
+  expect(afterBoxes).toHaveLength(beforeBoxes.length);
+  for (const [index, before] of beforeBoxes.entries()) expectSameTextBox(index, before, afterBoxes[index]!);
 });

@@ -28,6 +28,7 @@ const accountNames = [
   'direct-edit-e2e',
   'title-e2e',
   'wrap-e2e',
+  'parity-e2e',
 ];
 for (const name of accountNames) {
   await storage.addAccount(
