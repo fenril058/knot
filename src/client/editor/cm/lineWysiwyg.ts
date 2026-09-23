@@ -56,9 +56,9 @@ function appendNode(parent: ParentNode, node: PresentedNode): void {
       return;
     }
     case 'container': {
-      const tag = node.kind === 'quote' ? 'q' : node.kind;
-      const container = document.createElement(tag);
-      if (node.kind === 'quote') container.className = 'cm-wysiwyg-quote';
+      // 引用行は閲覧表示（src/render/render.ts）と同じ blockquote で描く。q は inline で
+      // 引用符も付くため、要素を変えると字下げも行の高さも色も揃わない。
+      const container = document.createElement(node.kind === 'quote' ? 'blockquote' : node.kind);
       if (node.className !== undefined) container.className = node.className;
       for (const child of node.children) appendNode(container, child);
       parent.append(container);

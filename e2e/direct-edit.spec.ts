@@ -538,3 +538,50 @@ test('画像を含む行も編集開始で行の高さが変わらない', async
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
   expect(await rowHeights()).toEqual(before);
 });
+
+test('引用行も編集開始の前後で同じ位置・同じ字で描かれる', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'quote-e2e');
+  const title = `editor-quote-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  // 引用の中にリンクがある行も題材に入れる。引用の字下げとリンクの描画が重なる行で、
+  // 片方だけ合っていて green になることを避ける。
+  const body = ['> quoted line', '> another quote', '> [linked] in quote', 'plain body'];
+  await createPage(page, title, body);
+
+  await page.goto(`/e2e/${title}`);
+  const beforeStyle = await textStyleOf(page, ' quoted line');
+  const beforeBoxes = await lineTextBoxes(page);
+  for (const box of beforeBoxes) expect(box.width).toBeGreaterThan(0);
+  // 閲覧表示の blockquote は左に字下げがあり、行の高さも本文行より高い。
+  expect(beforeBoxes[1]!.x).toBeGreaterThan(beforeBoxes[4]!.x);
+  await expect(page.locator('#editor-root .line-row').nth(3).locator('a')).toHaveCount(1);
+
+  await page.locator('#editor-root .line-row').nth(body.length).click({ position: lineRowClickPosition });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+
+  expect(await textStyleOf(page, ' quoted line')).toEqual(beforeStyle);
+  const afterBoxes = await lineTextBoxes(page);
+  expect(afterBoxes).toHaveLength(beforeBoxes.length);
+  for (const [index, before] of beforeBoxes.entries()) expectSameTextBox(index, before, afterBoxes[index]!);
+});
+
+test('引用行の色も編集開始で変わらない', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'quote-e2e');
+  const title = `editor-quote-color-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createPage(page, title, ['> quoted line', 'plain body']);
+
+  await page.goto(`/e2e/${title}`);
+  const colorOf = async (): Promise<string> => page.evaluate(() => {
+    const root = document.querySelector('#editor-root');
+    if (root === null) throw new Error('editor root is missing');
+    const element = Array.from(root.querySelectorAll<HTMLElement>('*')).find((candidate) =>
+      candidate.children.length === 0 && candidate.textContent === ' quoted line'
+    );
+    if (element === undefined) throw new Error('the quoted line is not rendered');
+    return getComputedStyle(element).color;
+  });
+  const before = await colorOf();
+
+  await page.locator('#editor-root .line-row').nth(2).click({ position: lineRowClickPosition });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  expect(await colorOf()).toBe(before);
+});
