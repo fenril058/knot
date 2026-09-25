@@ -4,12 +4,15 @@ import {
   expectSameTextBox,
   deferred,
   lineRowClickPosition,
+  firstVisualLineLength,
   lineTextBoxes,
+  linkRowTargets,
   loginDirectEditE2e,
   loginE2eAccount,
   loginTitleE2e,
   textStyleOf,
   visibleTitleCount,
+  type LinkRowTarget,
 } from './helpers.ts';
 
 test('desktop はクリックした SSR 本文行から直接編集を開始する', async ({ page }, testInfo) => {
@@ -706,4 +709,103 @@ test('上端が画面の外に出ている行から編集を始めてもペー�
   const settled = await rowViewportTop(page, 'after line 0');
   expectInViewport(settled);
   expect(Math.abs(settled.top - before.top)).toBeLessThan(22);
+});
+
+// 行末ぴったりで終わるラベルを作る。折り返し位置は font と幅で決まるので、
+// 長さを決め打ちせず、まず 1 行に収まる文字数を実測してから本番のページを作る。
+// +1 / +2 は実測の取りこぼしに対する余裕、2 倍は 2 行目が行末で終わる場合。
+async function linkOnlyLabels(page: Page, probeTitle: string): Promise<string[]> {
+  await createPage(page, probeTitle, [`[${'あ'.repeat(400)}]`]);
+  await page.goto(`/e2e/${probeTitle}`);
+  const capacity = await firstVisualLineLength(page, 1);
+  expect(capacity).toBeGreaterThan(4);
+  return [capacity, capacity + 1, capacity + 2, capacity * 2].map((length) => 'あ'.repeat(length));
+}
+
+function expectTrailingEditSurface(targets: LinkRowTarget[], expectedCount: number): void {
+  expect(targets).toHaveLength(expectedCount);
+  for (const target of targets) {
+    expect({ length: target.label.length, wideEnough: target.trailingGap >= 40, hit: target.trailingHit })
+      .toEqual({ length: target.label.length, wideEnough: true, hit: 'row' });
+  }
+}
+
+function narrowestTarget(targets: LinkRowTarget[]): LinkRowTarget {
+  return targets.reduce((min, entry) => (entry.trailingGap < min.trailingGap ? entry : min));
+}
+
+test('link だけの行でも行末に編集を始められる面が残る', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'link-e2e');
+  const suffix = `${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  const labels = await linkOnlyLabels(page, `link-only-probe-${suffix}`);
+  const title = `link-only-${suffix}`;
+  await createPage(page, title, labels.map((label) => `[${label}]`));
+
+  await page.goto(`/e2e/${title}`);
+  expectTrailingEditSurface(await linkRowTargets(page), labels.length);
+
+  // いちばん面が狭い行を実際に押す。ここが成立すれば他の行でも成立する。
+  const worst = narrowestTarget(await linkRowTargets(page));
+  await page.mouse.click(worst.x, worst.y);
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expect(page).toHaveURL(`/e2e/${title}`);
+  await expect(page.locator('#editor-root .cm-line', { hasText: `[${worst.label}]` })).toHaveCount(1);
+});
+
+test('Editor 起動後も link だけの行は行末から原文編集に入れる', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'link-e2e');
+  const suffix = `${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  const labels = await linkOnlyLabels(page, `link-only-active-probe-${suffix}`);
+  const title = `link-only-active-${suffix}`;
+  await createPage(page, title, labels.map((label) => `[${label}]`));
+
+  await page.goto(`/e2e/${title}`);
+  // タイトル行から起動して、link だけの行はすべて整形表示のまま残す。
+  await page.locator('#editor-root .line-row').first().click({ position: lineRowClickPosition });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  expectTrailingEditSurface(await linkRowTargets(page), labels.length);
+
+  const worst = narrowestTarget(await linkRowTargets(page));
+  await page.mouse.click(worst.x, worst.y);
+  await expect(page).toHaveURL(`/e2e/${title}`);
+  const rawLine = page.locator('#editor-root .cm-line', { hasText: `[${worst.label}]` });
+  await expect(rawLine).toHaveCount(1);
+  await expect(rawLine.locator('a')).toHaveCount(0);
+
+  // 行末の面を押したので caret は行末にある。そのまま原文を編集して保存できる。
+  await page.keyboard.insertText('x');
+  await expect(page.locator('#save-status')).toHaveText('保存済み');
+  const persisted = await page.request.get(`/api/pages/e2e/${title}`);
+  expect((await persisted.json()).lines.map((line: { text: string }) => line.text))
+    .toContain(`[${worst.label}]x`);
+});
+
+test('link だけの行でもリンク自体の click は navigation のまま', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'link-e2e');
+  const suffix = `${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  const target = `link-only-target-${suffix}`;
+  const title = `link-only-navigation-${suffix}`;
+  await createPage(page, target, ['target body']);
+  await createPage(page, title, [`[${target}]`]);
+
+  let activationFetchCount = 0;
+  await page.route(
+    (url) => url.pathname === `/api/pages/e2e/${title}` && url.searchParams.has('pageId'),
+    async (route) => {
+      activationFetchCount += 1;
+      await route.continue();
+    },
+  );
+
+  await page.goto(`/e2e/${title}`);
+  await page.locator('#editor-root .line-row').nth(1).locator('a').click();
+  await expect(page).toHaveURL(new RegExp(`/e2e/${target}$`));
+  expect(activationFetchCount).toBe(0);
+
+  // Editor 起動後の非 active 行に出ているリンクも、click で navigation する。
+  await page.goBack();
+  await page.locator('#editor-root .line-row').first().click({ position: lineRowClickPosition });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await page.locator('#editor-root .cm-line').nth(1).locator('a').click();
+  await expect(page).toHaveURL(new RegExp(`/e2e/${target}$`));
 });

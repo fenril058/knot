@@ -180,3 +180,87 @@ export async function replaceEditorLine(target: Page, index: number, text: strin
   await target.keyboard.press('Shift+End');
   await target.keyboard.insertText(text);
 }
+
+export type LinkRowTarget = {
+  label: string;
+  trailingGap: number;
+  trailingHit: 'link' | 'row' | 'outside-viewport';
+  rowRight: number;
+  x: number;
+  y: number;
+};
+
+// link だけの行の「行末に残っている、リンクではない面」。閲覧表示の .line-row でも
+// CodeMirror の .cm-line でも同じ数え方で測る。
+// 折り返しの最後の視覚行を見るのは、そこがリンクの終わりで、行末の面が最も狭くなるため。
+export async function linkRowTargets(target: Page): Promise<LinkRowTarget[]> {
+  return target.evaluate(() => {
+    const root = document.querySelector('#editor-root');
+    if (root === null) throw new Error('editor root is missing');
+    const targets: LinkRowTarget[] = [];
+    for (const row of root.querySelectorAll('.line-row, .cm-line')) {
+      const anchors = row.querySelectorAll('a');
+      if (anchors.length !== 1) continue;
+      const anchor = anchors[0]!;
+      if (anchor.textContent !== row.textContent?.trim()) continue;
+      const rects = Array.from(anchor.getClientRects());
+      const last = rects.at(-1);
+      if (last === undefined) continue;
+      const rowRect = row.getBoundingClientRect();
+      const x = rowRect.right - 12;
+      const y = last.top + last.height / 2;
+      // elementFromPoint は hit testing の結果で、touch adjustment は含まない。
+      // 実際の tap がリンクへ吸い寄せられるかどうかは、これでは分からない（touch の
+      // 契約は実 tap で見る）。viewport の外は null を返すので、「リンクではない」と
+      // 「画面の外だった」を混ぜないよう別の値にしている。
+      const hit = document.elementFromPoint(x, y);
+      const trailingHit = hit === null
+        ? 'outside-viewport' as const
+        : hit.closest('a') === null ? 'row' as const : 'link' as const;
+      targets.push({
+        label: anchor.textContent ?? '',
+        trailingGap: Math.round(rowRect.right - last.right),
+        trailingHit,
+        rowRight: rowRect.right,
+        x,
+        y,
+      });
+    }
+    return targets;
+  });
+}
+
+// 行の 1 本目の視覚行に収まる文字数。折り返しの位置は font と本文の幅で変わるので、
+// 「行末ぴったりで終わるラベル」の長さは、動かしている環境で実測して決める。
+export async function firstVisualLineLength(target: Page, rowIndex: number): Promise<number> {
+  return target.evaluate((index) => {
+    const root = document.querySelector('#editor-root');
+    if (root === null) throw new Error('editor root is missing');
+    const row = root.querySelectorAll('.line-row, .cm-line')[index];
+    if (row === undefined) throw new Error(`row ${index} is missing`);
+    const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node !== null && (node.textContent ?? '').trim() === '') node = walker.nextNode();
+    if (node === null) throw new Error(`row ${index} has no text`);
+    const length = node.textContent?.length ?? 0;
+    const range = document.createRange();
+    range.setStart(node, 0);
+    for (let end = 1; end <= length; end += 1) {
+      range.setEnd(node, end);
+      if (range.getClientRects().length > 1) return end - 1;
+    }
+    return length;
+  }, rowIndex);
+}
+
+// 要素の 1 つ目の矩形の中央。折り返した anchor は bounding box の中央が視覚行の外に
+// 落ちることがあり、locator の中央 click / tap では当たらない。
+export async function firstRectCenter(target: Page, selector: string): Promise<{ x: number; y: number }> {
+  return target.evaluate((value) => {
+    const element = document.querySelector(value);
+    if (element === null) throw new Error(`${value} is missing`);
+    const rect = element.getClientRects()[0];
+    if (rect === undefined) throw new Error(`${value} has no rect`);
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  }, selector);
+}

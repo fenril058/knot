@@ -63,6 +63,11 @@ dialog form { display: grid; gap: 1rem; }
 /* タイトルの字の大きさと行送りは、閲覧表示でも編集表示でも「行」に掛ける。
    行の高さがこれで決まるので、片方だけ変えると起動前後で行の高さがずれる。値は 1 か所に置く。 */
 .line-title, #editor-root .cm-title-line { font-size: 1.25em; }
+/* 行末の余白。ここが無いと、リンクだけの行はラベルの長さ次第で行末までリンクが占め、
+   その行を編集し始める面が残らない。閲覧表示と編集表示で必ず同じ幅にする。
+   2.5rem あるのは touch adjustment のため。ブラウザは tap をリンクへ吸い寄せるので、
+   リンク寄りの約 14px は tap しても遷移する。実用になる幅はそこを引いた残りになる。 */
+#editor-root .line-row, #editor-root .cm-line { padding-inline-end: 2.5rem; }
 /* outline は箱の外に描かれ、行の位置を動かさない。 */
 #editor-root .cm-focused { outline: 2px solid #2c6ea3; outline-offset: 2px; }
 #save-status { min-height: 1.5em; margin-bottom: 0.5rem; color: #555; text-align: right; }
