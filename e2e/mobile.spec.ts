@@ -273,3 +273,46 @@ test('mobile browser でも編集開始の前後で本文の字と位置が変�
   expect(afterBoxes).toHaveLength(beforeBoxes.length);
   for (const [index, before] of beforeBoxes.entries()) expectSameTextBox(index, before, afterBoxes[index]!);
 });
+
+// 引用行は閲覧表示が blockquote、編集表示が q で、要素そのものが違っていた（#201）。
+// mobile でも一致することを直接見る。#188 の受け入れ条件は mobile を含む。
+const QUOTE_BODY = ['> quoted line', '> [linked] in quote', 'plain body'];
+
+test('mobile browser でも引用行が編集開始の前後で同じ位置・同じ字で描かれる', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'quote-e2e');
+
+  const title = `mobile-quote-${testInfo.project.name}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, QUOTE_BODY);
+
+  const quoteColor = async (): Promise<string> => page.evaluate(() => {
+    const root = document.querySelector('#editor-root');
+    if (root === null) throw new Error('editor root is missing');
+    const element = Array.from(root.querySelectorAll<HTMLElement>('*')).find((candidate) =>
+      candidate.children.length === 0 && candidate.textContent === ' quoted line'
+    );
+    if (element === undefined) throw new Error('the quoted line is not rendered');
+    return getComputedStyle(element).color;
+  });
+
+  await page.goto(`/e2e/${title}`);
+  await expectMobileLayout(page, expectedWidth);
+  const beforeStyle = await textStyleOf(page, ' quoted line');
+  const beforeColor = await quoteColor();
+  const beforeBoxes = await lineTextBoxes(page);
+  for (const box of beforeBoxes) expect(box.width).toBeGreaterThan(0);
+  // 閲覧表示の blockquote は左に字下げがある。
+  expect(beforeBoxes[1]!.x).toBeGreaterThan(beforeBoxes[3]!.x);
+  await expect(page.locator('#editor-root .line-row').nth(2).locator('a')).toHaveCount(1);
+
+  await page.locator('#editor-root .line-row').nth(QUOTE_BODY.length).tap();
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expectMobileLayout(page, expectedWidth);
+
+  expect(await textStyleOf(page, ' quoted line')).toEqual(beforeStyle);
+  expect(await quoteColor()).toBe(beforeColor);
+  const afterBoxes = await lineTextBoxes(page);
+  expect(afterBoxes).toHaveLength(beforeBoxes.length);
+  for (const [index, before] of beforeBoxes.entries()) expectSameTextBox(index, before, afterBoxes[index]!);
+});

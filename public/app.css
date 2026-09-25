@@ -97,8 +97,10 @@ dialog form { display: grid; gap: 1rem; }
 .cm-sb-code-block { background: #f5f5f5; }
 .cm-sb-quote { color: #666; }
 .cm-wysiwyg-line { display: inline; min-height: 1.4em; }
+/* 引用行は blockquote。整形表示の widget は inline で、CodeMirror が widget の前後へ
+   置く buffer も inline なので、block のままだと匿名の行が 1 本増えて閲覧表示より
+   1 行ぶん下がる。inline-block にして、閲覧表示の block と同じ字下げと上下の余白を持たせる。 */
+.cm-wysiwyg-line blockquote { display: inline-block; margin: 1em 40px; }
 /* 整形表示の widget は inline なので、その中の表は inline-table にしないと
    閲覧表示の block の表と高さが揃わない。枠や padding は閲覧表示に合わせて持たせない。 */
 .cm-wysiwyg-line table { display: inline-table; vertical-align: top; }
-.cm-wysiwyg-quote::before, .cm-wysiwyg-quote::after { content: none; }
-.cm-wysiwyg-quote { color: #666; }
