@@ -579,6 +579,15 @@ async function restorePending(record: EditorRecord): Promise<Recovery | null> {
   return { engine: restored, effects, texts: textsAfterEffects(result.page, effects) };
 }
 
+// SSR 行の画面上の位置。画面に掛かっている行は、上端がはみ出していてもその位置へ戻す。
+// 完全に画面の外にある行は、そこへ戻しても編集対象が見えないので対象にしない。
+function visibleRowTop(lineId: string): number | undefined {
+  const row = document.getElementById(`L${lineId}`);
+  if (row === null) return undefined;
+  const box = row.getBoundingClientRect();
+  return box.bottom > 0 && box.top < window.innerHeight ? box.top : undefined;
+}
+
 type InitialEditTarget = { lineId: string; lineNumber: number };
 
 async function start(initialTarget?: InitialEditTarget): Promise<void> {
@@ -608,6 +617,10 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
         const confirmedIndex = engine.confirmedLines.findIndex(({ id }) => id === initialTarget.lineId);
         return confirmedIndex === -1 ? initialTarget.lineNumber : confirmedIndex + 1;
       })();
+
+  // 差し替えの前に、編集対象の行が画面のどこにあったかを覚える。本文を CodeMirror へ
+  // 差し替えると文書の高さが一度縮み、ブラウザが scroll 位置を切り詰めてしまう。
+  const anchorTop = initialTarget === undefined ? undefined : visibleRowTop(initialTarget.lineId);
 
   editorRoot.replaceChildren();
   if (editButton !== null) editButton.hidden = true;
@@ -658,7 +671,13 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
   editorRoot.classList.add('editor-active');
   if (initialLineNumber !== undefined) {
     const selectedLine = view.state.doc.line(Math.min(initialLineNumber, view.state.doc.lines));
-    view.dispatch({ selection: { anchor: selectedLine.from } });
+    // 画面に見えていた行から始めたなら同じ位置へ戻す。見えていない行（ショートカットの
+    // 最終行など）から始めたときは、caret のほうを画面へ入れる。
+    view.dispatch({ selection: { anchor: selectedLine.from }, scrollIntoView: anchorTop === undefined });
+    if (anchorTop !== undefined) {
+      const coords = view.coordsAtPos(selectedLine.from);
+      if (coords !== null) window.scrollBy(0, coords.top - anchorTop);
+    }
   }
   renderStatus();
   view.focus();

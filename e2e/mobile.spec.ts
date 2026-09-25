@@ -320,3 +320,33 @@ test('mobile browser でも引用行が編集開始の前後で同じ位置・�
   expect(afterBoxes).toHaveLength(beforeBoxes.length);
   for (const [index, before] of beforeBoxes.entries()) expectSameTextBox(index, before, afterBoxes[index]!);
 });
+
+test('mobile browser は長いページの途中から編集を始めても scroll 位置を保つ', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'scroll-mobile-e2e');
+
+  const title = `mobile-scroll-${testInfo.project.name}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, Array.from({ length: 100 }, (_, index) => `body line ${index}`));
+
+  await page.goto(`/e2e/${title}`);
+  await page.evaluate(() => window.scrollTo(0, 1200));
+  const tappedRowTop = async (): Promise<{ top: number; viewportHeight: number }> => page.evaluate(() => {
+    const rows = document.querySelectorAll('#editor-root .line-row, #editor-root .cm-line');
+    const row = Array.from(rows).find((candidate) => candidate.textContent?.trim() === 'body line 69');
+    if (row === undefined) throw new Error('the tapped line is not rendered');
+    return { top: Math.round(row.getBoundingClientRect().top), viewportHeight: window.innerHeight };
+  });
+  const before = await tappedRowTop();
+  expect(before.top).toBeGreaterThanOrEqual(0);
+  expect(before.top).toBeLessThan(before.viewportHeight);
+
+  await page.locator('#editor-root .line-row').nth(70).tap();
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expectMobileLayout(page, expectedWidth);
+
+  const after = await tappedRowTop();
+  expect(after.top).toBeGreaterThanOrEqual(0);
+  expect(after.top).toBeLessThan(after.viewportHeight);
+  expect(Math.abs(after.top - before.top)).toBeLessThan(22);
+});
