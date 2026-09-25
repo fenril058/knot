@@ -89,6 +89,9 @@ test('mobile browser でページを探して編集し、再読み込み後も�
   await expect(projectLink).toBeInViewport();
   await projectLink.tap();
   await expect(page).toHaveURL('/e2e');
+  // 検索も編集開始も module script が listener を付けてから効く。toHaveURL は読み込みを
+  // 待たないので、遷移直後に操作すると listener が付く前の入力が捨てられる。
+  await page.waitForLoadState();
   await expectMobileLayout(page, expectedWidth);
 
   const search = page.getByRole('searchbox');
@@ -105,6 +108,7 @@ test('mobile browser でページを探して編集し、再読み込み後も�
   await expect(searchHit).toBeInViewport();
   await searchHit.tap();
   await expect(page).toHaveURL(`/e2e/${title}`);
+  await page.waitForLoadState();
   await expectMobileLayout(page, expectedWidth);
   await expect(page.locator('.page-body')).toContainText('変更前の既存行');
   await expect(page.getByRole('button', { name: '編集', exact: true })).toHaveCount(0);
