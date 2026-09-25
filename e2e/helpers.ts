@@ -1,33 +1,43 @@
 import { expect, type Page } from '@playwright/test';
 
-export async function loginProjectE2e(target: Page): Promise<void> {
+// login rate limit は ip と name の組で 10 分 10 回なので（src/server/app.ts の loginLimiter）、
+// seed 済みアカウントは題材ごとに分ける。password は名前から決まる（e2e/server.ts）。
+export async function loginE2eAccount(target: Page, name: string): Promise<void> {
   const response = await target.request.post('/api/knot/session', {
     headers: { 'X-Knot-Client': 'e2e' },
-    data: { name: 'project-e2e', password: 'project-e2e-password' },
+    data: { name, password: `${name}-password` },
   });
   expect(response.ok()).toBe(true);
+}
+
+export async function loginProjectE2e(target: Page): Promise<void> {
+  await loginE2eAccount(target, 'project-e2e');
 }
 
 export async function loginRecoveryE2e(target: Page): Promise<void> {
-  const response = await target.request.post('/api/knot/session', {
-    headers: { 'X-Knot-Client': 'e2e' },
-    data: { name: 'recovery-e2e', password: 'recovery-e2e-password' },
-  });
-  expect(response.ok()).toBe(true);
+  await loginE2eAccount(target, 'recovery-e2e');
 }
 
 export async function loginDirectEditE2e(target: Page): Promise<void> {
-  const response = await target.request.post('/api/knot/session', {
-    headers: { 'X-Knot-Client': 'e2e' },
-    data: { name: 'direct-edit-e2e', password: 'direct-edit-e2e-password' },
-  });
-  expect(response.ok()).toBe(true);
+  await loginE2eAccount(target, 'direct-edit-e2e');
 }
 
 export async function loginTitleE2e(target: Page): Promise<void> {
-  const response = await target.request.post('/api/knot/session', {
+  await loginE2eAccount(target, 'title-e2e');
+}
+
+// ページを 1 コミットで作る。行 ID は `${title}-line-${index}` で、テストから直接指せる。
+export async function createE2ePage(target: Page, title: string, bodyLines: string[]): Promise<void> {
+  const texts = [title, ...bodyLines];
+  const ops = texts.map((text, index) => ({
+    type: 'insert' as const,
+    id: `${title}-line-${index}`,
+    after: index === 0 ? '_head' : `${title}-line-${index - 1}`,
+    text,
+  }));
+  const response = await target.request.post(`/api/knot/pages/e2e/${title}/commits`, {
     headers: { 'X-Knot-Client': 'e2e' },
-    data: { name: 'title-e2e', password: 'title-e2e-password' },
+    data: { commitId: `${title}-create`, baseVersion: 0, ops },
   });
   expect(response.ok()).toBe(true);
 }
@@ -91,6 +101,7 @@ export async function replaceEditorDocument(target: Page, texts: string[]): Prom
   await target.keyboard.insertText(texts.join('\n'));
 }
 
+// 行が折り返すと Home / End は視覚行の端へ移るので、この置換は 1 行に収まる行だけで使う。
 export async function replaceEditorLine(target: Page, index: number, text: string): Promise<void> {
   await target.locator('#editor-root .cm-line').nth(index).click();
   await target.keyboard.press('Home');

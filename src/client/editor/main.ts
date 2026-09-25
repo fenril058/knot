@@ -617,6 +617,9 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
     parent: editorRoot,
     extensions: [
       EditorView.cspNonce.of(cspNonce),
+      // 閲覧表示は通常の block として折り返る。これを入れないと CodeMirror の既定の
+      // white-space: pre のままで、編集を開始した瞬間に長い行が横スクロールへ変わる。
+      EditorView.lineWrapping,
       historyExtension(),
       lineWysiwyg({ project, allowedImageHosts, allowedMediaHosts, knownPages }),
       // blur は defaultKeymap より後ろに置く。補完の Escape は Prec.highest で先に処理され、

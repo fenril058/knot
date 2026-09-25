@@ -1,5 +1,11 @@
 import { test, expect, type Page, type Response } from '@playwright/test';
-import { loginProjectE2e, loginTitleE2e, visibleTitleCount } from './helpers.ts';
+import {
+  createE2ePage,
+  loginE2eAccount,
+  loginProjectE2e,
+  loginTitleE2e,
+  visibleTitleCount,
+} from './helpers.ts';
 
 const expectedViewportWidths: Record<string, number> = {
   'mobile-chromium': 360,
@@ -188,9 +194,41 @@ test('mobile browser は見えているタイトルの tap から title 行の�
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);
   await expect(page.locator('#editor-root .cm-line').first()).toHaveText(title);
   expect(await visibleTitleCount(page, title)).toBe(1);
-  await page.keyboard.press('End');
-  await page.keyboard.insertText('-edited');
-  await expect(page.locator('#editor-root .cm-line')).toHaveText([`${title}-edited`, 'mobile の本文']);
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText(`${title}-edited`);
+  // 行が折り返すと End は視覚行の末尾へ移る。tap 直後の caret はタイトル行の先頭なので、
+  // 折り返しの有無に依らない位置として、そこへ挿入する。
+  await page.keyboard.insertText('edited-');
+  await expect(page.locator('#editor-root .cm-line')).toHaveText([`edited-${title}`, 'mobile の本文']);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(`edited-${title}`);
   await expectMobileLayout(page, expectedWidth);
+});
+
+// viewport 360px の閲覧表示で確実に 2 行以上へ折り返す長さ。
+const LONG_BODY_LINE = '長い行が編集中も折り返すことを確かめるための本文です。'.repeat(3);
+
+test('mobile browser は編集を開始しても長い行を折り返したまま表示する', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'wrap-e2e');
+
+  const title = `mobile-wrap-${testInfo.project.name}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, [LONG_BODY_LINE, 'short body']);
+
+  await page.goto(`/e2e/${title}`);
+  await expectMobileLayout(page, expectedWidth);
+
+  await page.locator('#editor-root .line-row').nth(2).tap();
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expectMobileLayout(page, expectedWidth);
+
+  // 横方向のはみ出しは .cm-scroller の中に隠れるので、document の幅だけでは検出できない。
+  const scroller = await page.locator('#editor-root .cm-scroller').evaluate((element) => ({
+    scrollWidth: element.scrollWidth,
+    clientWidth: element.clientWidth,
+  }));
+  expect(scroller.scrollWidth).toBeLessThanOrEqual(scroller.clientWidth);
+
+  const editorHeights = await page.locator('#editor-root .cm-line').evaluateAll((lines) =>
+    lines.map((line) => line.getBoundingClientRect().height)
+  );
+  expect(editorHeights[1]!).toBeGreaterThan(editorHeights[2]! * 1.5);
 });

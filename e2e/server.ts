@@ -17,59 +17,30 @@ mkdirSync(join(dataDir, 'files'), { recursive: true });
 const storage = new SqliteStorage(openDatabase(join(dataDir, 'knot.db')));
 const config = { ...defaultConfig(dataDir), secureCookie: false };
 const now = Math.floor(Date.now() / 1000);
-await storage.addAccount(
-  {
-    id: ulid(),
-    actor: { id: ulid(), name: 'e2e', displayName: 'e2e' },
-    name: 'e2e',
-    passwordHash: hashPassword('e2e-password'),
-    isAdmin: false,
-  },
-  now,
-);
-await storage.addAccount(
-  {
-    id: ulid(),
-    actor: { id: ulid(), name: 'project-e2e', displayName: 'project-e2e' },
-    name: 'project-e2e',
-    passwordHash: hashPassword('project-e2e-password'),
-    isAdmin: false,
-  },
-  now,
-);
-await storage.addAccount(
-  {
-    id: ulid(),
-    actor: { id: ulid(), name: 'recovery-e2e', displayName: 'recovery-e2e' },
-    name: 'recovery-e2e',
-    passwordHash: hashPassword('recovery-e2e-password'),
-    isAdmin: false,
-  },
-  now,
-);
-// spec ごとにアカウントを分けるのは、login rate limit が ip と name の組で 10 分間 10 回までだから
+// アカウントを題材ごとに分けるのは、login rate limit が ip と name の組で 10 分間 10 回までだから
 // （src/server/app.ts の loginLimiter）。同じ name を全 spec で使うと 429 で落ちる。
 // title の spec は direct-edit と mobile にまたがるので、spec ではなく題材で 1 つ分ける。
-await storage.addAccount(
-  {
-    id: ulid(),
-    actor: { id: ulid(), name: 'direct-edit-e2e', displayName: 'direct-edit-e2e' },
-    name: 'direct-edit-e2e',
-    passwordHash: hashPassword('direct-edit-e2e-password'),
-    isAdmin: false,
-  },
-  now,
-);
-await storage.addAccount(
-  {
-    id: ulid(),
-    actor: { id: ulid(), name: 'title-e2e', displayName: 'title-e2e' },
-    name: 'title-e2e',
-    passwordHash: hashPassword('title-e2e-password'),
-    isAdmin: false,
-  },
-  now,
-);
+// password は `${name}-password`（e2e/helpers.ts の loginE2eAccount と対）。
+const accountNames = [
+  'e2e',
+  'project-e2e',
+  'recovery-e2e',
+  'direct-edit-e2e',
+  'title-e2e',
+  'wrap-e2e',
+];
+for (const name of accountNames) {
+  await storage.addAccount(
+    {
+      id: ulid(),
+      actor: { id: ulid(), name, displayName: name },
+      name,
+      passwordHash: hashPassword(`${name}-password`),
+      isAdmin: false,
+    },
+    now,
+  );
+}
 await storage.ensureProject('e2e', now);
 
 const port = Number(process.env.E2E_PORT ?? 4173);
