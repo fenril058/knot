@@ -1,11 +1,14 @@
 import { test, expect } from '@playwright/test';
 import {
   createE2ePage as createPage,
+  expectSameTextBox,
   deferred,
   lineRowClickPosition,
+  lineTextBoxes,
   loginDirectEditE2e,
   loginE2eAccount,
   loginTitleE2e,
+  textStyleOf,
   visibleTitleCount,
 } from './helpers.ts';
 
@@ -454,4 +457,84 @@ test('折り返さない code 行があっても他の行の折り返しは止�
   });
   for (const width of layout.lineWidths) expect(width).toBeLessThanOrEqual(layout.clientWidth);
   expect(layout.lineHeights[1]!).toBeGreaterThan(layout.lineHeights[4]! * 1.5);
+});
+
+// 閲覧表示で 2 行以上に折り返る長さ。折り返し位置まで一致することを見るために使う。
+const PARITY_LONG_LINE = '編集開始の前後で字と位置が変わらないことを確かめる本文です。'.repeat(4);
+// 分割できる位置を持たない長いラベル。閲覧表示でページを横にはみ出させる。
+const UNBREAKABLE_LINK = '[https://example.com/a/very/long/unbreakable/path/segment/that/never/wraps/at/all]';
+
+// 引用行は閲覧表示が blockquote、編集表示が q で、要素そのものが違う。
+// この PR の対象外で、#188 の残りとして #201 で扱う。
+const PARITY_BODY = [
+  PARITY_LONG_LINE,
+  '  indented body',
+  '[* bold] and #hashtag',
+  'spaced    gap   here',
+  'table:sample',
+  ' left	right',
+  'short body',
+];
+
+test('編集開始の前後で本文の字と位置が変わらない', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'parity-e2e');
+  const title = `editor-parity-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createPage(page, title, PARITY_BODY);
+
+  await page.goto(`/e2e/${title}`);
+  const beforeTitleStyle = await textStyleOf(page, title);
+  const beforeBodyStyle = await textStyleOf(page, PARITY_LONG_LINE);
+  const beforeBoxes = await lineTextBoxes(page);
+  // 文字を持たない行があると lineTextBoxes が 0 を返し、一致の assertion が素通りする。
+  for (const box of beforeBoxes) expect(box.width).toBeGreaterThan(0);
+
+  // 最終行から起動する。active 行は原文表示になるので、比較対象の行は非 active のままにする。
+  await page.locator('#editor-root .line-row').nth(PARITY_BODY.length).click({ position: lineRowClickPosition });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+
+  expect(await textStyleOf(page, title)).toEqual(beforeTitleStyle);
+  expect(await textStyleOf(page, PARITY_LONG_LINE)).toEqual(beforeBodyStyle);
+  const afterBoxes = await lineTextBoxes(page);
+  expect(afterBoxes).toHaveLength(beforeBoxes.length);
+  for (const [index, before] of beforeBoxes.entries()) expectSameTextBox(index, before, afterBoxes[index]!);
+});
+
+test('分割できない長いリンクラベルでも閲覧表示が横にはみ出さない', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'parity-e2e');
+  const title = `editor-parity-overflow-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createPage(page, title, [UNBREAKABLE_LINK]);
+
+  await page.setViewportSize({ width: 360, height: 780 });
+  await page.goto(`/e2e/${title}`);
+  const viewport = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  expect(viewport.scrollWidth).toBeLessThanOrEqual(viewport.clientWidth);
+});
+
+test('画像を含む行も編集開始で行の高さが変わらない', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'parity-e2e');
+  const title = `editor-parity-image-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createPage(page, title, ['https://i.gyazo.com/example.png', 'short body']);
+
+  // 画像は外部ホストなので読み込ませない。大きさは CSS が決めるので、それで足りる。
+  await page.route('https://i.gyazo.com/**', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400"></svg>' });
+  });
+  await page.goto(`/e2e/${title}`);
+  await expect(page.locator('#editor-root .line-row img')).toBeVisible();
+  const rowHeights = async (): Promise<number[]> => page.evaluate(() =>
+    Array.from(
+      document.querySelectorAll('#editor-root .line-row, #editor-root .cm-line'),
+      (row) => Math.round(row.getBoundingClientRect().height),
+    )
+  );
+  const before = await rowHeights();
+  // 文字の無い行は lineTextBoxes では見えないので、行の箱の高さで見る。
+  expect(before[1]!).toBeGreaterThan(before[2]!);
+
+  await page.locator('#editor-root .line-row').nth(2).click({ position: lineRowClickPosition });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  expect(await rowHeights()).toEqual(before);
 });

@@ -183,7 +183,6 @@ class FormattedLineWidget extends WidgetType {
     if (this.line.indent > 0) content.classList.add('cm-wysiwyg-indent-content');
     if (this.line.role === 'title') {
       const title = document.createElement('strong');
-      title.className = 'cm-wysiwyg-title';
       title.textContent = this.line.text;
       content.append(title);
     } else if (this.line.role === 'line') {
@@ -229,8 +228,13 @@ function buildDecorations(view: EditorView, config: LineWysiwygConfig): Decorati
   try {
     for (const line of displayLines(view.state, config)) {
       // SSR の h1 は Editor 起動時に置換されるため、編集中も先頭行を見出しとして公開する。
+      // 字の大きさは行に掛ける。閲覧表示では h1 が行そのものなので、行の高さの計算も
+      // 原文表示に切り替えたときの字の大きさも、こちら側だけで合う。
       if (line.role === 'title') {
-        builder.add(line.from, line.from, Decoration.line({ attributes: { role: 'heading', 'aria-level': '1' } }));
+        builder.add(line.from, line.from, Decoration.line({
+          class: 'cm-title-line',
+          attributes: { role: 'heading', 'aria-level': '1' },
+        }));
       }
       if (editing.has(line.number)) continue;
       const widget = new FormattedLineWidget(line);
