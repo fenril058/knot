@@ -4,7 +4,13 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+
+# PR は refs/pull/<番号>/merge ごとに最新の実行だけを残す。
+# fork からの PR では event payload が空になり得るので、PR 番号ではなく github.ref を使う。
+# push は run_id で実行ごとに別の group にし、待機中の実行も置き換えられないようにする。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
