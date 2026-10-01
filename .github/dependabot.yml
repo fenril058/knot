@@ -21,7 +21,7 @@ updates:
     # Dependabot には触らせず flake.lock の更新と一緒に手で上げる。
     ignore:
       - dependency-name: "@playwright/test"
-      # 7.0.2002 以降、type-aware rule の oxlint-disable-next-line が効かない
+      # 7.0.2002 / 7.0.2003 では、type-aware rule の oxlint-disable-next-line が効かない
       # （oxc-project/oxc#27084、#213）。直った版が出たら自動で戻るよう exact version で外す。
       - dependency-name: "oxlint-tsgolint"
         versions: ["7.0.2002", "7.0.2003"]
