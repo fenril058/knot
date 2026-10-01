@@ -63,18 +63,20 @@ export function startAutoExport(deps: {
   dataDir: string;
   config: ServerConfig;
   now?: () => number;
+  runOnce?: typeof runAutoExportOnce;
 }): { stop(): void } {
   const configuredDir = deps.config.autoExportDir;
   if (configuredDir === null) return { stop() {} };
   const dir = isAbsolute(configuredDir) ? configuredDir : resolve(deps.dataDir, configuredDir);
   const now = deps.now ?? (() => Math.floor(Date.now() / 1000));
+  const runOnce = deps.runOnce ?? runAutoExportOnce;
   let running = false;
 
   const run = () => {
     // knot v1 は単一プロセス運用を前提とするため、プロセス間ロックは行わない。
     if (running) return;
     running = true;
-    void runAutoExportOnce(deps.storage, deps.dataDir, { dir, keep: deps.config.autoExportKeep }, now())
+    void runOnce(deps.storage, deps.dataDir, { dir, keep: deps.config.autoExportKeep }, now())
       .catch((error: unknown) => console.error('auto export failed:', error))
       .finally(() => { running = false; });
   };

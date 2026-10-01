@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -125,53 +125,45 @@ void test('添付が欠落したプロジェクトを記録して他プロジェ
 
 void test('起動直後と周期ごとに実行し、実行中は skip し、stop 後は実行しない', async (t) => {
   t.mock.timers.enable({ apis: ['setInterval'] });
-  const dataDir = mkdtempSync(join(tmpdir(), 'knot-auto-export-data-'));
   const { storage } = makeStorage();
-  await addProject(storage, 'alpha');
-  const originalListProjects = storage.listProjects.bind(storage);
-  let calls = 0;
-  const callCount = () => calls;
-  let release!: () => void;
-  let blocked = new Promise<void>((resolve) => { release = resolve; });
-  storage.listProjects = async () => {
-    calls++;
-    await blocked;
-    return originalListProjects();
-  };
+  const dataDir = join(tmpdir(), 'knot-auto-export-schedule');
   const config = { ...defaultConfig(dataDir), autoExportDir: 'exports', autoExportIntervalHours: 1 };
-  config.autoExportKeep = 1;
-  mkdirSync(join(dataDir, 'exports', 'alpha'), { recursive: true });
-  const prunedExport = join(dataDir, 'exports', 'alpha', '00000000-000000.zip');
-  writeFileSync(prunedExport, 'old');
+  config.autoExportKeep = 3;
+  // 実行の完了を test から決められるよう、export 本体は差し替える。export 自体の挙動は上の test で見る。
+  const runs: { args: Parameters<typeof runAutoExportOnce>; finish: () => void }[] = [];
+  const runOnce: typeof runAutoExportOnce = (...args) => new Promise((resolve) => {
+    runs.push({ args, finish: () => resolve({ written: [], pruned: [] }) });
+  });
+  // 完了から finally で実行中が解除されるまでの Promise の後処理を流す。
+  // setImmediate は mock 対象外（apis: ['setInterval']）で、I/O を待たないので 1 回で足りる。
+  const finish = async (index: number) => {
+    runs[index]!.finish();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  };
 
-  const handle = startAutoExport({ storage, dataDir, config, now: () => NOW });
-  assert.equal(calls, 1);
+  const handle = startAutoExport({ storage, dataDir, config, now: () => NOW, runOnce });
+  assert.equal(runs.length, 1);
+  assert.deepEqual(runs[0]!.args, [storage, dataDir, { dir: join(dataDir, 'exports'), keep: 3 }, NOW]);
+  await finish(0);
+
+  // 完了済みなら、ちょうど 1 周期後に次が始まる。
+  t.mock.timers.tick(3_599_999);
+  assert.equal(runs.length, 1);
+  t.mock.timers.tick(1);
+  assert.equal(runs.length, 2);
+
+  // 実行中に来た周期は skip し、完了後のちょうど次の周期で始まる。
   t.mock.timers.tick(3_600_000);
-  assert.equal(calls, 1);
-  release();
-  // setTimeout は mock 対象外（apis: ['setInterval']）なので実時間で待てる。
-  // setImmediate の有界ループはスイート並列実行の負荷下で I/O 完了前に尽きるため使わない。
-  const firstExport = join(dataDir, 'exports', 'alpha', '20251009-085500.zip');
-  const deadline = Date.now() + 5000;
-  while (!existsSync(firstExport) && Date.now() < deadline) {
-    await new Promise<void>((resolve) => setTimeout(resolve, 5));
-  }
-  assert.equal(existsSync(firstExport), true);
-  // ファイル確定後の世代管理（prune 対象の消滅）と finally まで待つ。
-  const pruneDeadline = Date.now() + 2000;
-  while (existsSync(prunedExport) && Date.now() < pruneDeadline) {
-    await new Promise<void>((resolve) => setTimeout(resolve, 5));
-  }
-  assert.equal(existsSync(prunedExport), false);
-  blocked = Promise.resolve();
-  t.mock.timers.tick(3_600_000);
-  const callsDeadline = Date.now() + 2000;
-  while (callCount() !== 2 && Date.now() < callsDeadline) {
-    await new Promise<void>((resolve) => setTimeout(resolve, 5));
-  }
-  assert.equal(calls, 2);
+  assert.equal(runs.length, 2);
+  await finish(1);
+  t.mock.timers.tick(3_599_999);
+  assert.equal(runs.length, 2);
+  t.mock.timers.tick(1);
+  assert.equal(runs.length, 3);
+
+  await finish(2);
   handle.stop();
-  t.mock.timers.tick(3_600_000);
-  assert.equal(calls, 2);
+  t.mock.timers.tick(10 * 3_600_000);
+  assert.equal(runs.length, 3);
   await storage.close();
 });
