@@ -31,26 +31,26 @@
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
-    "@codemirror/commands": "^6.11.0",
-    "@codemirror/state": "^6.7.4",
-    "@codemirror/view": "^6.43.11",
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.13",
     "@hono/node-server": "^2.1.1",
     "@progfay/scrapbox-parser": "^10.1.1",
-    "hono": "^4.13.7",
+    "hono": "^4.13.9",
     "jose": "6.2.12"
   },
   "devDependencies": {
     "@helpfeel/cosense-cli": "^1.15.0",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.30.1",
     "@playwright/test": "^1.63.0",
-    "@types/node": "^26.5.1",
-    "knip": "^6.35.1",
-    "oxlint": "^1.82.0",
+    "@types/node": "^26.6.2",
+    "knip": "^6.38.0",
+    "oxlint": "^1.85.0",
     "oxlint-tsgolint": "^7.0.2001",
-    "rolldown": "^1.2.8",
+    "rolldown": "^1.2.10",
     "scrapbox-cosense-mcp": "^0.11.0",
     "typescript": "^7.0.2",
-    "wrangler": "4.131.1"
+    "wrangler": "4.138.0"
   },
   "overrides": {
     "@modelcontextprotocol/sdk": "$@modelcontextprotocol/sdk",
