@@ -64,7 +64,17 @@ jobs:
           persist-credentials: false
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
       - run: nix develop . --command node -e 'if (process.versions.node.split(".")[0] !== "26") process.exit(1)'
-      - run: nix develop . --command npm run test:e2e
+      - id: e2e
+        run: nix develop . --command npm run test:e2e
+      # Playwright 自体が失敗したときだけ test-results/ を残す。
+      # failure() だけだと前の step の失敗でも走り、test-results/ が無いので upload も失敗する。
+      - if: failure() && steps.e2e.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/
+          if-no-files-found: error
+          retention-days: 14
 
   docker:
     runs-on: ubuntu-latest

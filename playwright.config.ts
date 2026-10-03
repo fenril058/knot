@@ -22,7 +22,12 @@ export default defineConfig({
       use: { ...devices['iPhone 16'], browserName: 'webkit' },
     },
   ],
-  use: { baseURL: `http://127.0.0.1:${port}` },
+  // 失敗したテストだけ trace と screenshot を test-results/ に残す。CI は失敗時にこれを artifact にする。
+  use: {
+    baseURL: `http://127.0.0.1:${port}`,
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
+  },
   webServer: {
     command: 'npm run build:client && node e2e/server.ts',
     url: `http://127.0.0.1:${port}/login`,
