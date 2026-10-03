@@ -70,6 +70,11 @@ dialog form { display: grid; gap: 1rem; }
 #editor-root .line-row, #editor-root .cm-line { padding-inline-end: 2.5rem; }
 /* outline は箱の外に描かれ、行の位置を動かさない。 */
 #editor-root .cm-focused { outline: 2px solid #2c6ea3; outline-offset: 2px; }
+/* ADR 0018 のキーボード契約を画面に出す。本文を tab order に載せない代わりに
+   ctrl(cmd) + e で入り Escape で抜ける、という経路がどこにも書かれていなかった。
+   編集中も内容が正しいままなので、起動で消して本文を動かすことはしない。 */
+.edit-hint { color: #555; font-size: 0.9em; margin: 0 0 0.25rem; }
+.edit-hint kbd { border: 1px solid #767676; border-radius: 3px; font-family: inherit; font-size: 0.95em; padding: 0 0.25em; }
 #save-status { min-height: 1.5em; margin-bottom: 0.5rem; color: #555; text-align: right; }
 #save-status[data-status="error"] { color: #c0392b; }
 #save-status[data-status="conflict"] { color: #9a6700; font-weight: 700; }

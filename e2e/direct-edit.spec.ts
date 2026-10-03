@@ -809,3 +809,40 @@ test('link だけの行でもリンク自体の click は navigation のまま',
   await page.locator('#editor-root .cm-line').nth(1).locator('a').click();
   await expect(page).toHaveURL(new RegExp(`/e2e/${target}$`));
 });
+
+test('編集のキーボード操作が画面に書かれている', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'hint-e2e');
+  const title = `edit-hint-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createPage(page, title, ['body']);
+
+  await page.goto(`/e2e/${title}`);
+  const hint = page.locator('#edit-hint');
+  await expect(hint).toBeVisible();
+  await expect(hint).toContainText('Ctrl + E');
+  await expect(hint).toContainText('Escape');
+
+  // ADR 0018 が却下した「編集」ボタンを戻さない。tab stop も増やさない。
+  await expect(hint.locator('a, button, input, [tabindex]')).toHaveCount(0);
+
+  // 編集中も内容が正しいままなので、起動で消して本文を動かすことはしない。
+  await page.locator('#editor-root .line-row').nth(1).click({ position: lineRowClickPosition });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expect(hint).toBeVisible();
+});
+
+test('JavaScript 無効ではキーボード操作の案内を出さない', async ({ browser }, testInfo) => {
+  const context = await browser.newContext({ javaScriptEnabled: false });
+  const noScriptPage = await context.newPage();
+  try {
+    await loginE2eAccount(noScriptPage, 'hint-e2e');
+    const title = `edit-hint-noscript-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+    await createPage(noScriptPage, title, ['body']);
+
+    await noScriptPage.goto(`/e2e/${title}`);
+    // ショートカットは editor.js が動いてはじめて効く。動かない環境では案内しない。
+    await expect(noScriptPage.locator('#edit-hint')).toBeHidden();
+    await expect(noScriptPage.locator('#editor-root .line-row')).toHaveText([title, 'body']);
+  } finally {
+    await context.close();
+  }
+});
