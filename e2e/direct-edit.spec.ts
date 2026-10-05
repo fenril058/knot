@@ -516,6 +516,10 @@ test('分割できない長いリンクラベルでも閲覧表示が横には�
   expect(viewport.scrollWidth).toBeLessThanOrEqual(viewport.clientWidth);
 });
 
+function svg(width: number, height: number): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"></svg>`;
+}
+
 test('画像を含む行も編集開始で行の高さと画像の大きさが変わらない', async ({ page }, testInfo) => {
   await loginE2eAccount(page, 'parity-e2e');
   const title = `editor-parity-image-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
@@ -524,17 +528,20 @@ test('画像を含む行も編集開始で行の高さと画像の大きさが�
   await createPage(page, iconPage, ['https://i.gyazo.com/icon.png']);
   await createPage(page, title, ['https://i.gyazo.com/example.png', `[${iconPage}.icon]`, 'short body']);
 
-  // 画像は外部ホストなので、同じ大きさの SVG で代える。編集表示が作り直す img の取得は
-  // 測り終えるまで止め、読み込み前の大きさを測る。
+  // 画像は外部ホストなので SVG で代える。編集表示が作り直す img の取得は測り終えるまで止め、
+  // 読み込み前の大きさを測る。取り直しでは縦横比も違う画像を返し、読み込み後に閲覧時の
+  // 大きさが残っていないことも見る。
   const imageGate = deferred();
   let holdImages = false;
   let heldImages = 0;
   await page.route('https://i.gyazo.com/**', async (route) => {
-    if (holdImages) {
-      heldImages += 1;
-      await imageGate.promise;
+    if (!holdImages) {
+      await route.fulfill({ status: 200, contentType: 'image/svg+xml', body: svg(600, 400) });
+      return;
     }
-    await route.fulfill({ status: 200, contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400"></svg>' });
+    heldImages += 1;
+    await imageGate.promise;
+    await route.fulfill({ status: 200, contentType: 'image/svg+xml', body: svg(300, 500) });
   });
   await page.goto(`/e2e/${title}`);
   const images = page.locator('#editor-root .line-row img');
@@ -565,12 +572,30 @@ test('画像を含む行も編集開始で行の高さと画像の大きさが�
   await cdp.send('Network.clearBrowserCache');
   holdImages = true;
 
-  await page.locator('#editor-root .line-row').nth(3).click({ position: lineRowClickPosition });
-  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
-  // 再取得が止まっている間に測る。再取得が起きなければ、この test は何も見ていない。
-  await expect.poll(() => heldImages).toBe(2);
-  expect(await layout()).toEqual(before);
-  imageGate.resolve();
+  try {
+    await page.locator('#editor-root .line-row').nth(3).click({ position: lineRowClickPosition });
+    await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+    // 再取得が止まっている間に測る。再取得が起きなければ、この test は何も見ていない。
+    await expect.poll(() => heldImages).toBe(2);
+    expect(await layout()).toEqual(before);
+  } finally {
+    imageGate.resolve();
+  }
+
+  const editorImages = page.locator('#editor-root .cm-line img:not(.cm-widgetBuffer)');
+  await expect(editorImages).toHaveCount(2);
+  await page.waitForFunction(() => Array.from(
+    document.querySelectorAll<HTMLImageElement>('#editor-root .cm-line img:not(.cm-widgetBuffer)'),
+    (image) => image.complete && image.naturalWidth > 0,
+  ).every(Boolean));
+  const loaded = await editorImages.evaluateAll((elements) => elements.map((image) => {
+    const box = image.getBoundingClientRect();
+    return { width: box.width, height: box.height };
+  }));
+  // 本文の画像は CSS が大きさを決めないので、読み込んだ画像の大きさで描かれる。
+  expect(loaded[0]).toEqual({ width: 300, height: 500 });
+  // アイコンは CSS が高さを決めるので、縦横比だけを見る。
+  expect(loaded[1]!.width / loaded[1]!.height).toBeCloseTo(300 / 500, 2);
 });
 
 test('引用行も編集開始の前後で同じ位置・同じ字で描かれる', async ({ page }, testInfo) => {

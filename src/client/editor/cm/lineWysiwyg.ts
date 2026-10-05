@@ -87,6 +87,14 @@ function appendNode(parent: ParentNode, node: PresentedNode, imageSizes: Readonl
       if (size !== undefined) {
         image.width = size.width;
         image.height = size.height;
+        // 属性は読み込みまでの場所取りにだけ使う。取り直した画像の大きさが閲覧時と違っても、
+        // 読み込み後は画像そのものの大きさに従わせる。
+        const release = (): void => {
+          image.removeAttribute('width');
+          image.removeAttribute('height');
+        };
+        image.addEventListener('load', release, { once: true });
+        image.addEventListener('error', release, { once: true });
       }
       if (node.lazy) image.loading = 'lazy';
       parent.append(image);
