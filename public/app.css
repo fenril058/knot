@@ -29,7 +29,9 @@ a { color: #2c6ea3; }
 .telomere.age-3 { opacity: 0.3; }
 .line-row.highlight { background: #fff8dc; }
 .code-line { font-family: monospace; white-space: pre; }
-.icon-img { height: 1.2em; vertical-align: middle; }
+/* 編集表示の img は読み込み前から場所を取れるよう width / height 属性を持つ。
+   width を属性から取らず、属性の縦横比と CSS の高さから決める。 */
+.icon-img { height: 1.2em; width: auto; vertical-align: middle; }
 .error { color: #c0392b; }
 .create-project { border: 1px solid #ddd; border-radius: 6px; max-width: 28rem; padding: 1rem; }
 .create-project h2 { margin-top: 0; }

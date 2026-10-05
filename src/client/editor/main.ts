@@ -10,7 +10,7 @@ import { mapSelectionByLineId } from './documentChanges.ts';
 import { titleAutocompletion } from './cm/complete.ts';
 import { syntaxHighlighting } from './cm/decorations.ts';
 import { editorKeymap } from './cm/keymap.ts';
-import { lineWysiwyg } from './cm/lineWysiwyg.ts';
+import { lineWysiwyg, type ImageSize } from './cm/lineWysiwyg.ts';
 import { pasteHandlers } from './cm/paste.ts';
 import { refreshTelomereGutter, telomereGutter } from './cm/telomere.ts';
 import {
@@ -588,6 +588,16 @@ function visibleRowTop(lineId: string): number | undefined {
   return box.bottom > 0 && box.top < window.innerHeight ? box.top : undefined;
 }
 
+function loadedImageSizes(): Map<string, ImageSize> {
+  const sizes = new Map<string, ImageSize>();
+  for (const image of editorRoot.querySelectorAll('img')) {
+    const src = image.getAttribute('src');
+    if (src === null || !image.complete || image.naturalWidth === 0) continue;
+    sizes.set(src, { width: image.naturalWidth, height: image.naturalHeight });
+  }
+  return sizes;
+}
+
 type InitialEditTarget = { lineId: string; lineNumber: number };
 
 async function start(initialTarget?: InitialEditTarget): Promise<void> {
@@ -621,6 +631,8 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
   // 差し替えの前に、編集対象の行が画面のどこにあったかを覚える。本文を CodeMirror へ
   // 差し替えると文書の高さが一度縮み、ブラウザが scroll 位置を切り詰めてしまう。
   const anchorTop = initialTarget === undefined ? undefined : visibleRowTop(initialTarget.lineId);
+  // 閲覧表示で読み込み済みの画像の大きさも、差し替えで img が消える前に覚える。
+  const imageSizes = loadedImageSizes();
 
   editorRoot.replaceChildren();
   if (editButton !== null) editButton.hidden = true;
@@ -634,7 +646,7 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
       // white-space: pre のままで、編集を開始した瞬間に長い行が横スクロールへ変わる。
       EditorView.lineWrapping,
       historyExtension(),
-      lineWysiwyg({ project, allowedImageHosts, allowedMediaHosts, knownPages }),
+      lineWysiwyg({ project, allowedImageHosts, allowedMediaHosts, knownPages, imageSizes }),
       // blur は defaultKeymap より後ろに置く。補完の Escape は Prec.highest で先に処理され、
       // 選択の simplifySelection も先に試されて、どちらも該当しないときだけ抜ける。
       keymap.of([
