@@ -23,7 +23,12 @@ export type LineWysiwygConfig = {
   allowedImageHosts: string[];
   allowedMediaHosts: string[];
   knownPages: KnownPage[];
+  // src ごとの画像の大きさ。編集表示は img を作り直すので、ブラウザがキャッシュから
+  // 同期的に再利用できないと、読み込みが終わるまで画像の行が縮む (#211)。
+  imageSizes?: ReadonlyMap<string, ImageSize>;
 };
+
+export type ImageSize = { width: number; height: number };
 
 export function editingLineNumbers(state: EditorState): Set<number> {
   const numbers = new Set<number>();
@@ -44,7 +49,7 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
-function appendNode(parent: ParentNode, node: PresentedNode): void {
+function appendNode(parent: ParentNode, node: PresentedNode, imageSizes: ReadonlyMap<string, ImageSize>): void {
   switch (node.type) {
     case 'text':
       parent.append(document.createTextNode(node.text));
@@ -60,7 +65,7 @@ function appendNode(parent: ParentNode, node: PresentedNode): void {
       // 引用符も付くため、要素を変えると字下げも行の高さも色も揃わない。
       const container = document.createElement(node.kind === 'quote' ? 'blockquote' : node.kind);
       if (node.className !== undefined) container.className = node.className;
-      for (const child of node.children) appendNode(container, child);
+      for (const child of node.children) appendNode(container, child, imageSizes);
       parent.append(container);
       return;
     }
@@ -69,7 +74,7 @@ function appendNode(parent: ParentNode, node: PresentedNode): void {
       anchor.href = node.href;
       if (node.className !== undefined) anchor.className = node.className;
       if (node.external) anchor.rel = 'noopener noreferrer';
-      for (const child of node.children) appendNode(anchor, child);
+      for (const child of node.children) appendNode(anchor, child, imageSizes);
       parent.append(anchor);
       return;
     }
@@ -78,6 +83,11 @@ function appendNode(parent: ParentNode, node: PresentedNode): void {
       image.src = node.src;
       image.alt = node.alt;
       if (node.className !== undefined) image.className = node.className;
+      const size = imageSizes.get(node.src);
+      if (size !== undefined) {
+        image.width = size.width;
+        image.height = size.height;
+      }
       if (node.lazy) image.loading = 'lazy';
       parent.append(image);
       return;
@@ -152,10 +162,12 @@ function openLinkAtCursor(config: LineWysiwygConfig): (view: EditorView) => bool
 
 class FormattedLineWidget extends WidgetType {
   readonly line: PresentedLine;
+  readonly imageSizes: ReadonlyMap<string, ImageSize>;
 
-  constructor(line: PresentedLine) {
+  constructor(line: PresentedLine, imageSizes: ReadonlyMap<string, ImageSize>) {
     super();
     this.line = line;
+    this.imageSizes = imageSizes;
   }
 
   override eq(other: WidgetType): boolean {
@@ -186,7 +198,7 @@ class FormattedLineWidget extends WidgetType {
       title.textContent = this.line.text;
       content.append(title);
     } else if (this.line.role === 'line') {
-      for (const node of this.line.nodes) appendNode(content, node);
+      for (const node of this.line.nodes) appendNode(content, node, this.imageSizes);
     } else if (this.line.role === 'codeHeader' || this.line.role === 'tableHeader') {
       const header = document.createElement('span');
       header.className = this.line.role === 'codeHeader' ? 'code-header' : 'table-header';
@@ -202,7 +214,7 @@ class FormattedLineWidget extends WidgetType {
       const tr = document.createElement('tr');
       for (const cell of this.line.cells) {
         const td = document.createElement('td');
-        for (const node of cell) appendNode(td, node);
+        for (const node of cell) appendNode(td, node, this.imageSizes);
         tr.append(td);
       }
       table.append(tr);
@@ -224,6 +236,7 @@ class FormattedLineWidget extends WidgetType {
 
 function buildDecorations(view: EditorView, config: LineWysiwygConfig): DecorationSet {
   const editing = editingLineNumbers(view.state);
+  const imageSizes = config.imageSizes ?? new Map<string, ImageSize>();
   const builder = new RangeSetBuilder<Decoration>();
   try {
     for (const line of displayLines(view.state, config)) {
@@ -237,7 +250,7 @@ function buildDecorations(view: EditorView, config: LineWysiwygConfig): Decorati
         }));
       }
       if (editing.has(line.number)) continue;
-      const widget = new FormattedLineWidget(line);
+      const widget = new FormattedLineWidget(line, imageSizes);
       if (line.from === line.to) {
         builder.add(line.from, line.to, Decoration.widget({ widget }));
       } else {

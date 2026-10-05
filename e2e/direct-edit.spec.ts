@@ -516,30 +516,61 @@ test('分割できない長いリンクラベルでも閲覧表示が横には�
   expect(viewport.scrollWidth).toBeLessThanOrEqual(viewport.clientWidth);
 });
 
-test('画像を含む行も編集開始で行の高さが変わらない', async ({ page }, testInfo) => {
+test('画像を含む行も編集開始で行の高さと画像の大きさが変わらない', async ({ page }, testInfo) => {
   await loginE2eAccount(page, 'parity-e2e');
   const title = `editor-parity-image-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
-  await createPage(page, title, ['https://i.gyazo.com/example.png', 'short body']);
+  // アイコンの img は CSS が高さを決め、本文の画像とは大きさの決まり方が違うので、両方を題材にする。
+  const iconPage = `${title}-icon`;
+  await createPage(page, iconPage, ['https://i.gyazo.com/icon.png']);
+  await createPage(page, title, ['https://i.gyazo.com/example.png', `[${iconPage}.icon]`, 'short body']);
 
-  // 画像は外部ホストなので読み込ませない。大きさは CSS が決めるので、それで足りる。
+  // 画像は外部ホストなので、同じ大きさの SVG で代える。編集表示が作り直す img の取得は
+  // 測り終えるまで止め、読み込み前の大きさを測る。
+  const imageGate = deferred();
+  let holdImages = false;
+  let heldImages = 0;
   await page.route('https://i.gyazo.com/**', async (route) => {
+    if (holdImages) {
+      heldImages += 1;
+      await imageGate.promise;
+    }
     await route.fulfill({ status: 200, contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400"></svg>' });
   });
   await page.goto(`/e2e/${title}`);
-  await expect(page.locator('#editor-root .line-row img')).toBeVisible();
-  const rowHeights = async (): Promise<number[]> => page.evaluate(() =>
-    Array.from(
+  const images = page.locator('#editor-root .line-row img');
+  await expect(images).toHaveCount(2);
+  for (const image of await images.all()) await expect(image).toBeVisible();
+  const layout = async (): Promise<{ rows: number[]; images: number[][] }> => page.evaluate(() => ({
+    rows: Array.from(
       document.querySelectorAll('#editor-root .line-row, #editor-root .cm-line'),
       (row) => Math.round(row.getBoundingClientRect().height),
-    )
-  );
-  const before = await rowHeights();
+    ),
+    images: Array.from(document.querySelectorAll('#editor-root img:not(.cm-widgetBuffer)'), (image) => {
+      const box = image.getBoundingClientRect();
+      return [Math.round(box.width), Math.round(box.height)];
+    }),
+  }));
+  const before = await layout();
   // 文字の無い行は lineTextBoxes では見えないので、行の箱の高さで見る。
-  expect(before[1]!).toBeGreaterThan(before[2]!);
+  expect(before.rows[1]!).toBeGreaterThan(before.rows[3]!);
+  for (const [width, height] of before.images) {
+    expect(width).toBeGreaterThan(0);
+    expect(height).toBeGreaterThan(0);
+  }
 
-  await page.locator('#editor-root .line-row').nth(2).click({ position: lineRowClickPosition });
+  // 閲覧表示で読み込んだ画像をブラウザがキャッシュから同期的に再利用できれば、編集表示の img も
+  // 最初から大きさを持つ。再利用されないと読み込みまで縮む (#211)。その経路を毎回通すためにキャッシュを切る。
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Network.setCacheDisabled', { cacheDisabled: true });
+  await cdp.send('Network.clearBrowserCache');
+  holdImages = true;
+
+  await page.locator('#editor-root .line-row').nth(3).click({ position: lineRowClickPosition });
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
-  expect(await rowHeights()).toEqual(before);
+  // 再取得が止まっている間に測る。再取得が起きなければ、この test は何も見ていない。
+  await expect.poll(() => heldImages).toBe(2);
+  expect(await layout()).toEqual(before);
+  imageGate.resolve();
 });
 
 test('引用行も編集開始の前後で同じ位置・同じ字で描かれる', async ({ page }, testInfo) => {
