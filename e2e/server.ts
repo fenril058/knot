@@ -38,6 +38,8 @@ const accountNames = [
   'geometry-mobile-e2e',
   'line-e2e',
   'line-mobile-e2e',
+  'cards-e2e',
+  'cards-mobile-e2e',
 ];
 for (const name of accountNames) {
   await storage.addAccount(
@@ -52,6 +54,30 @@ for (const name of accountNames) {
   );
 }
 await storage.ensureProject('e2e', now);
+
+// ピン留めは HTTP API から設定できないので、カードの e2e（e2e/cards.spec.ts）が使う
+// ピン留めのページをここで用意する。
+const pinnedProject = await storage.ensureProject('e2e-pinned', now);
+for (const [title, pinned] of [['pinned card', true], ['plain card', false]] as const) {
+  const pageId = ulid();
+  let after = '_head';
+  const ops = [title, `${title} の説明`].map((text) => {
+    const id = ulid();
+    const op = { type: 'insert' as const, id, after, text };
+    after = id;
+    return op;
+  });
+  await storage.commit({
+    projectId: pinnedProject.id,
+    pageId,
+    commitId: ulid(),
+    baseVersion: 0,
+    ops,
+    actorId: 'e2e',
+    now,
+  });
+  if (pinned) await storage.setPinned(pageId, true);
+}
 
 const port = Number(process.env.E2E_PORT ?? 4173);
 serve({ fetch: createApp({ storage, config }).fetch, port, hostname: '127.0.0.1' });

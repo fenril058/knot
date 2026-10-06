@@ -538,3 +538,39 @@ test('mobile browser でも字下げの段・行頭の印・折り返しを閲�
   expect(await indentMarks(page)).toEqual(marks);
   expect(await visualLineRects(page)).toEqual(lines);
 });
+
+test('mobile browser でも一覧の札を Cosense と同じ 2 列・同じ縦横比で並べる', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'cards-mobile-e2e');
+
+  const project = `cards-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  const created = await page.request.post(`/api/knot/projects/${project}`, { headers: { 'X-Knot-Client': 'e2e' } });
+  expect(created.ok()).toBe(true);
+  for (const title of ['first card', 'second card']) {
+    const response = await page.request.post(`/api/knot/pages/${project}/${encodeURIComponent(title)}/commits`, {
+      headers: { 'X-Knot-Client': 'e2e' },
+      data: {
+        commitId: `${project}-${title}`,
+        baseVersion: 0,
+        ops: [{ type: 'insert', id: `${project}-${title}-0`, after: '_head', text: title }],
+      },
+    });
+    expect(response.ok()).toBe(true);
+  }
+
+  await page.goto(`/${project}`);
+  await expectMobileLayout(page, expectedWidth);
+  const boxes = await page.locator('main > .card-grid > li').evaluateAll((items) => items.map((item) => {
+    const box = item.getBoundingClientRect();
+    return { x: box.left, width: box.width, height: box.height };
+  }));
+  // 767px 以下でも札の最小幅は 147px で、間隔は 8px。紙面と同じ左右 8px の余白の内側に 2 列並ぶ。
+  const columnWidth = (expectedWidth - 16 - 8) / 2;
+  expect(boxes).toHaveLength(2);
+  for (const [index, box] of boxes.entries()) {
+    expect(box.x).toBeCloseTo(8 + index * (columnWidth + 8), 1);
+    expect(box.width).toBeCloseTo(columnWidth, 1);
+    expect(box.height).toBeCloseTo(columnWidth * 1.1, 1);
+  }
+});
