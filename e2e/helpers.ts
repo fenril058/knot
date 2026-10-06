@@ -110,8 +110,63 @@ export async function textStyleOf(target: Page, text: string): Promise<Record<st
       fontSize: style.fontSize,
       fontWeight: style.fontWeight,
       lineHeight: style.lineHeight,
+      color: style.color,
     };
   }, text);
+}
+
+// 行の箱の高さ。閲覧表示の .line-row と CodeMirror の .cm-line を同じ数え方で測る。
+// 文字の無い行（空行）の高さは lineTextBoxes では見えないので、こちらで見る。
+export async function rowHeights(target: Page): Promise<number[]> {
+  return target.evaluate(() => Array.from(
+    document.querySelectorAll('#editor-root .line-row, #editor-root .cm-line'),
+    (row) => Math.round(row.getBoundingClientRect().height),
+  ));
+}
+
+export type PageGeometry = {
+  bodyBackground: string;
+  bar: { height: number; background: string };
+  // y は document 上の位置。scroll に依らず比べられるようにする。
+  paper: { x: number; y: number; width: number; background: string; padding: number[] };
+  telomereLeft: number;
+};
+
+// 紙面（本文を載せる白い領域、.page）と、その周りの観測値。
+// テロメアは閲覧表示では行の中、編集表示では gutter にあり、どちらも先頭行のものを測る。
+export async function pageGeometry(target: Page): Promise<PageGeometry> {
+  return target.evaluate(() => {
+    const paper = document.querySelector<HTMLElement>('.page');
+    const bar = document.querySelector<HTMLElement>('.page-nav');
+    const telomere = document.querySelector<HTMLElement>('#editor-root .telomere');
+    if (paper === null || bar === null || telomere === null) throw new Error('page layout element is missing');
+    const paperBox = paper.getBoundingClientRect();
+    const paperStyle = getComputedStyle(paper);
+    return {
+      bodyBackground: getComputedStyle(document.body).backgroundColor,
+      bar: {
+        height: Math.round(bar.getBoundingClientRect().height),
+        background: getComputedStyle(bar).backgroundColor,
+      },
+      paper: {
+        x: Math.round(paperBox.left),
+        y: Math.round(paperBox.top + window.scrollY),
+        width: Math.round(paperBox.width),
+        background: paperStyle.backgroundColor,
+        padding: [paperStyle.paddingTop, paperStyle.paddingRight, paperStyle.paddingBottom, paperStyle.paddingLeft]
+          .map((value) => Math.round(Number.parseFloat(value))),
+      },
+      telomereLeft: Math.round(telomere.getBoundingClientRect().left),
+    };
+  });
+}
+
+// 長いページの途中を表示した状態を作る。scroll 量を固定値にすると、行の高さが変わったときに
+// 対象の行が画面の外へ出る。行そのものを画面の上端から top の位置へ置く。
+export async function scrollRowTo(target: Page, rowIndex: number, top: number): Promise<void> {
+  await target.locator('#editor-root .line-row').nth(rowIndex).evaluate((row, offset) => {
+    window.scrollTo(0, row.getBoundingClientRect().top + window.scrollY - offset);
+  }, top);
 }
 
 export function deferred(): { promise: Promise<void>; resolve: () => void } {
@@ -128,8 +183,9 @@ export function deferred(): { promise: Promise<void>; resolve: () => void } {
   };
 }
 
-// テロメアは行の左端 4px と margin 0.5rem を占め、click しても編集は始まらない。
-// x = 20 はそれを外して行の文字列先頭を押す位置。
+// 行の左端には紙面の左 padding と同じ幅の余白があり、その先頭 4px がテロメアになる。
+// テロメアの click では編集は始まらない。x = 20 はテロメアを外して余白を押す位置で、
+// 余白も行の一部なので、その行から編集が始まる。mobile の余白（21px）にも収まる。
 export const lineRowClickPosition = { x: 20, y: 8 };
 
 // タイトルが画面上に何個見えているかを数える。閲覧時の見出しも Editor のタイトル行も、

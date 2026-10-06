@@ -202,9 +202,8 @@ class FormattedLineWidget extends WidgetType {
     const content = document.createElement('span');
     if (this.line.indent > 0) content.classList.add('cm-wysiwyg-indent-content');
     if (this.line.role === 'title') {
-      const title = document.createElement('strong');
-      title.textContent = this.line.text;
-      content.append(title);
+      // 閲覧表示の h1 と同じく太字にしない。字の大きさと行送りは行（.cm-title-line）が持つ。
+      content.textContent = this.line.text;
     } else if (this.line.role === 'line') {
       for (const node of this.line.nodes) appendNode(content, node, this.imageSizes);
     } else if (this.line.role === 'codeHeader' || this.line.role === 'tableHeader') {

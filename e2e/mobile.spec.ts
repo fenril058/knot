@@ -9,6 +9,9 @@ import {
   loginE2eAccount,
   loginProjectE2e,
   loginTitleE2e,
+  pageGeometry,
+  rowHeights,
+  scrollRowTo,
   textStyleOf,
   visibleTitleCount,
 } from './helpers.ts';
@@ -333,7 +336,7 @@ test('mobile browser は長いページの途中から編集を始めても scro
   await createE2ePage(page, title, Array.from({ length: 100 }, (_, index) => `body line ${index}`));
 
   await page.goto(`/e2e/${title}`);
-  await page.evaluate(() => window.scrollTo(0, 1200));
+  await scrollRowTo(page, 70, 300);
   const tappedRowTop = async (): Promise<{ top: number; viewportHeight: number }> => page.evaluate(() => {
     const rows = document.querySelectorAll('#editor-root .line-row, #editor-root .cm-line');
     const row = Array.from(rows).find((candidate) => candidate.textContent?.trim() === 'body line 69');
@@ -406,4 +409,65 @@ test('mobile browser は link だけの行を、遷移と編集のどちらに�
   const linkPoint = await firstRectCenter(page, '#editor-root .line-row:nth-of-type(2) a');
   await page.touchscreen.tap(linkPoint.x, linkPoint.y);
   await expect(page).toHaveURL(new RegExp(`/e2e/${target}$`));
+});
+
+// 1 行に収まる長さにする。折り返すと行の高さが変わり、比べたい値ではなくなる。
+const GEOMETRY_BODY = ['紙面の位置を合わせる本文', '', 'last body'];
+
+// WebKit は font-family の引用符を省き、font-size を 25.950001px のように直列化する。
+// 比べたいのは指定された値なので、表記の違いを揃える。
+function normalizedTextStyle(style: Record<string, string>): Record<string, string> {
+  const fontSize = Number.parseFloat(style.fontSize ?? '');
+  return {
+    ...style,
+    fontFamily: (style.fontFamily ?? '').replaceAll('"', ''),
+    fontSize: `${Math.round(fontSize * 100) / 100}px`,
+  };
+}
+
+test('mobile browser でも紙面と本文を Cosense と同じ位置と字で描き、編集を始めても動かさない', async (
+  { page },
+  testInfo,
+) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'geometry-mobile-e2e');
+
+  // タイトルも 1 行に収める。
+  const title = `mg-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, GEOMETRY_BODY);
+
+  await page.goto(`/e2e/${title}`);
+  await expectMobileLayout(page, expectedWidth);
+  // Cosense の 767px 以下の値。紙面は左右 8px を残して広がり、本文は紙面の左 21px から始まる。
+  const expected = {
+    bodyBackground: 'rgb(220, 221, 224)',
+    bar: { height: 41, background: 'rgba(196, 197, 202, 0.7)' },
+    paper: { x: 8, y: 72, width: expectedWidth - 16, background: 'rgb(254, 254, 254)', padding: [28, 21, 42, 21] },
+    telomereLeft: 8,
+  };
+  expect(await pageGeometry(page)).toEqual(expected);
+  const textLefts = (await lineTextBoxes(page)).map((box) => box.x);
+  expect(textLefts).toEqual([29, 29, 0, 29]);
+  const font = 'Roboto, Helvetica, Arial, Hiragino Sans, sans-serif';
+  const titleStyle = { fontFamily: font, fontSize: '25.95px', fontWeight: '400', lineHeight: '42px', color: 'rgb(0, 0, 0)' };
+  const bodyStyle = { fontFamily: font, fontSize: '15px', fontWeight: '400', lineHeight: '28px', color: 'rgb(74, 74, 74)' };
+  expect(normalizedTextStyle(await textStyleOf(page, title))).toEqual(titleStyle);
+  expect(normalizedTextStyle(await textStyleOf(page, GEOMETRY_BODY[0]!))).toEqual(bodyStyle);
+  expect(await rowHeights(page)).toEqual([63, 28, 28, 28]);
+
+  // Cosense は 767px 以下でページメニューを上部のバーへ移す。ページ操作がバーの中にあり、画面内で押せる。
+  const menu = (await page.locator('#page-actions > summary').boundingBox())!;
+  expect(menu.y).toBeGreaterThanOrEqual(0);
+  expect(menu.y + menu.height).toBeLessThanOrEqual(41);
+  expect(menu.x + menu.width).toBeLessThanOrEqual(expectedWidth);
+
+  await page.locator('#editor-root .line-row').nth(GEOMETRY_BODY.length).tap();
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expectMobileLayout(page, expectedWidth);
+  expect(await pageGeometry(page)).toEqual(expected);
+  expect((await lineTextBoxes(page)).map((box) => box.x)).toEqual(textLefts);
+  expect(normalizedTextStyle(await textStyleOf(page, title))).toEqual(titleStyle);
+  expect(normalizedTextStyle(await textStyleOf(page, GEOMETRY_BODY[0]!))).toEqual(bodyStyle);
+  expect(await rowHeights(page)).toEqual([63, 28, 28, 28]);
 });
