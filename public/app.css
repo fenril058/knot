@@ -115,12 +115,21 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
   #editor-root a:hover { color: var(--link-hover-color); }
   #editor-root a.empty-link:hover { color: var(--empty-link-hover-color); }
 }
-/* テロメアは紙面の左端に置き、紙面の左 padding の残りを本文までの余白にする。 */
-.telomere { width: 4px; align-self: stretch; margin-inline-end: calc(var(--page-padding-inline) - 4px); flex-shrink: 0; background: #ccc; cursor: pointer; }
-.telomere.unread { background: #3498db; }
-.telomere.age-1 { opacity: 1; }
-.telomere.age-2 { opacity: 0.6; }
-.telomere.age-3 { opacity: 0.3; }
+/* テロメアは紙面の左端に置き、紙面の左 padding の残りを本文までの余白にする。
+   Cosense と同じく左の border で線を描き、線の太さ（w-1〜w-10、render/telomere.ts）で新しさを表す。
+   押せる幅は線の太さによらず最大の太さぶん取る。 */
+.telomere { align-self: stretch; border-left: 1px solid #e2e2e2; box-sizing: border-box; cursor: pointer; flex-shrink: 0; margin-inline-end: calc(var(--page-padding-inline) - 10px); width: 10px; }
+.telomere.unread { border-left-color: #89a3ff; }
+.telomere.w-1 { border-left-width: 1px; }
+.telomere.w-2 { border-left-width: 2px; }
+.telomere.w-3 { border-left-width: 3px; }
+.telomere.w-4 { border-left-width: 4px; }
+.telomere.w-5 { border-left-width: 5px; }
+.telomere.w-6 { border-left-width: 6px; }
+.telomere.w-7 { border-left-width: 7px; }
+.telomere.w-8 { border-left-width: 8px; }
+.telomere.w-9 { border-left-width: 9px; }
+.telomere.w-10 { border-left-width: 10px; }
 .line-row.highlight { background: #fff8dc; }
 /* コードブロックの行（見出しと本文）の行送りは Cosense と同じ 1.7em（25.5px）。行に掛けるので、
    カーソルが入って原文表示になっても行の高さは変わらない。 */

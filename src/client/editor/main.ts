@@ -102,6 +102,16 @@ function unixTime(): number {
   return Math.floor(Date.now() / 1000);
 }
 
+// テロメアの線の太さを、閲覧表示と同じ時刻で決める。閲覧表示はサーバの時刻で描かれているので、
+// その時刻に、ページを読み込んでからの経過時間を足す。端末の時計がずれていても編集開始で変わらない。
+const renderedAt = Number(data.renderedAt);
+const loadedAt = performance.now();
+
+function telomereTime(): number {
+  if (!Number.isFinite(renderedAt)) return unixTime();
+  return renderedAt + Math.floor((performance.now() - loadedAt) / 1000);
+}
+
 function pendingKey(value: string, pageId?: string): string {
   return pageId === undefined
     ? `knot:pending:${project}/title:${titleLc(value)}`
@@ -670,7 +680,7 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
         confirmedLines: () => engine.confirmedLines,
         userId: userName,
         lastSeenVersion,
-        now: unixTime,
+        now: telomereTime,
       }),
       EditorView.updateListener.of((update) => {
         if (!update.docChanged || suppressChanges) return;

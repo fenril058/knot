@@ -7,10 +7,10 @@ import {
   ViewPlugin,
 } from '@codemirror/view';
 import type { Line } from '../../../core/ops.ts';
+import { telomereWidth } from '../../../render/telomere.ts';
 import { lineMeta } from '../sync.ts';
 
 const DAY_SECONDS = 86400;
-const TELOMERE_AGE_BUCKETS = [DAY_SECONDS, 7 * DAY_SECONDS];
 const relativeTimeFormatter = new Intl.RelativeTimeFormat('ja', { numeric: 'auto' });
 
 export const refreshTelomereGutter = StateEffect.define<void>();
@@ -28,13 +28,6 @@ function relativeTime(unixSeconds: number, now: number): string {
   if (absoluteDifference < 3600) return relativeTimeFormatter.format(Math.round(difference / 60), 'minute');
   if (absoluteDifference < DAY_SECONDS) return relativeTimeFormatter.format(Math.round(difference / 3600), 'hour');
   return relativeTimeFormatter.format(Math.round(difference / DAY_SECONDS), 'day');
-}
-
-function ageClass(newestUpdated: number, updated: number): string {
-  const age = newestUpdated - updated;
-  if (age < TELOMERE_AGE_BUCKETS[0]!) return 'age-1';
-  if (age < TELOMERE_AGE_BUCKETS[1]!) return 'age-2';
-  return 'age-3';
 }
 
 class TelomereMarker extends GutterMarker {
@@ -66,14 +59,14 @@ function buildMarkers(view: EditorView, config: TelomereConfig): RangeSet<Gutter
   const now = config.now?.() ?? Math.floor(Date.now() / 1000);
   const texts = view.state.doc.toString().split('\n');
   const metadata = lineMeta(config.confirmedLines(), texts, { userId: config.userId, now });
-  const newestUpdated = metadata.reduce((newest, meta) => Math.max(newest, meta.updated), 0);
   const builder = new RangeSetBuilder<GutterMarker>();
   for (let index = 0; index < metadata.length; index += 1) {
     const meta = metadata[index]!;
     const line = view.state.doc.line(index + 1);
     const unread = meta.updatedVersion !== Number.MAX_SAFE_INTEGER
       && meta.updatedVersion > config.lastSeenVersion;
-    const classes = ['telomere', ageClass(newestUpdated, meta.updated)];
+    // 閲覧表示と同じ規則で、経過時間から線の太さを決める。
+    const classes = ['telomere', `w-${telomereWidth(now - meta.updated)}`];
     if (unread) classes.push('unread');
     builder.add(
       line.from,

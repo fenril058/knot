@@ -2,18 +2,10 @@ import { html } from 'hono/html';
 import type { Line } from '../../core/ops.ts';
 import type { IndentMark } from '../../render/presentation.ts';
 import type { KnownPage, RenderConfig, RenderedLine } from '../../render/render.ts';
+import { telomereWidth } from '../../render/telomere.ts';
 import type { PageSnapshot, Project, RelatedPage, RelatedPages, Visit } from '../../storage/types.ts';
 import { layout, type Html } from './layout.ts';
 import { canDisplayCardImage, pageCardListItem } from './pageCard.ts';
-
-const TELOMERE_AGE_BUCKETS = [86400, 7 * 86400];
-
-function ageClass(page: PageSnapshot, updated: number): string {
-  const age = page.updated - updated;
-  if (age < TELOMERE_AGE_BUCKETS[0]!) return 'age-1';
-  if (age < TELOMERE_AGE_BUCKETS[1]!) return 'age-2';
-  return 'age-3';
-}
 
 function nestIndentedLine(content: Html, indent: number, mark: IndentMark): Html {
   if (indent === 0) return content;
@@ -21,10 +13,12 @@ function nestIndentedLine(content: Html, indent: number, mark: IndentMark): Html
   return html`<span class="line-indent-prefix" aria-hidden="true">${'\u2003'.repeat(indent)}</span><div class="${className}">${content}</div>`;
 }
 
-function lineRow(page: PageSnapshot, line: Line, rendered: RenderedLine, previousVisit: Visit | null): Html {
+// テロメアの線の太さは、表示した時刻からの行の経過時間で決める（Cosense と同じく、ページの中の相対値ではない）。
+function lineRow(line: Line, rendered: RenderedLine, previousVisit: Visit | null, now: number): Html {
   const unread = previousVisit === null || line.updatedVersion > previousVisit.lastSeenVersion;
+  const width = telomereWidth(now - line.updated);
   return html`<div class="${rendered.codeBlock ? 'line-row code-block-line' : 'line-row'}" id="L${line.id}">
-<span class="telomere${unread ? ' unread' : ''} ${ageClass(page, line.updated)}" data-updated="${line.updated}" data-user="${line.userId}"></span>
+<span class="telomere${unread ? ' unread' : ''} w-${width}" data-updated="${line.updated}" data-user="${line.userId}"></span>
 ${nestIndentedLine(rendered.html, rendered.indent, rendered.mark)}
 </div>`;
 }
@@ -73,6 +67,7 @@ export function pageViewPage(
   styleNonce: string,
   renderConfig: RenderConfig,
   knownPages: readonly KnownPage[],
+  now: number,
 ): Html {
   const eagerImagePageId = [...related.links1hop, ...related.links2hop].find((relatedPage) =>
     canDisplayCardImage(relatedPage.image, renderConfig.allowedImageHosts),
@@ -129,7 +124,8 @@ ${recoveryDialog()}
   data-allowed-image-hosts="${JSON.stringify(renderConfig.allowedImageHosts)}"
   data-allowed-media-hosts="${JSON.stringify(renderConfig.allowedMediaHosts)}"
   data-known-pages="${JSON.stringify(knownPages)}"
->${rendered.map((line, index) => lineRow(page, page.lines[index]!, line, previousVisit))}</div>
+  data-rendered-at="${now}"
+>${rendered.map((line, index) => lineRow(page.lines[index]!, line, previousVisit, now))}</div>
 </div>
 ${related.hasBackLinks ? html`<p class="backlinks-badge">逆リンクまたはアイコン参照あり</p>` : ''}
 ${relatedSection('関連ページ', related.links1hop, project.name, renderConfig.allowedImageHosts, eagerImagePageId)}
