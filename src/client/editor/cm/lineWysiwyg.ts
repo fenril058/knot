@@ -24,12 +24,17 @@ export type LineWysiwygConfig = {
   allowedImageHosts: string[];
   allowedMediaHosts: string[];
   knownPages: KnownPage[];
-  // src ごとの画像の大きさ。編集表示は img を作り直すので、ブラウザがキャッシュから
-  // 同期的に再利用できないと、読み込みが終わるまで画像の行が縮む (#211)。
+  // 閲覧表示で描かれた画像の大きさ（imageSizeKey ごと）。編集表示は img を作り直すので、
+  // ブラウザがキャッシュから同期的に再利用できないと、読み込みが終わるまで画像の行が縮む (#211)。
   imageSizes?: ReadonlyMap<string, ImageSize>;
 };
 
 export type ImageSize = { width: number; height: number };
+
+// 同じ画像でも、本文の画像とアイコンでは描かれる大きさが違うので、class と組にして引く。
+export function imageSizeKey(src: string, className: string): string {
+  return `${className}\n${src}`;
+}
 
 export function editingLineNumbers(state: EditorState): Set<number> {
   const numbers = new Set<number>();
@@ -57,6 +62,7 @@ function appendNode(parent: ParentNode, node: PresentedNode, imageSizes: Readonl
       return;
     case 'code': {
       const code = document.createElement('code');
+      if (node.className !== undefined) code.className = node.className;
       code.textContent = node.text;
       parent.append(code);
       return;
@@ -84,15 +90,18 @@ function appendNode(parent: ParentNode, node: PresentedNode, imageSizes: Readonl
       image.src = node.src;
       image.alt = node.alt;
       if (node.className !== undefined) image.className = node.className;
-      const size = imageSizes.get(node.src);
+      const size = imageSizes.get(imageSizeKey(node.src, node.className ?? ''));
       if (size !== undefined) {
-        image.width = size.width;
-        image.height = size.height;
-        // 属性は読み込みまでの場所取りにだけ使う。取り直した画像の大きさが閲覧時と違っても、
-        // 読み込み後は画像そのものの大きさに従わせる。
+        // 閲覧表示で描かれた大きさで場所を取る。原寸ではなく描かれた大きさにするのは、本文の
+        // 画像には CSS の上限（高さ 300px など）があり、原寸と上限の組み合わせでは横長の画像の
+        // 高さが閲覧時と変わるため。小数の大きさを保つよう属性ではなく style に置く。
+        image.style.width = `${size.width}px`;
+        image.style.height = `${size.height}px`;
+        // 場所取りは読み込みまで。取り直した画像の大きさが閲覧時と違っても、
+        // 読み込み後は画像そのものの大きさと CSS の規則に従わせる。
         const release = (): void => {
-          image.removeAttribute('width');
-          image.removeAttribute('height');
+          image.style.removeProperty('width');
+          image.style.removeProperty('height');
         };
         image.addEventListener('load', release, { once: true });
         image.addEventListener('error', release, { once: true });

@@ -184,3 +184,163 @@ test('字下げした行でも、リンクの click は遷移し、行末の cli
   await page.keyboard.insertText('!');
   await expect(row).toHaveText(` [${target}]!`);
 });
+
+type CodeLook = { fontFamily: string; fontSize: string; color: string; background: string; radius: string; quote: string };
+
+// 行の中の code 要素の見た目。両端のバッククオートは ::before / ::after で描く。
+async function codeLooks(page: Page, rowIndex: number): Promise<CodeLook[]> {
+  return page.locator('#editor-root .line-row, #editor-root .cm-line').nth(rowIndex).locator('code').evaluateAll(
+    (codes) => codes.map((code) => {
+      const style = getComputedStyle(code);
+      const before = getComputedStyle(code, '::before');
+      return {
+        fontFamily: style.fontFamily.replaceAll('"', ''),
+        fontSize: style.fontSize,
+        color: style.color,
+        background: style.backgroundColor,
+        radius: style.borderRadius,
+        quote: before.content === 'none' ? 'none' : `${before.content} ${before.opacity}`,
+      };
+    }),
+  );
+}
+
+test('インラインコード・コマンドライン・数式を Cosense と同じコードの見た目にし、編集を始めても変えない', async (
+  { page },
+  testInfo,
+) => {
+  await loginE2eAccount(page, 'line-e2e');
+  const title = `line-code-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  const body = ['`inline code` の行', '$ ls -la', '[$ x^2] の数式', 'last body'];
+  await createE2ePage(page, title, body);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  const code = {
+    fontFamily: 'Menlo, Monaco, Consolas, Courier New, monospace',
+    fontSize: '13.5px',
+    color: 'rgb(52, 45, 156)',
+    background: 'rgba(0, 0, 0, 0.04)',
+    radius: '4px',
+  };
+  // バッククオートで囲んだコードだけ、両端のバッククオートが薄く残る。
+  const expected = [[{ ...code, quote: '"`" 0.1' }], [{ ...code, quote: 'none' }], [{ ...code, quote: 'none' }]];
+  const looks = async (): Promise<CodeLook[][]> => [await codeLooks(page, 1), await codeLooks(page, 2), await codeLooks(page, 3)];
+  expect(await looks()).toEqual(expected);
+  const before = await visualLineRects(page);
+
+  await startEditingAtLastRow(page, body.length);
+  expect(await looks()).toEqual(expected);
+  expect(await visualLineRects(page)).toEqual(before);
+});
+
+type StrongLook = { text: string; fontSize: string; lineHeight: string; fontWeight: string; fontStyle: string };
+
+function look(text: string, fontSize: string, lineHeight: string, fontStyle = 'normal'): StrongLook {
+  return { text, fontSize, lineHeight, fontWeight: '700', fontStyle };
+}
+
+test('強調の段階ごとに Cosense と同じ大きさと行送りで描き、重ねた装飾も保つ', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'line-e2e');
+  const title = `line-strong-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  const body = ['[* 一段] [[太字]] [/* 太字斜体]', '[** 二段]', '[*** 三段]', '[**** 四段]', '[***** 五段]', 'last body'];
+  await createE2ePage(page, title, body);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  const strongs = async (): Promise<StrongLook[]> => page.evaluate(() => {
+    const root = document.querySelector('#editor-root');
+    if (root === null) throw new Error('editor root is missing');
+    return Array.from(root.querySelectorAll('strong'), (strong) => {
+      const leaf = strong.querySelector('em') ?? strong;
+      const style = getComputedStyle(leaf);
+      return {
+        text: strong.textContent ?? '',
+        fontSize: style.fontSize,
+        lineHeight: style.lineHeight,
+        fontWeight: style.fontWeight,
+        fontStyle: style.fontStyle,
+      };
+    });
+  });
+  const expected = [
+    look('一段', '15px', '28px'),
+    look('太字', '15px', '28px'),
+    look('太字斜体', '15px', '28px', 'italic'),
+    look('二段', '18px', '28px'),
+    look('三段', '21.6px', '35px'),
+    look('四段', '25.95px', '42px'),
+    look('五段', '31.05px', '49px'),
+  ];
+  expect(await strongs()).toEqual(expected);
+  const rowsBefore = await page.evaluate(() => Array.from(
+    document.querySelectorAll('#editor-root .line-row'),
+    (row) => Math.round(row.getBoundingClientRect().height),
+  ));
+  // 行送りの大きい強調を含む行は、その行送りまで高くなる。
+  expect(rowsBefore.slice(2, 6).map((height, index) => height >= [28, 35, 42, 49][index]!)).toEqual([true, true, true, true]);
+  const before = await visualLineRects(page);
+
+  await startEditingAtLastRow(page, body.length);
+  expect(await strongs()).toEqual(expected);
+  expect(await visualLineRects(page)).toEqual(before);
+});
+
+function svg(width: number, height: number): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="#89a"/></svg>`;
+}
+
+test('本文の画像とアイコンを Cosense と同じ大きさの規則で描き、編集を始めても変えない', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'line-e2e');
+  const suffix = `${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  const sizes: Record<string, [number, number]> = {
+    'wide.png': [600, 400],
+    'tall.png': [200, 900],
+    'banner.png': [1600, 400],
+    'icon.png': [64, 64],
+  };
+  await page.route('https://i.gyazo.com/**', (route) => {
+    const name = new URL(route.request().url()).pathname.slice(1);
+    const [width, height] = sizes[name] ?? [10, 10];
+    return route.fulfill({ status: 200, contentType: 'image/svg+xml', body: svg(width, height) });
+  });
+  const iconPage = `line-icon-${suffix}`;
+  await createE2ePage(page, iconPage, ['https://i.gyazo.com/icon.png']);
+  const title = `line-media-${suffix}`;
+  const body = [
+    '[https://i.gyazo.com/wide.png]',
+    '[https://i.gyazo.com/tall.png]',
+    '[[https://i.gyazo.com/banner.png]]',
+    `アイコン [${iconPage}.icon] と大きいアイコン [[${iconPage}.icon]]`,
+    'last body',
+  ];
+  await createE2ePage(page, title, body);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  const images = async (): Promise<number[][]> => {
+    await page.waitForFunction(() => Array.from(
+      document.querySelectorAll<HTMLImageElement>('#editor-root img:not(.cm-widgetBuffer)'),
+      (image) => image.complete && image.naturalWidth > 0,
+    ).every(Boolean));
+    return page.locator('#editor-root img:not(.cm-widgetBuffer)').evaluateAll((elements) => elements.map((image) => {
+      const box = image.getBoundingClientRect();
+      return [Math.round(box.width * 10) / 10, Math.round(box.height * 10) / 10];
+    }));
+  };
+  // 本文の画像は高さ 300px まで、[[画像]] は高さの上限が無く幅は本文の 95% まで。
+  // 本文の幅は 862px から行末の余白 2.5rem を除いた 822px。アイコンは 1.3em、大きいアイコンは 3.9em。
+  const expected = [[450, 300], [66.7, 300], [780.9, 195.2], [19.5, 19.5], [58.5, 58.5]];
+  expect(await images()).toEqual(expected);
+  const iconOffset = await page.locator('#editor-root img.icon-img').first().evaluate((image) => getComputedStyle(image).top);
+  expect(iconOffset).toBe('-4.5px');
+  const rows = async (): Promise<number[]> => page.evaluate(() => Array.from(
+    document.querySelectorAll('#editor-root .line-row, #editor-root .cm-line'),
+    (row) => Math.round(row.getBoundingClientRect().height),
+  ));
+  const rowsBefore = await rows();
+
+  await startEditingAtLastRow(page, body.length);
+  expect(await images()).toEqual(expected);
+  expect(await rows()).toEqual(rowsBefore);
+});

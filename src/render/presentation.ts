@@ -7,7 +7,7 @@ export type RenderConfig = { allowedImageHosts: string[]; allowedMediaHosts: str
 
 export type PresentedNode =
   | { type: 'text'; text: string }
-  | { type: 'code'; text: string }
+  | { type: 'code'; text: string; className?: string }
   | { type: 'container'; kind: 'span' | 'strong' | 'em' | 'del' | 'quote'; className?: string; children: PresentedNode[] }
   | { type: 'link'; href: string; className?: string; external: boolean; children: PresentedNode[] }
   | { type: 'image'; src: string; alt: string; className?: string; lazy: boolean }
@@ -62,13 +62,25 @@ function externalLink(url: string, label: string, external = true): PresentedNod
   return { type: 'link', href: url, external, children: [text(label)] };
 }
 
-function presentMedia(url: string, label: string | undefined, config: RenderConfig): PresentedNode {
+// [*** x] の強調の段階。parser は *-3 のように表す。強調でなければ undefined。
+function strongLevel(decos: readonly string[]): number | undefined {
+  for (const deco of decos) {
+    const match = /^\*-(\d+)$/.exec(deco);
+    if (match !== null) return Number(match[1]);
+  }
+  return undefined;
+}
+
+// strong は [[画像]]。Cosense と同じく高さの上限を外した大きい画像として描く。
+function presentMedia(url: string, label: string | undefined, config: RenderConfig, strong = false): PresentedNode {
   const isLocal = isAttachmentUrl(url);
   if (!isLocal && !isHttpUrl(url)) return text(label === undefined ? url : `${label} (${url})`);
   const hostname = isLocal ? '' : new URL(url).hostname;
   const kind = classifyUrl(url);
   if (kind === 'image' && (isLocal || isHostAllowed(hostname, config.allowedImageHosts))) {
-    return { type: 'image', src: url, alt: '', lazy: true };
+    return strong
+      ? { type: 'image', src: url, alt: '', className: 'strong-image', lazy: true }
+      : { type: 'image', src: url, alt: '', lazy: true };
   }
   if (kind === 'video' && (isLocal || isHostAllowed(hostname, config.allowedMediaHosts))) {
     return { type: 'video', src: url };
@@ -103,10 +115,11 @@ function presentNode(
       return text(node.text);
     case 'code':
       return { type: 'code', text: node.text };
+    // コマンドラインと数式もコードの見た目で描く。バッククオートで囲んだコードと区別する。
     case 'commandLine':
-      return { type: 'code', text: node.symbol + node.text };
+      return { type: 'code', text: node.symbol + node.text, className: 'cli' };
     case 'formula':
-      return { type: 'code', text: node.formula };
+      return { type: 'code', text: node.formula, className: 'formula' };
     case 'strong':
       return { type: 'container', kind: 'strong', children: children(node.nodes) };
     case 'quote':
@@ -123,10 +136,21 @@ function presentNode(
         );
         return { type: 'container', kind: 'span', children: children(images) };
       }
-      const kind = node.decos.includes('/') ? 'em'
-        : node.decos.includes('-') ? 'del'
-          : node.decos.some((deco) => deco.startsWith('*')) ? 'strong' : 'span';
-      return { type: 'container', kind, children: children(node.nodes) };
+      // 装飾は重ねられる（[/* x] は太字の斜体）。内側から打ち消し・斜体・強調の順に包む。
+      const inner = children(node.nodes);
+      let decorated: PresentedNode | undefined;
+      const wrap = (kind: 'strong' | 'em' | 'del', className?: string): void => {
+        const wrapped = decorated === undefined ? inner : [decorated];
+        decorated = className === undefined
+          ? { type: 'container', kind, children: wrapped }
+          : { type: 'container', kind, className, children: wrapped };
+      };
+      if (node.decos.includes('-')) wrap('del');
+      if (node.decos.includes('/')) wrap('em');
+      const level = strongLevel(node.decos);
+      // 段階 1 は本文と同じ大きさの太字なので class を付けない。
+      if (level !== undefined) wrap('strong', level > 1 ? `level-${level}` : undefined);
+      return decorated ?? { type: 'container', kind: 'span', children: inner };
     }
     case 'numberList':
       return {
@@ -151,8 +175,10 @@ function presentNode(
         return { type: 'container', kind: 'span', className: 'icon-link', children: [text(`[${node.path}]`)] };
       }
       const entry = knownPages.get(titleLc(node.path));
+      // [[name.icon]] は Cosense と同じく大きいアイコンとして描く。
+      const className = node.type === 'strongIcon' ? 'icon-img strong-icon' : 'icon-img';
       const linkChildren: PresentedNode[] = entry?.image && isAllowedImageUrl(entry.image, config.allowedImageHosts)
-        ? [{ type: 'image', src: entry.image, alt: node.path, className: 'icon-img', lazy: false }]
+        ? [{ type: 'image', src: entry.image, alt: node.path, className, lazy: false }]
         : [text(`[${node.path}]`)];
       return {
         type: 'link',
@@ -163,8 +189,9 @@ function presentNode(
       };
     }
     case 'image':
-    case 'strongImage':
       return presentMedia(node.src, undefined, config);
+    case 'strongImage':
+      return presentMedia(node.src, undefined, config, true);
     case 'googleMap':
       return text(node.raw);
     case 'link': {

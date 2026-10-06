@@ -71,7 +71,7 @@ void test('インラインコードはエスケープされたまま code タグ
 });
 
 void test('数式は out of scope につき code として描画', () => {
-  assert.match(renderOne('[$ x^2]'), /<code>/);
+  assert.match(renderOne('[$ x^2]'), /<code class="formula">x\^2<\/code>/);
 });
 
 void test('画像リンクの alt にイベントハンドラを注入しようとしても属性値としてエスケープされる', () => {

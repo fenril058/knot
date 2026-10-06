@@ -10,7 +10,7 @@ import { mapSelectionByLineId } from './documentChanges.ts';
 import { titleAutocompletion } from './cm/complete.ts';
 import { syntaxHighlighting } from './cm/decorations.ts';
 import { editorKeymap } from './cm/keymap.ts';
-import { lineWysiwyg, type ImageSize } from './cm/lineWysiwyg.ts';
+import { imageSizeKey, lineWysiwyg, type ImageSize } from './cm/lineWysiwyg.ts';
 import { pasteHandlers } from './cm/paste.ts';
 import { refreshTelomereGutter, telomereGutter } from './cm/telomere.ts';
 import {
@@ -588,12 +588,14 @@ function visibleRowTop(lineId: string): number | undefined {
   return box.bottom > 0 && box.top < window.innerHeight ? box.top : undefined;
 }
 
+// 閲覧表示で読み込み済みの画像が、描かれている大きさ。
 function loadedImageSizes(): Map<string, ImageSize> {
   const sizes = new Map<string, ImageSize>();
   for (const image of editorRoot.querySelectorAll('img')) {
     const src = image.getAttribute('src');
     if (src === null || !image.complete || image.naturalWidth === 0) continue;
-    sizes.set(src, { width: image.naturalWidth, height: image.naturalHeight });
+    const box = image.getBoundingClientRect();
+    sizes.set(imageSizeKey(src, image.className), { width: box.width, height: box.height });
   }
   return sizes;
 }
