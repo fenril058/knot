@@ -40,6 +40,7 @@ const accountNames = [
   'line-mobile-e2e',
   'cards-e2e',
   'cards-mobile-e2e',
+  'telomere-e2e',
 ];
 for (const name of accountNames) {
   await storage.addAccount(

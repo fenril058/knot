@@ -84,6 +84,7 @@ export function registerPageRoutes(app: Hono<ApiEnv>, deps: ApplicationDeps): vo
         styleNonce,
         renderConfig,
         knownPagesList,
+        now(),
       ),
     );
   });
