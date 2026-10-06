@@ -35,8 +35,16 @@ export type IndentMark = 'dot' | 'dash' | 'none';
 export function indentMark(line: PresentedLine): IndentMark {
   if (line.role === 'codeLine' || line.role === 'tableRow') return 'none';
   if (line.role !== 'line') return 'dot';
+  if (isQuoteLine(line)) return 'dash';
   const first = line.nodes[0];
-  return first?.type === 'container' && (first.kind === 'quote' || first.className === 'num-list') ? 'dash' : 'dot';
+  return first?.type === 'container' && first.className === 'num-list' ? 'dash' : 'dot';
+}
+
+// 行全体が引用の行。引用は行頭の > から行末までなので、先頭の node が引用なら行全体が引用になる。
+export function isQuoteLine(line: PresentedLine): boolean {
+  if (line.role !== 'line') return false;
+  const first = line.nodes[0];
+  return first?.type === 'container' && first.kind === 'quote';
 }
 
 export function knownPageMap(pages: readonly KnownPage[]): Map<string, KnownPage> {
@@ -116,8 +124,9 @@ function presentNode(
     case 'code':
       return { type: 'code', text: node.text };
     // コマンドラインと数式もコードの見た目で描く。バッククオートで囲んだコードと区別する。
+    // parser は記号の直後の空白を 1 つ落とすので、原文（$ git reset）のまま描く。
     case 'commandLine':
-      return { type: 'code', text: node.symbol + node.text, className: 'cli' };
+      return { type: 'code', text: node.raw, className: 'cli' };
     case 'formula':
       return { type: 'code', text: node.formula, className: 'formula' };
     case 'strong':

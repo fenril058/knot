@@ -1,5 +1,6 @@
 import { test, expect, type Page, type Response } from '@playwright/test';
 import {
+  blockLooks,
   createE2ePage,
   expectSameTextBox,
   firstRectCenter,
@@ -314,7 +315,7 @@ test('mobile browser でも引用行が編集開始の前後で同じ位置・�
   const beforeColor = await quoteColor();
   const beforeBoxes = await lineTextBoxes(page);
   for (const box of beforeBoxes) expect(box.width).toBeGreaterThan(0);
-  // 閲覧表示の blockquote は左に字下げがある。
+  // 引用の字は、帯の左の線と見えない > のぶん右から始まる。
   expect(beforeBoxes[1]!.x).toBeGreaterThan(beforeBoxes[3]!.x);
   await expect(page.locator('#editor-root .line-row').nth(2).locator('a')).toHaveCount(1);
 
@@ -573,4 +574,41 @@ test('mobile browser でも一覧の札を Cosense と同じ 2 列・同じ縦�
     expect(box.width).toBeCloseTo(columnWidth, 1);
     expect(box.height).toBeCloseTo(columnWidth * 1.1, 1);
   }
+});
+
+const MOBILE_BLOCK_BODY = [
+  ' code:sample.js',
+  `  ${'mobile_code_line_'.repeat(30)}`,
+  '> quoted line',
+  ' table:sample',
+  '  a\tbb',
+  'last body',
+];
+
+test('mobile browser でも引用・コードブロック・表を閲覧表示と編集表示で同じに描き、はみ出さない', async (
+  { page },
+  testInfo,
+) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'line-mobile-e2e');
+
+  const title = `mb-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, MOBILE_BLOCK_BODY);
+
+  await page.goto(`/e2e/${title}`);
+  // 長いコードの行も折り返し、紙面を横にはみ出さない。
+  await expectMobileLayout(page, expectedWidth);
+  const looks = await blockLooks(page);
+  expect(looks[1]!.label).not.toBeNull();
+  expect(looks[2]!.height).toBeGreaterThan(25.5 * 2);
+  expect(looks[3]!.band?.background).toBe('rgba(0, 0, 0, 0.05)');
+  expect(looks[5]!.cells).toHaveLength(2);
+  const rects = await visualLineRects(page);
+
+  await page.locator('#editor-root .line-row').nth(MOBILE_BLOCK_BODY.length).tap();
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expectMobileLayout(page, expectedWidth);
+  expect(await blockLooks(page)).toEqual(looks);
+  expect(await visualLineRects(page)).toEqual(rects);
 });

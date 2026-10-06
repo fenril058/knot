@@ -23,7 +23,7 @@ function nestIndentedLine(content: Html, indent: number, mark: IndentMark): Html
 
 function lineRow(page: PageSnapshot, line: Line, rendered: RenderedLine, previousVisit: Visit | null): Html {
   const unread = previousVisit === null || line.updatedVersion > previousVisit.lastSeenVersion;
-  return html`<div class="line-row" id="L${line.id}">
+  return html`<div class="${rendered.codeBlock ? 'line-row code-block-line' : 'line-row'}" id="L${line.id}">
 <span class="telomere${unread ? ' unread' : ''} ${ageClass(page, line.updated)}" data-updated="${line.updated}" data-user="${line.userId}"></span>
 ${nestIndentedLine(rendered.html, rendered.indent, rendered.mark)}
 </div>`;

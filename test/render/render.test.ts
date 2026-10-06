@@ -121,7 +121,7 @@ void test('コードブロックの空白のみの本体1行も物理行と対�
   ];
   const out = renderLines(lines, new Map(), 'proj', cfg);
   assert.deepEqual(out.map((line) => line.lineId), ['title', 'l1', 'l2', 'l3']);
-  assert.equal(htmlOf(out[1]!), '<div class="code-header">a.js</div>');
+  assert.equal(htmlOf(out[1]!), '<div class="code-header"><span class="code-block-start">a.js</span></div>');
   assert.equal(htmlOf(out[2]!), '<div class="code-line"></div>');
   assert.equal(htmlOf(out[3]!), '<div>after</div>');
 });
