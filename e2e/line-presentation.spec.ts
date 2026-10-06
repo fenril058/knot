@@ -459,3 +459,122 @@ test('表の見出しの click で原文の編集に入り、コードブロッ�
   await page.keyboard.insertText('!');
   await expect(codeRow).toHaveText(' top()!');
 });
+
+// カーソルのある字下げした行（#241）。
+const ACTIVE_INDENT_BODY = [
+  ' 一段目の行',
+  `  ${'二段目の長い行は、カーソルが入っても折り返した二行目が字下げの位置から始まる。'.repeat(2)}`,
+  'last body',
+];
+
+// カーソル行の、字の開始位置（視覚行ごとの左端）と行頭の印の位置（行の上端からの相対値）。
+// 印は字下げの最後の widget の ::after に描く。
+async function activeLineLook(page: Page, rowIndex: number): Promise<{ lefts: number[]; mark: { x: number; y: number } | null }> {
+  const lines = (await visualLineRects(page))[rowIndex]!;
+  const mark = await page.locator('#editor-root .cm-line').nth(rowIndex).evaluate((row) => {
+    const widget = Array.from(row.querySelectorAll('.cm-indent-space')).at(-1);
+    if (widget === undefined) return null;
+    const style = getComputedStyle(widget, '::after');
+    if (style.content === 'none') return null;
+    const box = widget.getBoundingClientRect();
+    return {
+      x: Math.round((box.left + Number.parseFloat(style.left)) * 2) / 2,
+      y: Math.round((box.top - row.getBoundingClientRect().top + Number.parseFloat(style.top)) * 2) / 2,
+    };
+  });
+  return { lefts: lines.map(([left]) => left!), mark };
+}
+
+test('カーソルのある字下げした行でも、字の位置・折り返し・行頭の点を変えない', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'active-line-e2e');
+  const title = `line-active-indent-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, ACTIVE_INDENT_BODY);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  // タイトル行から始めて、字下げした行を整形表示のまま測る。
+  await page.locator('#editor-root .line-row').first().click({ position: lineRowClickPosition });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  const marks = await indentMarks(page);
+  const wrapped = (await visualLineRects(page))[2]!;
+  expect(wrapped.length).toBeGreaterThanOrEqual(2);
+
+  for (const rowIndex of [1, 2]) {
+    const formatted = marks[rowIndex]!;
+    await page.locator('#editor-root .cm-line').nth(rowIndex).click({ position: { x: 60, y: 8 } });
+    // 原文表示になっている。
+    await expect(page.locator('#editor-root .cm-line').nth(rowIndex).locator('.cm-wysiwyg-line')).toHaveCount(0);
+    const active = await activeLineLook(page, rowIndex);
+    // 本文の字は整形表示と同じ位置から始まり、行頭の点も同じ位置にある。
+    expect(active.lefts[0]).toBe(Math.round(formatted.textLeft));
+    expect(active.mark).toEqual({ x: formatted.textLeft + formatted.mark!.x, y: formatted.mark!.y });
+  }
+  // 折り返した 2 本目以降も、字下げの位置から始まる。
+  const activeWrapped = await activeLineLook(page, 2);
+  expect(activeWrapped.lefts.slice(1)).toEqual(wrapped.slice(1).map(([left]) => left));
+  expect(activeWrapped.lefts.length).toBe(wrapped.length);
+});
+
+test('字下げした行を押すと caret は本文の先頭に入り、字下げを増減するとカーソル行の位置も追従する', async (
+  { page },
+  testInfo,
+) => {
+  await loginE2eAccount(page, 'active-line-e2e');
+  const title = `line-active-caret-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, ACTIVE_INDENT_BODY);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  // 閲覧表示の字下げした行を押して編集を始める。caret は字下げの後ろ（本文の先頭）に入る。
+  await page.locator('#editor-root .line-row').nth(1).click({ position: lineRowClickPosition });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await page.keyboard.insertText('X');
+  const row = page.locator('#editor-root .cm-line').nth(1);
+  await expect(row).toHaveText(' X一段目の行');
+
+  const textLeft = async (): Promise<number> => (await activeLineLook(page, 1)).lefts[0]!;
+  expect(await textLeft()).toBe(Math.round(TEXT_LEFT + INDENT));
+  await page.keyboard.press('Tab');
+  await expect(row).toHaveText('  X一段目の行');
+  expect(await textLeft()).toBe(TEXT_LEFT + INDENT * 2);
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Shift+Tab');
+  await expect(row).toHaveText('X一段目の行');
+  expect(await textLeft()).toBe(TEXT_LEFT);
+  await page.keyboard.press('Control+z');
+  await page.keyboard.press('Control+z');
+  await expect(row).toHaveText('  X一段目の行');
+
+  // 整形表示の字下げした行を押しても、caret は本文の先頭に入る。
+  await page.locator('#editor-root .cm-line').nth(2).click({ position: { x: 60, y: 8 } });
+  await page.keyboard.insertText('Y');
+  await expect(page.locator('#editor-root .cm-line').nth(2)).toHaveText(`  Y${ACTIVE_INDENT_BODY[1]!.trimStart()}`);
+  await expect(page.locator('#save-status')).toHaveText('保存済み');
+});
+
+test('カーソルのある字下げした行でも、IME の変換中の文字列を確定して保存できる', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'active-line-e2e');
+  const title = `line-active-ime-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, ACTIVE_INDENT_BODY);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  await page.locator('#editor-root .line-row').nth(1).click({ position: lineRowClickPosition });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  const textLeftBefore = (await visualLineRects(page))[1]![0]![0];
+
+  // OS の IME は再現できないので、Chromium の IME 入力（変換中の文字列と確定）を CDP で送る。
+  const cdp = await page.context().newCDPSession(page);
+  for (const text of ['に', 'にほ', 'にほん']) {
+    await cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
+  }
+  // 変換中も字下げの位置は変わらない。
+  expect((await visualLineRects(page))[1]![0]![0]).toBe(textLeftBefore);
+  await cdp.send('Input.insertText', { text: '日本' });
+
+  const row = page.locator('#editor-root .cm-line').nth(1);
+  await expect(row).toHaveText(' 日本一段目の行');
+  await expect(page.locator('#save-status')).toHaveText('保存済み');
+  const persisted = await page.request.get(`/api/pages/e2e/${title}`);
+  expect((await persisted.json()).lines.map((line: { text: string }) => line.text)[1]).toBe(' 日本一段目の行');
+});

@@ -612,3 +612,43 @@ test('mobile browser でも引用・コードブロック・表を閲覧表示�
   expect(await blockLooks(page)).toEqual(looks);
   expect(await visualLineRects(page)).toEqual(rects);
 });
+
+test('mobile browser でも字下げした行を tap すると、字の位置と点を保ったまま本文の先頭から書ける', async (
+  { page },
+  testInfo,
+) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'line-mobile-e2e');
+
+  const title = `ma-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, [' 一段目の行', 'last body']);
+
+  await page.goto(`/e2e/${title}`);
+  const formatted = (await indentMarks(page))[1]!;
+  expect(formatted.textLeft).toBe(29 + 22.5);
+
+  await page.locator('#editor-root .line-row').nth(1).tap();
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await page.keyboard.insertText('X');
+  const row = page.locator('#editor-root .cm-line').nth(1);
+  await expect(row).toHaveText(' X一段目の行');
+  const active = await row.evaluate((element) => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    let textLeft = 0;
+    while (walker.nextNode() !== null && textLeft === 0) {
+      const range = document.createRange();
+      range.selectNodeContents(walker.currentNode);
+      const rect = Array.from(range.getClientRects()).find((candidate) => candidate.width > 0);
+      if (rect !== undefined) textLeft = rect.left;
+    }
+    const widget = Array.from(element.querySelectorAll('.cm-indent-space')).at(-1);
+    const mark = widget === undefined ? null : getComputedStyle(widget, '::after');
+    return {
+      textLeft: Math.round(textLeft * 2) / 2,
+      markLeft: widget === undefined || mark === null ? null : widget.getBoundingClientRect().left + Number.parseFloat(mark.left),
+    };
+  });
+  expect(active).toEqual({ textLeft: formatted.textLeft, markLeft: formatted.textLeft + formatted.mark!.x });
+  await expectMobileLayout(page, expectedWidth);
+});

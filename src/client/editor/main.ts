@@ -10,7 +10,7 @@ import { mapSelectionByLineId } from './documentChanges.ts';
 import { titleAutocompletion } from './cm/complete.ts';
 import { syntaxHighlighting } from './cm/decorations.ts';
 import { editorKeymap } from './cm/keymap.ts';
-import { imageSizeKey, lineWysiwyg, type ImageSize } from './cm/lineWysiwyg.ts';
+import { editStartPosition, imageSizeKey, lineWysiwyg, type ImageSize } from './cm/lineWysiwyg.ts';
 import { pasteHandlers } from './cm/paste.ts';
 import { refreshTelomereGutter, telomereGutter } from './cm/telomere.ts';
 import {
@@ -697,7 +697,11 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
     const selectedLine = view.state.doc.line(Math.min(initialLineNumber, view.state.doc.lines));
     // 画面に見えていた行から始めたなら同じ位置へ戻す。見えていない行（ショートカットの
     // 最終行など）から始めたときは、caret のほうを画面へ入れる。
-    view.dispatch({ selection: { anchor: selectedLine.from }, scrollIntoView: anchorTop === undefined });
+    // 字下げした行では、整形表示の行を押したときと同じく本文の先頭に caret を置く。
+    view.dispatch({
+      selection: { anchor: editStartPosition(view.state, selectedLine.number) },
+      scrollIntoView: anchorTop === undefined,
+    });
     // coordsAtPos は保留中の計測を済ませてから位置を返すので、そのあとの lineBlockAt は
     // 計測済みの行の箱になる。比べるのは caret の矩形（字の高さ）ではなく、SSR 行と同じ
     // 行の箱の上端にする。行送りが字より高いと、caret の矩形との差だけ画面が動く。

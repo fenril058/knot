@@ -106,6 +106,14 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
    位置で折り返す。inline-flex にするのは、CodeMirror が widget の前後に置く inline の buffer と
    同じ行に収め、匿名の行を作らないため。行の上端に揃えるので、本文の要素の上端も行の上端になる。 */
 .cm-wysiwyg-line.cm-wysiwyg-indented { align-items: flex-start; display: inline-flex; max-width: 100%; vertical-align: top; }
+/* カーソルのある字下げした行（#241）。字下げの空白 1 文字ずつを 1 段（22.5px）の widget で描き、
+   行の padding と負の text-indent で、折り返した 2 行目以降も字下げの位置から始める。
+   段数は lineWysiwyg.ts が行の --indent-level に入れる。 */
+#editor-root .cm-line.cm-active-indent { padding-inline-start: calc(var(--indent-level) * 22.5px); text-indent: calc(var(--indent-level) * -22.5px); }
+.cm-indent-space { display: inline-block; height: var(--line-height); position: relative; text-indent: 0; vertical-align: top; width: 22.5px; }
+/* 行頭の印は、整形表示の .line-indent-content::before と同じ位置（本文の開始位置から 15px 左、上から 10px）。 */
+.cm-indent-space.mark-dot::after, .cm-indent-space.mark-dash::after { background-color: var(--dot-color); border-radius: 50%; content: ""; height: 6px; inset-inline-start: 7.5px; position: absolute; top: 10px; width: 6px; }
+.cm-indent-space.mark-dash::after { border-radius: 0; height: 2px; top: 12.5px; }
 /* 本文のリンク。ページへのリンク（内部リンク・空リンク・ハッシュタグ・アイコン）は下線なし、
    URL のリンクは下線ありで、どちらも Cosense の既定テーマと同じ色にする。 */
 #editor-root a { color: var(--link-color); }
