@@ -29,11 +29,11 @@ export function pageCardListItem(
   const href = pageHref(projectName, page.title);
   const className = page.pinned ? 'card pinned' : 'card';
   const heading = options.headingLevel === 2 ? html`<h2>${page.title}</h2>` : html`<h3>${page.title}</h3>`;
+  // Cosense と同じく、タイトルの下には画像のあるページなら画像だけ、無いページなら説明文を置く。
   return html`<li><a class="${className}" href="${href}">
+${heading}
 ${canDisplayCardImage(page.image, allowedImageHosts)
     ? html`<img class="card-image" src="${page.image}" alt="" width="320" height="100" loading="${options.imageLoading}">`
-    : ''}
-${heading}
-${page.descriptions.map((description) => html`<p>${plainLineText(description)}</p>`)}
+    : page.descriptions.map((description) => html`<p>${plainLineText(description)}</p>`)}
 </a></li>`;
 }
