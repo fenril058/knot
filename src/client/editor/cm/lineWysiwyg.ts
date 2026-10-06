@@ -12,6 +12,7 @@ import { parsePageSyntax, type SyntaxNode } from '../../../core/syntax.ts';
 import { pageHref, titleLc } from '../../../core/title.ts';
 import {
   indentMark,
+  isQuoteLine,
   knownPageMap,
   presentationLines,
   type KnownPage,
@@ -221,13 +222,22 @@ class FormattedLineWidget extends WidgetType {
       // 閲覧表示の h1 と同じく太字にしない。字の大きさと行送りは行（.cm-title-line）が持つ。
       content.textContent = this.line.text;
     } else if (this.line.role === 'line') {
+      // 引用の帯も、閲覧表示と同じく行の幅いっぱいに引けるようにする。
+      if (isQuoteLine(this.line)) root.classList.add('cm-wysiwyg-quote-line');
       for (const node of this.line.nodes) appendNode(content, node, this.imageSizes);
     } else if (this.line.role === 'codeHeader' || this.line.role === 'tableHeader') {
+      // 閲覧表示と同じく、見出しは名前だけを札にする。
+      const kind = this.line.role === 'codeHeader' ? 'code' : 'table';
       const header = document.createElement('span');
-      header.className = this.line.role === 'codeHeader' ? 'code-header' : 'table-header';
-      header.textContent = this.line.text;
+      header.className = `${kind}-header`;
+      const label = document.createElement('span');
+      label.className = `${kind}-block-start`;
+      label.textContent = this.line.text;
+      header.append(label);
       content.append(header);
     } else if (this.line.role === 'codeLine') {
+      // 閲覧表示の block の帯と同じく、行の幅いっぱいに帯を引けるようにする。
+      root.classList.add('cm-wysiwyg-code-line');
       const code = document.createElement('code');
       code.className = 'code-line';
       code.textContent = this.line.text;
@@ -271,6 +281,10 @@ function buildDecorations(view: EditorView, config: LineWysiwygConfig): Decorati
           class: 'cm-title-line',
           attributes: { role: 'heading', 'aria-level': '1' },
         }));
+      }
+      // コードブロックの行の高さも行に掛ける。カーソルが入って原文表示になっても変わらない。
+      if (line.role === 'codeHeader' || line.role === 'codeLine') {
+        builder.add(line.from, line.from, Decoration.line({ class: 'code-block-line' }));
       }
       if (editing.has(line.number)) continue;
       const widget = new FormattedLineWidget(line, imageSizes);

@@ -428,7 +428,7 @@ test('分割できない長い行も、原文表示のまま折り返す', async
   expect(layout.activeHeight).toBeGreaterThan(layout.shortHeight * 1.5);
 });
 
-test('折り返さない code 行があっても他の行の折り返しは止まらない', async ({ page }, testInfo) => {
+test('長い code 行があっても他の行の折り返しは止まらない', async ({ page }, testInfo) => {
   await loginE2eAccount(page, 'wrap-e2e');
   const title = `editor-wrap-code-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
   await createPage(page, title, [
@@ -442,8 +442,7 @@ test('折り返さない code 行があっても他の行の折り返しは止�
   await page.locator('#editor-root .line-row').nth(4).click({ position: lineRowClickPosition });
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
 
-  // code 行は閲覧表示でも折り返さない（.code-line は white-space: pre）。
-  // そのはみ出しがその行だけに収まり、他の行の折り返しを止めないことを見る。
+  // 長い code 行（Cosense と同じく折り返す）があっても、他の行の折り返しを止めないことを見る。
   const layout = await page.evaluate(() => {
     const scroller = document.querySelector('#editor-root .cm-scroller');
     if (scroller === null) throw new Error('editor scroller is missing');
@@ -612,7 +611,7 @@ test('引用行も編集開始の前後で同じ位置・同じ字で描かれ�
   const beforeStyle = await textStyleOf(page, ' quoted line');
   const beforeBoxes = await lineTextBoxes(page);
   for (const box of beforeBoxes) expect(box.width).toBeGreaterThan(0);
-  // 閲覧表示の blockquote は左に字下げがあり、行の高さも本文行より高い。
+  // 引用の字は、帯の左の線と見えない > のぶん本文行より右から始まる。
   expect(beforeBoxes[1]!.x).toBeGreaterThan(beforeBoxes[4]!.x);
   await expect(page.locator('#editor-root .line-row').nth(3).locator('a')).toHaveCount(1);
 

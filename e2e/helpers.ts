@@ -387,3 +387,64 @@ export async function firstRectCenter(target: Page, selector: string): Promise<{
     return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
   }, selector);
 }
+
+export type BlockLook = {
+  height: number;
+  label: { x: number; background: string; fontSize: string; color: string } | null;
+  band: { x: number; right: number; background: string; borderLeft: string; paddingLeft: string } | null;
+  textX: number | null;
+  cells: { x: number; background: string; padding: string }[];
+};
+
+// 引用・コードブロック・表の行の見た目。札（見出しの名前）、帯（背景を持つ要素）、
+// 帯の中の字の開始位置、表のセルを、閲覧表示と CodeMirror で同じ数え方で測る。
+export async function blockLooks(target: Page): Promise<BlockLook[]> {
+  return target.evaluate(() => Array.from(
+    document.querySelectorAll('#editor-root .line-row, #editor-root .cm-line'),
+    (row) => {
+      const label = row.querySelector<HTMLElement>('.code-block-start, .table-block-start');
+      const band = row.querySelector<HTMLElement>('.code-line, blockquote');
+      let textX: number | null = null;
+      if (band !== null) {
+        const walker = document.createTreeWalker(band, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode() !== null && textX === null) {
+          const range = document.createRange();
+          range.selectNodeContents(walker.currentNode);
+          const rect = Array.from(range.getClientRects()).find((candidate) => candidate.width > 0);
+          if (rect !== undefined) textX = Math.round(rect.left * 2) / 2;
+        }
+      }
+      const labelStyle = label === null ? null : getComputedStyle(label);
+      const bandStyle = band === null ? null : getComputedStyle(band);
+      return {
+        height: Math.round(row.getBoundingClientRect().height * 2) / 2,
+        label: label === null || labelStyle === null
+          ? null
+          : {
+            x: Math.round(label.getBoundingClientRect().left * 2) / 2,
+            background: labelStyle.backgroundColor,
+            fontSize: labelStyle.fontSize,
+            color: labelStyle.color,
+          },
+        band: band === null || bandStyle === null
+          ? null
+          : {
+            x: Math.round(band.getBoundingClientRect().left * 2) / 2,
+            right: Math.round(band.getBoundingClientRect().right * 2) / 2,
+            background: bandStyle.backgroundColor,
+            borderLeft: bandStyle.borderLeft,
+            paddingLeft: bandStyle.paddingLeft,
+          },
+        textX,
+        cells: Array.from(row.querySelectorAll('td'), (cell) => {
+          const style = getComputedStyle(cell);
+          return {
+            x: Math.round(cell.getBoundingClientRect().left * 2) / 2,
+            background: style.backgroundColor,
+            padding: style.padding,
+          };
+        }),
+      };
+    },
+  ));
+}

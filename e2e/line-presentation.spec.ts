@@ -1,10 +1,12 @@
 import { test, expect, type Page } from '@playwright/test';
 import {
+  blockLooks,
   createE2ePage,
   indentMarks,
   lineRowClickPosition,
   loginE2eAccount,
   visualLineRects,
+  type BlockLook,
   type IndentMark,
 } from './helpers.ts';
 
@@ -343,4 +345,117 @@ test('本文の画像とアイコンを Cosense と同じ大きさの規則で�
   await startEditingAtLastRow(page, body.length);
   expect(await images()).toEqual(expected);
   expect(await rows()).toEqual(rowsBefore);
+});
+
+// コードブロック・引用・表の行で、段数 depth の本文の開始位置と、帯と札の見た目（#237）。
+function levelLeft(depth: number): number {
+  return TEXT_LEFT + INDENT * depth;
+}
+
+function codeLabel(depth: number): BlockLook['label'] {
+  return { x: levelLeft(depth), background: 'rgb(255, 207, 198)', fontSize: '12.825px', color: 'rgb(52, 45, 156)' };
+}
+
+// 帯は本文の右端まで引く。1280px の本文の右端は 1043px で、行末の余白 2.5rem（40px）の手前まで。
+const BAND_RIGHT = 1043 - 40;
+
+function codeBand(depth: number): BlockLook['band'] {
+  return {
+    x: levelLeft(depth),
+    right: BAND_RIGHT,
+    background: 'rgba(0, 0, 0, 0.04)',
+    borderLeft: '0px none rgb(52, 45, 156)',
+    paddingLeft: '22.5px',
+  };
+}
+
+function quoteBand(depth: number): BlockLook['band'] {
+  return {
+    x: levelLeft(depth),
+    right: BAND_RIGHT,
+    background: 'rgba(0, 0, 0, 0.05)',
+    borderLeft: '1px solid rgb(160, 160, 160)',
+    paddingLeft: '3px',
+  };
+}
+
+const BLOCK_BODY = [
+  'code:top.js',
+  ' top()',
+  'between',
+  ' code:nested.js',
+  '  nested()',
+  `  ${'long_code_line_'.repeat(80)}`,
+  '> quoted',
+  ' > indented quote',
+  ' table:sample',
+  '  a\tbb',
+  '  ccc\td',
+  'last body',
+];
+
+test('引用・コードブロック・表を Cosense と同じ帯・札・セルで描き、編集を始めても変えない', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'line-e2e');
+  const title = `line-blocks-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, BLOCK_BODY);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  const looks = await blockLooks(page);
+  // コードブロックの行は 25.5px。見出しは名前だけの札、本文は見出しの段から帯を引き、字は 1 段深い。
+  expect(looks[1]).toMatchObject({ height: 25.5, label: codeLabel(0), band: null });
+  expect(looks[2]).toMatchObject({ height: 25.5, band: codeBand(0), textX: levelLeft(1) });
+  expect(looks[4]).toMatchObject({ height: 25.5, label: codeLabel(1) });
+  expect(looks[5]).toMatchObject({ height: 25.5, band: codeBand(1), textX: levelLeft(2) });
+  // 長いコードの行は折り返す。
+  expect(looks[6]!.height).toBeGreaterThan(25.5 * 2);
+  // 引用は本文の位置から帯を引き、行の高さは本文と同じ。
+  expect(looks[7]).toMatchObject({ height: 28, band: quoteBand(0) });
+  expect(looks[8]).toMatchObject({ height: 28, band: quoteBand(1) });
+  expect(looks[7]!.textX!).toBeGreaterThan(levelLeft(0) + 4);
+  // 表の見出しは名前だけの札、行のセルは見出しと同じ段から交互の背景で並ぶ。
+  expect(looks[9]).toMatchObject({
+    height: 28,
+    label: { x: levelLeft(1), background: 'rgb(255, 207, 198)', fontSize: '13.5px', color: 'rgb(74, 74, 74)' },
+  });
+  for (const row of [looks[10]!, looks[11]!]) {
+    expect(row.height).toBe(28);
+    expect(row.cells.map(({ background, padding }) => ({ background, padding }))).toEqual([
+      { background: 'rgba(0, 0, 0, 0.04)', padding: '0px 2px 0px 8px' },
+      { background: 'rgba(0, 0, 0, 0.06)', padding: '0px 2px 0px 8px' },
+    ]);
+    expect(row.cells[0]!.x).toBe(levelLeft(1));
+  }
+  const documentWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+  expect(documentWidth).toBeLessThanOrEqual(1280);
+  const rects = await visualLineRects(page);
+
+  await startEditingAtLastRow(page, BLOCK_BODY.length);
+  expect(await blockLooks(page)).toEqual(looks);
+  expect(await visualLineRects(page)).toEqual(rects);
+});
+
+test('表の見出しの click で原文の編集に入り、コードブロックの行末の click で行末に caret が入る', async (
+  { page },
+  testInfo,
+) => {
+  await loginE2eAccount(page, 'line-e2e');
+  const title = `line-blocks-click-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, BLOCK_BODY);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  await page.locator('#editor-root .line-row').first().click({ position: lineRowClickPosition });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+
+  await page.locator('#editor-root .cm-line').nth(9).locator('.table-block-start').click();
+  await expect(page.locator('#editor-root .cm-line').nth(9)).toHaveText(' table:sample');
+
+  // コードの行の行末の余白を押すと、その行の行末に caret が入る（#186 と同じ）。
+  const codeRow = page.locator('#editor-root .cm-line').nth(2);
+  const box = (await codeRow.boundingBox())!;
+  await page.mouse.click(box.x + box.width - 8, box.y + 8);
+  await expect(codeRow).toHaveText(' top()');
+  await page.keyboard.insertText('!');
+  await expect(codeRow).toHaveText(' top()!');
 });

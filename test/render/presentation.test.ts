@@ -46,6 +46,10 @@ void test('行頭の印は、引用行と番号付きの行が横線、コード
   assert.deepEqual(lines.slice(1).map(indentMark), ['dot', 'dash', 'dash', 'dot', 'none', 'dot', 'none']);
 });
 
+void test('コマンドラインは記号の後の空白を落とさず、原文のままコードとして描く', () => {
+  assert.deepEqual(bodyNodes('$ git reset --hard'), [{ type: 'code', text: '$ git reset --hard', className: 'cli' }]);
+});
+
 void test('同じ本文でも周囲のブロック種別が変われば表示キーが変わる', () => {
   const tableLine = presentationLines('Title\ntable:t\n a\tb', new Map(), 'proj', config)[2];
   const plainLine = presentationLines('Title\nplainxx\n a\tb', new Map(), 'proj', config)[2];

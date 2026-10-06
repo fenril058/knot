@@ -77,6 +77,8 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
    CodeMirror 側は lineWrapping が同じ折り返しを行うので、両方の表示で同じ位置に折り返る。
    空白の連なりも CodeMirror 側（white-space: break-spaces）に合わせて畳まない。 */
 .line-row { display: flex; align-items: flex-start; overflow-wrap: anywhere; white-space: break-spaces; }
+/* 行の中身は行の残りの幅いっぱいに広げる。引用とコードブロックの帯を本文の右端まで引くため。 */
+.line-row > :last-child { flex-grow: 1; min-width: 0; }
 /* 空行は高さが 0 になり、行クリックで編集を開始できる面が無くなる。Cosense の空行も 1 行ぶんの高さを持つ。 */
 #editor-root:not(.editor-active) > .line-row { min-height: var(--line-height); }
 .line-title { font-weight: 400; margin: 0; }
@@ -120,7 +122,28 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
 .telomere.age-2 { opacity: 0.6; }
 .telomere.age-3 { opacity: 0.3; }
 .line-row.highlight { background: #fff8dc; }
-.code-line { font-family: monospace; white-space: pre; }
+/* コードブロックの行（見出しと本文）の行送りは Cosense と同じ 1.7em（25.5px）。行に掛けるので、
+   カーソルが入って原文表示になっても行の高さは変わらない。 */
+#editor-root .line-row.code-block-line, #editor-root .cm-line.code-block-line { line-height: 1.7em; }
+#editor-root:not(.editor-active) > .line-row.code-block-line { min-height: 1.7em; }
+/* コードブロックの本文の行は、見出しの段から右へ帯を引き、字は 1 段（22.5px）深い位置から始める。
+   Cosense と同じく長い行は折り返す。 */
+.code-line { background-color: rgb(0 0 0 / 4%); color: #342d9c; display: block; font-family: Menlo, Monaco, Consolas, "Courier New", monospace; font-size: 90%; padding-inline-start: 22.5px; white-space: pre-wrap; }
+/* コードブロックと表の見出しは、名前だけを淡い赤の札にする（Cosense の .code-block-start / .table-block-start）。
+   札の字は本文と font が違い、行送りを本文と同じにすると ascent と descent の比の違いで行が 1px ほど
+   伸びる。札の行送りを字の高さにして、行の高さを font によらず保つ（字はベースラインに揃ったまま）。 */
+.code-block-start, .table-block-start { background-color: #ffcfc6; line-height: 1; padding: 1px 2px; }
+.code-block-start { color: #342d9c; font-family: Menlo, Monaco, Consolas, "Courier New", monospace; font-size: 85.5%; }
+.table-block-start { font-size: 90%; }
+/* 引用（Cosense の .line .quote）。行の本文の位置から右へ帯を引き、左に線を置く。
+   行頭の > は見えないが幅は残す。 */
+.line-row blockquote, .cm-wysiwyg-line blockquote { background-color: rgb(0 0 0 / 5%); border-left: 1px solid #a0a0a0; box-sizing: border-box; margin: 0; padding-left: 3px; width: 100%; }
+.line-row blockquote::before, .cm-wysiwyg-line blockquote::before { content: ">"; visibility: hidden; }
+/* 表の行（Cosense の .table-block .cell）。セルは交互の背景を持ち、行の高さは本文と同じ。 */
+.line-row table, .cm-wysiwyg-line table { border-collapse: collapse; }
+.line-row td, .cm-wysiwyg-line td { padding: 0 2px 0 8px; vertical-align: top; white-space: pre; }
+.line-row td:nth-child(odd), .cm-wysiwyg-line td:nth-child(odd) { background-color: rgb(0 0 0 / 4%); }
+.line-row td:nth-child(even), .cm-wysiwyg-line td:nth-child(even) { background-color: rgb(0 0 0 / 6%); }
 /* 本文の画像（Cosense の .line .image）。CodeMirror が widget の前後に置く buffer の img は除く。 */
 #editor-root img:not(.cm-widgetBuffer) { display: inline-block; margin: 3px 0; max-height: 300px; max-width: 100%; vertical-align: bottom; }
 #editor-root img.strong-image { max-height: none; max-width: 95%; }
@@ -216,7 +239,7 @@ dialog form { display: grid; gap: 1rem; }
 #editor-root .cm-gutters { border-right: 0; background: transparent; }
 #editor-root .cm-telomere-gutter .cm-gutterElement { display: flex; align-items: stretch; }
 /* 閲覧表示のテロメアと同じ幅（4px + 紙面の左 padding の残り）を占め、本文の左端を揃える。 */
-#editor-root .cm-telomere-gutter .telomere { display: block; min-height: var(--line-height); }
+#editor-root .cm-telomere-gutter .telomere { display: block; }
 .cm-sb-indent { color: #aaa; }
 /* カーソル行の原文表示でも、リンクは整形表示と同じ色のまま記法だけを見せる（Cosense と同じ）。 */
 .cm-sb-link, .cm-sb-hashtag, .cm-sb-external-link, .cm-sb-url { color: var(--link-color); }
@@ -232,8 +255,13 @@ dialog form { display: grid; gap: 1rem; }
 .cm-wysiwyg-line { display: inline; }
 /* 引用行は blockquote。整形表示の widget は inline で、CodeMirror が widget の前後へ
    置く buffer も inline なので、block のままだと匿名の行が 1 本増えて閲覧表示より
-   1 行ぶん下がる。inline-block にして、閲覧表示の block と同じ字下げと上下の余白を持たせる。 */
-.cm-wysiwyg-line blockquote { display: inline-block; margin: 1em 40px; }
+   1 行ぶん下がる。inline-block にして、閲覧表示の block と同じ幅と高さを持たせる。 */
+.cm-wysiwyg-line blockquote { display: inline-block; vertical-align: top; }
 /* 整形表示の widget は inline なので、その中の表は inline-table にしないと
-   閲覧表示の block の表と高さが揃わない。枠や padding は閲覧表示に合わせて持たせない。 */
+   閲覧表示の block の表と高さが揃わない。 */
 .cm-wysiwyg-line table { display: inline-table; vertical-align: top; }
+/* コードブロックの本文の行と引用の行は、閲覧表示と同じく本文の右端まで帯を引く。字下げした行と
+   同じく inline-flex にして、CodeMirror の inline の buffer と同じ行に収める。行の幅いっぱいが
+   widget になるので、帯の上の click は行頭への caret になる（行末の余白の click は行末のまま）。 */
+.cm-wysiwyg-line.cm-wysiwyg-code-line, .cm-wysiwyg-line.cm-wysiwyg-quote-line { display: inline-flex; vertical-align: top; width: 100%; }
+.cm-wysiwyg-code-line > :last-child, .cm-wysiwyg-quote-line > :last-child { flex: 1; min-width: 0; }

@@ -15,6 +15,8 @@ export type RenderedLine = {
   lineId: string;
   indent: number;
   mark: IndentMark;
+  // コードブロックの行（見出しと本文）は、行の高さが本文の行と違う。
+  codeBlock: boolean;
   html: HtmlEscapedString | Promise<HtmlEscapedString>;
 };
 type RenderedHtml = HtmlEscapedString | Promise<HtmlEscapedString>;
@@ -67,6 +69,10 @@ function renderNode(node: PresentedNode): RenderedHtml {
   }
 }
 
+function blockLabel(kind: 'code' | 'table', text: string): RenderedHtml {
+  return html`<span class="${kind}-block-start">${text}</span>`;
+}
+
 export function renderLines(
   lines: { id: string; text: string }[],
   knownPages: Map<string, KnownPage>,
@@ -80,14 +86,21 @@ export function renderLines(
     // Editor 起動時に本文の先頭行としても現れてタイトルが二重に見える。
     if (line.role === 'title') rendered = html`<h1 class="line-title">${line.text}</h1>`;
     else if (line.role === 'line') rendered = html`<div>${line.nodes.map(renderNode)}</div>`;
-    else if (line.role === 'codeHeader') rendered = html`<div class="code-header">${line.text}</div>`;
+    // コードブロックと表の見出しは、名前だけを札にする。
+    else if (line.role === 'codeHeader') rendered = html`<div class="code-header">${blockLabel('code', line.text)}</div>`;
     else if (line.role === 'codeLine') rendered = html`<div class="code-line">${line.text}</div>`;
-    else if (line.role === 'tableHeader') rendered = html`<div class="table-header">${line.text}</div>`;
+    else if (line.role === 'tableHeader') rendered = html`<div class="table-header">${blockLabel('table', line.text)}</div>`;
     else if (line.role === 'tableRow') {
       rendered = html`<div class="table-row"><table><tr>${line.cells.map(
         (cell) => html`<td>${cell.map(renderNode)}</td>`,
       )}</tr></table></div>`;
     } else throw new Error('unknown presented line role');
-    return { lineId: lines[index]!.id, indent: line.indent, mark: indentMark(line), html: rendered };
+    return {
+      lineId: lines[index]!.id,
+      indent: line.indent,
+      mark: indentMark(line),
+      codeBlock: line.role === 'codeHeader' || line.role === 'codeLine',
+      html: rendered,
+    };
   });
 }
