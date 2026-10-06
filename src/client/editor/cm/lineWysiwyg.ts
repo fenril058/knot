@@ -15,6 +15,7 @@ import {
   isQuoteLine,
   knownPageMap,
   presentationLines,
+  type IndentMark,
   type KnownPage,
   type PresentedLine,
   type PresentedNode,
@@ -179,6 +180,47 @@ function openLinkAtCursor(config: LineWysiwygConfig): (view: EditorView) => bool
   };
 }
 
+// 字下げした行の caret を置く位置。字下げの後ろ（本文の先頭）に置き、入力で字下げを崩さない。
+function textStart(line: PresentedLine): number {
+  return line.role === 'line' ? line.from + line.indent : line.from;
+}
+
+// 編集を始めるときに caret を置く位置。閲覧表示の行を押したときも、整形表示の行を押したときと
+// 同じく、字下げした行では本文の先頭に置く。
+export function editStartPosition(state: EditorState, lineNumber: number): number {
+  const line = state.doc.line(lineNumber);
+  try {
+    const block = parsePageSyntax(state.doc.toString(), { hasTitle: true })
+      .find((candidate) => candidate.range.from === line.from);
+    return block?.type === 'line' ? line.from + block.indent : line.from;
+  } catch {
+    return line.from;
+  }
+}
+
+// カーソル行の字下げ。字下げの空白 1 文字ずつを、整形表示の 1 段と同じ幅で描く（#241）。
+// 空白は文書に残るので、Tab / Backspace / Enter / undo / IME による編集の意味は変わらない。
+// 最後の 1 文字の widget が、整形表示と同じ位置に行頭の印を描く。
+class IndentSpaceWidget extends WidgetType {
+  readonly mark: IndentMark | undefined;
+
+  constructor(mark: IndentMark | undefined) {
+    super();
+    this.mark = mark;
+  }
+
+  override eq(other: WidgetType): boolean {
+    return other instanceof IndentSpaceWidget && other.mark === this.mark;
+  }
+
+  toDOM(): HTMLElement {
+    const space = document.createElement('span');
+    space.className = this.mark === undefined ? 'cm-indent-space' : `cm-indent-space mark-${this.mark}`;
+    space.ariaHidden = 'true';
+    return space;
+  }
+}
+
 class FormattedLineWidget extends WidgetType {
   readonly line: PresentedLine;
   readonly imageSizes: ReadonlyMap<string, ImageSize>;
@@ -260,7 +302,7 @@ class FormattedLineWidget extends WidgetType {
       const target = event.target;
       if (target instanceof Element && target.closest('a') !== null) return;
       event.preventDefault();
-      view.dispatch({ selection: { anchor: this.line.from }, scrollIntoView: true });
+      view.dispatch({ selection: { anchor: textStart(this.line) }, scrollIntoView: true });
       view.focus();
     });
     return root;
@@ -286,7 +328,23 @@ function buildDecorations(view: EditorView, config: LineWysiwygConfig): Decorati
       if (line.role === 'codeHeader' || line.role === 'codeLine') {
         builder.add(line.from, line.from, Decoration.line({ class: 'code-block-line' }));
       }
-      if (editing.has(line.number)) continue;
+      if (editing.has(line.number)) {
+        if (line.role === 'line' && line.indent > 0) {
+          // 段数は custom property で渡す。CodeMirror は line decoration の style を
+          // style.cssText（CSSOM）で書くので、style 属性と違って CSP の style-src に止められない。
+          builder.add(line.from, line.from, Decoration.line({
+            class: 'cm-active-indent',
+            attributes: { style: `--indent-level: ${line.indent}` },
+          }));
+          const mark = indentMark(line);
+          for (let offset = 0; offset < line.indent; offset += 1) {
+            builder.add(line.from + offset, line.from + offset + 1, Decoration.replace({
+              widget: new IndentSpaceWidget(offset === line.indent - 1 ? mark : undefined),
+            }));
+          }
+        }
+        continue;
+      }
       const widget = new FormattedLineWidget(line, imageSizes);
       if (line.from === line.to) {
         builder.add(line.from, line.to, Decoration.widget({ widget }));
