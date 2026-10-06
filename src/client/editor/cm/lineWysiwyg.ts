@@ -11,6 +11,7 @@ import {
 import { parsePageSyntax, type SyntaxNode } from '../../../core/syntax.ts';
 import { pageHref, titleLc } from '../../../core/title.ts';
 import {
+  indentMark,
   knownPageMap,
   presentationLines,
   type KnownPage,
@@ -193,6 +194,8 @@ class FormattedLineWidget extends WidgetType {
     root.className = 'cm-wysiwyg-line';
     root.dataset.lineNumber = String(this.line.number);
     if (this.line.indent > 0) {
+      // \u95b2\u89a7\u8868\u793a\u306e .line-row \u3068\u540c\u3058\u304f\u3001\u5b57\u4e0b\u3052\u3068\u672c\u6587\u3092\u4e26\u3079\u3066\u672c\u6587\u3092\u5b57\u4e0b\u3052\u306e\u4f4d\u7f6e\u3067\u6298\u308a\u8fd4\u3059\u3002
+      root.classList.add('cm-wysiwyg-indented');
       const prefix = document.createElement('span');
       prefix.className = 'line-indent-prefix cm-wysiwyg-indent-prefix';
       prefix.ariaHidden = 'true';
@@ -200,7 +203,11 @@ class FormattedLineWidget extends WidgetType {
       root.append(prefix);
     }
     const content = document.createElement('span');
-    if (this.line.indent > 0) content.classList.add('cm-wysiwyg-indent-content');
+    if (this.line.indent > 0) {
+      content.classList.add('cm-wysiwyg-indent-content');
+      const mark = indentMark(this.line);
+      if (mark !== 'dot') content.classList.add(`mark-${mark}`);
+    }
     if (this.line.role === 'title') {
       // 閲覧表示の h1 と同じく太字にしない。字の大きさと行送りは行（.cm-title-line）が持つ。
       content.textContent = this.line.text;

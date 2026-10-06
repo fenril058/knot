@@ -28,6 +28,17 @@ export type PresentedLine = PresentedLineBase & (
   | { role: 'tableRow'; cells: PresentedNode[][] }
 );
 
+// 字下げした行の行頭の印。Cosense と同じく、引用行と番号付きの行は横線にし、
+// コードブロックの本文行と表の行には付けない。閲覧表示と編集表示がこの 1 つの規則を使う。
+export type IndentMark = 'dot' | 'dash' | 'none';
+
+export function indentMark(line: PresentedLine): IndentMark {
+  if (line.role === 'codeLine' || line.role === 'tableRow') return 'none';
+  if (line.role !== 'line') return 'dot';
+  const first = line.nodes[0];
+  return first?.type === 'container' && (first.kind === 'quote' || first.className === 'num-list') ? 'dash' : 'dot';
+}
+
 export function knownPageMap(pages: readonly KnownPage[]): Map<string, KnownPage> {
   return new Map(pages.map((page) => [titleLc(page.title), page]));
 }
@@ -129,7 +140,7 @@ function presentNode(
       return {
         type: 'link',
         href: pageHref(project, entry?.title ?? node.href),
-        className: entry === undefined ? 'empty-link' : undefined,
+        className: entry === undefined ? 'empty-link' : 'page-link',
         external: false,
         children: [text(`#${node.href}`)],
       };
@@ -164,7 +175,7 @@ function presentNode(
         return {
           type: 'link',
           href: pageHref(project, entry?.title ?? target),
-          className: entry === undefined ? 'empty-link' : undefined,
+          className: entry === undefined ? 'empty-link' : 'page-link',
           external: false,
           children: [text(node.content === '' ? target : node.content)],
         };

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { knownPageMap, presentationLines, type PresentedNode } from '../../src/render/presentation.ts';
+import { indentMark, knownPageMap, presentationLines, type PresentedNode } from '../../src/render/presentation.ts';
 
 const config = {
   allowedImageHosts: ['images.example'],
@@ -19,7 +19,7 @@ void test('既知ページを正規タイトルへ解決し、不在リンクと
 
   const links = nodes.filter((node) => node.type === 'link');
   assert.deepEqual(links.map((link) => [link.href, link.className]), [
-    ['/proj/Foo_Page', undefined],
+    ['/proj/Foo_Page', 'page-link'],
     ['/proj/Missing', 'empty-link'],
     ['/proj/Foo_Page', 'icon-link'],
   ]);
@@ -38,6 +38,12 @@ void test('引用画像装飾は許可された絶対画像だけを表示計画
   const image = decoration.children[0];
   assert.equal(image?.type, 'image');
   if (image?.type === 'image') assert.equal(image.src, 'https://images.example/a.png');
+});
+
+void test('行頭の印は、引用行と番号付きの行が横線、コードブロックの本文行と表の行が無し、それ以外が点', () => {
+  const source = 'Title\n a\n > quoted\n 1. numbered\n code:a.js\n  x = 1\n table:t\n  a\tb';
+  const lines = presentationLines(source, new Map(), 'proj', config);
+  assert.deepEqual(lines.slice(1).map(indentMark), ['dot', 'dash', 'dash', 'dot', 'none', 'dot', 'none']);
 });
 
 void test('同じ本文でも周囲のブロック種別が変われば表示キーが変わる', () => {

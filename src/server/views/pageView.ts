@@ -1,5 +1,6 @@
 import { html } from 'hono/html';
 import type { Line } from '../../core/ops.ts';
+import type { IndentMark } from '../../render/presentation.ts';
 import type { KnownPage, RenderConfig, RenderedLine } from '../../render/render.ts';
 import type { PageSnapshot, Project, RelatedPage, RelatedPages, Visit } from '../../storage/types.ts';
 import { layout, type Html } from './layout.ts';
@@ -14,16 +15,17 @@ function ageClass(page: PageSnapshot, updated: number): string {
   return 'age-3';
 }
 
-function nestIndentedLine(content: Html, indent: number): Html {
+function nestIndentedLine(content: Html, indent: number, mark: IndentMark): Html {
   if (indent === 0) return content;
-  return html`<span class="line-indent-prefix" aria-hidden="true">${'\u2003'.repeat(indent)}</span><div class="line-indent-content">${content}</div>`;
+  const className = mark === 'dot' ? 'line-indent-content' : `line-indent-content mark-${mark}`;
+  return html`<span class="line-indent-prefix" aria-hidden="true">${'\u2003'.repeat(indent)}</span><div class="${className}">${content}</div>`;
 }
 
 function lineRow(page: PageSnapshot, line: Line, rendered: RenderedLine, previousVisit: Visit | null): Html {
   const unread = previousVisit === null || line.updatedVersion > previousVisit.lastSeenVersion;
   return html`<div class="line-row" id="L${line.id}">
 <span class="telomere${unread ? ' unread' : ''} ${ageClass(page, line.updated)}" data-updated="${line.updated}" data-user="${line.userId}"></span>
-${nestIndentedLine(rendered.html, rendered.indent)}
+${nestIndentedLine(rendered.html, rendered.indent, rendered.mark)}
 </div>`;
 }
 

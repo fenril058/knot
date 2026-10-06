@@ -4,6 +4,7 @@ import {
   expectSameTextBox,
   firstRectCenter,
   firstVisualLineLength,
+  indentMarks,
   lineTextBoxes,
   linkRowTargets,
   loginE2eAccount,
@@ -14,6 +15,7 @@ import {
   scrollRowTo,
   textStyleOf,
   visibleTitleCount,
+  visualLineRects,
 } from './helpers.ts';
 
 const expectedViewportWidths: Record<string, number> = {
@@ -493,4 +495,46 @@ test('mobile browser でも scroll できるページの上の方から編集を
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
   expect(await rowTop()).toBe(before);
+});
+
+// 360px でも確実に折り返す長さ。字下げの段は Cosense と同じ 22.5px（#231）。
+const MOBILE_INDENT_BODY = [
+  ` ${'字下げした長い行が mobile でも同じ位置で折り返すことを確かめる。'.repeat(2)}`,
+  `  ${'二段目の長い行も同じ位置で折り返す。'.repeat(3)}`,
+  ' > 字下げした引用',
+  'last body',
+];
+
+test('mobile browser でも字下げの段・行頭の印・折り返しを閲覧表示と編集表示で揃える', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'line-mobile-e2e');
+
+  const title = `mi-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, MOBILE_INDENT_BODY);
+
+  await page.goto(`/e2e/${title}`);
+  await expectMobileLayout(page, expectedWidth);
+  const dot = { x: -15, y: 10, width: 6, height: 6, color: 'rgb(85, 85, 85)', radius: '50%' };
+  const dash = { x: -15, y: 12.5, width: 6, height: 2, color: 'rgb(85, 85, 85)', radius: '0px' };
+  const marks = [
+    null,
+    { textLeft: 29 + 22.5, mark: dot },
+    { textLeft: 29 + 45, mark: dot },
+    { textLeft: 29 + 22.5, mark: dash },
+    null,
+  ];
+  expect(await indentMarks(page)).toEqual(marks);
+  const lines = await visualLineRects(page);
+  // 折り返した 2 本目以降は本文の開始位置から始まる。
+  expect(lines[1]!.slice(1).map(([left]) => left)).toEqual(lines[1]!.slice(1).map(() => Math.round(29 + 22.5)));
+  expect(lines[2]!.slice(1).map(([left]) => left)).toEqual(lines[2]!.slice(1).map(() => 29 + 45));
+  expect(lines[1]!.length).toBeGreaterThan(2);
+  expect(lines[2]!.length).toBeGreaterThan(2);
+
+  await page.locator('#editor-root .line-row').nth(MOBILE_INDENT_BODY.length).tap();
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expectMobileLayout(page, expectedWidth);
+  expect(await indentMarks(page)).toEqual(marks);
+  expect(await visualLineRects(page)).toEqual(lines);
 });

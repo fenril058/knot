@@ -36,6 +36,8 @@ const accountNames = [
   'link-mobile-e2e',
   'geometry-e2e',
   'geometry-mobile-e2e',
+  'line-e2e',
+  'line-mobile-e2e',
 ];
 for (const name of accountNames) {
   await storage.addAccount(

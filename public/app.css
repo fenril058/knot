@@ -4,6 +4,11 @@
   --body-bg: #dcdde0;
   --page-bg: #fefefe;
   --page-text-color: #4a4a4a;
+  --dot-color: #555;
+  --link-color: #3d72f5;
+  --link-hover-color: #0d4ff3;
+  --empty-link-color: #fd7373;
+  --empty-link-hover-color: #fc4141;
   --line-height: 28px;
   --page-padding-top: 42px;
   --page-padding-inline: 49px;
@@ -61,12 +66,38 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
 /* 空行は高さが 0 になり、行クリックで編集を開始できる面が無くなる。Cosense の空行も 1 行ぶんの高さを持つ。 */
 #editor-root:not(.editor-active) > .line-row { min-height: var(--line-height); }
 .line-title { font-weight: 400; margin: 0; }
-.line-indent-prefix, .cm-wysiwyg-indent-prefix { white-space: pre; letter-spacing: .25rem; flex-shrink: 0; }
+/* 字下げは 1 段 1.5em（Cosense と同じ 22.5px）。全角空白 1 文字（1em）と letter-spacing の
+   0.5em で 1 段を作り、段数ぶんの要素は作らない。 */
+.line-indent-prefix, .cm-wysiwyg-indent-prefix { white-space: pre; letter-spacing: .5em; flex-shrink: 0; }
 .line-indent-content, .cm-wysiwyg-indent-content { position: relative; }
+/* 行頭の点。Cosense の .dot と同じく直径 6px で、中心は本文の開始位置から 12px 左、
+   行の上端から 13px。本文の要素の上端は行の上端と揃っている。 */
 .line-indent-content::before, .cm-wysiwyg-indent-content::before {
-  content: "•";
-  inset-inline-start: -0.9rem;
+  background-color: var(--dot-color);
+  border-radius: 50%;
+  content: "";
+  height: 6px;
+  inset-inline-start: -15px;
   position: absolute;
+  top: 10px;
+  width: 6px;
+}
+/* 引用行と番号付きの行は横線、コードブロックの本文行と表の行には印を付けない（presentation.ts の indentMark）。 */
+.line-indent-content.mark-dash::before, .cm-wysiwyg-indent-content.mark-dash::before { border-radius: 0; height: 2px; top: 12.5px; }
+.line-indent-content.mark-none::before, .cm-wysiwyg-indent-content.mark-none::before { content: none; }
+/* 編集表示の整形表示 widget は inline なので、字下げした行の本文が折り返すと 2 行目以降が
+   行の左端へ戻る。閲覧表示の .line-row と同じく字下げと本文を flex で並べ、本文を字下げの
+   位置で折り返す。inline-flex にするのは、CodeMirror が widget の前後に置く inline の buffer と
+   同じ行に収め、匿名の行を作らないため。行の上端に揃えるので、本文の要素の上端も行の上端になる。 */
+.cm-wysiwyg-line.cm-wysiwyg-indented { align-items: flex-start; display: inline-flex; max-width: 100%; vertical-align: top; }
+/* 本文のリンク。ページへのリンク（内部リンク・空リンク・ハッシュタグ・アイコン）は下線なし、
+   URL のリンクは下線ありで、どちらも Cosense の既定テーマと同じ色にする。 */
+#editor-root a { color: var(--link-color); }
+#editor-root a.page-link, #editor-root a.empty-link, #editor-root a.icon-link { text-decoration: none; }
+#editor-root a.empty-link { color: var(--empty-link-color); }
+@media (hover: hover) {
+  #editor-root a:hover { color: var(--link-hover-color); }
+  #editor-root a.empty-link:hover { color: var(--empty-link-hover-color); }
 }
 /* テロメアは紙面の左端に置き、紙面の左 padding の残りを本文までの余白にする。 */
 .telomere { width: 4px; align-self: stretch; margin-inline-end: calc(var(--page-padding-inline) - 4px); flex-shrink: 0; background: #ccc; cursor: pointer; }
@@ -160,8 +191,8 @@ dialog form { display: grid; gap: 1rem; }
 /* 閲覧表示のテロメアと同じ幅（4px + 紙面の左 padding の残り）を占め、本文の左端を揃える。 */
 #editor-root .cm-telomere-gutter .telomere { display: block; min-height: var(--line-height); }
 .cm-sb-indent { color: #aaa; }
-.cm-sb-link, .cm-sb-hashtag { color: #2c6ea3; }
-.cm-sb-external-link, .cm-sb-url { color: #287c3c; }
+/* カーソル行の原文表示でも、リンクは整形表示と同じ色のまま記法だけを見せる（Cosense と同じ）。 */
+.cm-sb-link, .cm-sb-hashtag, .cm-sb-external-link, .cm-sb-url { color: var(--link-color); }
 .cm-sb-icon { color: #8e44ad; }
 .cm-sb-strong { font-weight: 700; }
 .cm-sb-italic { font-style: italic; }
