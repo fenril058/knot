@@ -593,8 +593,9 @@ test('画像を含む行も編集開始で行の高さと画像の大きさが�
     const box = image.getBoundingClientRect();
     return { width: box.width, height: box.height };
   }));
-  // 本文の画像は CSS が大きさを決めないので、読み込んだ画像の大きさで描かれる。
-  expect(loaded[0]).toEqual({ width: 300, height: 500 });
+  // 本文の画像は読み込んだ画像の縦横比で描かれる（閲覧時の 600x400 の属性が残っていない）。
+  // 高さは Cosense と同じく 300px までに縮める（#235）。
+  expect(loaded[0]).toEqual({ width: 180, height: 300 });
   // アイコンは CSS が高さを決めるので、縦横比だけを見る。
   expect(loaded[1]!.width / loaded[1]!.height).toBeCloseTo(300 / 500, 2);
 });

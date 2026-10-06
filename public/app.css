@@ -121,9 +121,22 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
 .telomere.age-3 { opacity: 0.3; }
 .line-row.highlight { background: #fff8dc; }
 .code-line { font-family: monospace; white-space: pre; }
-/* 編集表示の img は読み込み前から場所を取れるよう width / height 属性を持つ。
-   width を属性から取らず、属性の縦横比と CSS の高さから決める。 */
-.icon-img { height: 1.2em; width: auto; vertical-align: middle; }
+/* 本文の画像（Cosense の .line .image）。CodeMirror が widget の前後に置く buffer の img は除く。 */
+#editor-root img:not(.cm-widgetBuffer) { display: inline-block; margin: 3px 0; max-height: 300px; max-width: 100%; vertical-align: bottom; }
+#editor-root img.strong-image { max-height: none; max-width: 95%; }
+/* アイコン（Cosense の .line img.icon）。高さを CSS が決め、幅は画像の縦横比から決まる。 */
+#editor-root img.icon-img { height: 1.3em; margin: 0; position: relative; top: -0.3em; vertical-align: middle; width: auto; }
+#editor-root img.icon-img.strong-icon { height: 3.9em; top: 0; vertical-align: bottom; }
+/* インラインコード（Cosense の .line code）。コードブロックの行（.code-line）は別に扱う。 */
+#editor-root code:not(.code-line) { background-color: rgb(0 0 0 / 4%); border-radius: 4px; color: #342d9c; font-family: Menlo, Monaco, Consolas, "Courier New", monospace; font-size: 90%; }
+/* バッククオートは消さずに薄く残す。コマンドラインと数式には付かない。 */
+#editor-root code:not(.code-line, .cli, .formula)::before,
+#editor-root code:not(.code-line, .cli, .formula)::after { content: "`"; opacity: .1; }
+/* 強調の段階（Cosense の .line strong.level-N）。行送りも段階に合わせて広げる。 */
+#editor-root strong.level-2 { font-size: 1.2em; line-height: 28px; }
+#editor-root strong.level-3 { font-size: 1.44em; line-height: 35px; }
+#editor-root strong.level-4 { font-size: 1.73em; line-height: 42px; }
+#editor-root strong.level-5 { font-size: 2.07em; line-height: 49px; }
 .error { color: #c0392b; }
 .create-project { border: 1px solid #ddd; border-radius: 6px; max-width: 28rem; padding: 1rem; }
 .create-project h2 { margin-top: 0; }
@@ -211,7 +224,9 @@ dialog form { display: grid; gap: 1rem; }
 .cm-sb-strong { font-weight: 700; }
 .cm-sb-italic { font-style: italic; }
 .cm-sb-strike { text-decoration: line-through; }
-.cm-sb-code-inline, .cm-sb-code-block, .cm-sb-formula { font-family: monospace; }
+.cm-sb-code-block { font-family: monospace; }
+/* カーソル行の原文表示でも、コードは整形表示と同じ見た目のまま記法だけを見せる。 */
+.cm-sb-code-inline, .cm-sb-formula { background-color: rgb(0 0 0 / 4%); border-radius: 4px; color: #342d9c; font-family: Menlo, Monaco, Consolas, "Courier New", monospace; font-size: 90%; }
 .cm-sb-code-block { background: #f5f5f5; }
 .cm-sb-quote { color: #666; }
 .cm-wysiwyg-line { display: inline; }

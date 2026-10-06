@@ -25,10 +25,16 @@ function renderNode(node: PresentedNode): RenderedHtml {
     case 'text':
       return html`${node.text}`;
     case 'code':
-      return html`<code>${node.text}</code>`;
+      return node.className === undefined
+        ? html`<code>${node.text}</code>`
+        : html`<code class="${node.className}">${node.text}</code>`;
     case 'container': {
       const children = node.children.map(renderNode);
-      if (node.kind === 'strong') return html`<strong>${children}</strong>`;
+      if (node.kind === 'strong') {
+        return node.className === undefined
+          ? html`<strong>${children}</strong>`
+          : html`<strong class="${node.className}">${children}</strong>`;
+      }
       if (node.kind === 'em') return html`<em>${children}</em>`;
       if (node.kind === 'del') return html`<del>${children}</del>`;
       if (node.kind === 'quote') return html`<blockquote>${children}</blockquote>`;
@@ -47,7 +53,9 @@ function renderNode(node: PresentedNode): RenderedHtml {
     }
     case 'image':
       if (node.className !== undefined) {
-        return html`<img src="${node.src}" alt="${node.alt}" class="${node.className}">`;
+        return node.lazy
+          ? html`<img src="${node.src}" alt="${node.alt}" class="${node.className}" loading="lazy">`
+          : html`<img src="${node.src}" alt="${node.alt}" class="${node.className}">`;
       }
       return node.lazy
         ? html`<img src="${node.src}" alt="${node.alt}" loading="lazy">`
