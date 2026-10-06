@@ -686,9 +686,11 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
     // 画面に見えていた行から始めたなら同じ位置へ戻す。見えていない行（ショートカットの
     // 最終行など）から始めたときは、caret のほうを画面へ入れる。
     view.dispatch({ selection: { anchor: selectedLine.from }, scrollIntoView: anchorTop === undefined });
-    if (anchorTop !== undefined) {
-      const coords = view.coordsAtPos(selectedLine.from);
-      if (coords !== null) window.scrollBy(0, coords.top - anchorTop);
+    // coordsAtPos は保留中の計測を済ませてから位置を返すので、そのあとの lineBlockAt は
+    // 計測済みの行の箱になる。比べるのは caret の矩形（字の高さ）ではなく、SSR 行と同じ
+    // 行の箱の上端にする。行送りが字より高いと、caret の矩形との差だけ画面が動く。
+    if (anchorTop !== undefined && view.coordsAtPos(selectedLine.from) !== null) {
+      window.scrollBy(0, view.documentTop + view.lineBlockAt(selectedLine.from).top - anchorTop);
     }
   }
   renderStatus();

@@ -471,3 +471,26 @@ test('mobile browser でも紙面と本文を Cosense と同じ位置と字で�
   expect(normalizedTextStyle(await textStyleOf(page, GEOMETRY_BODY[0]!))).toEqual(bodyStyle);
   expect(await rowHeights(page)).toEqual([63, 28, 28, 28]);
 });
+
+test('mobile browser でも scroll できるページの上の方から編集を始めて、画面が動かない', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'geometry-mobile-e2e');
+
+  const title = `mgs-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, Array.from({ length: 40 }, (_, index) => `line ${index}`));
+
+  await page.goto(`/e2e/${title}`);
+  const rowTop = async (): Promise<number> => page.evaluate(() => {
+    const rows = document.querySelectorAll('#editor-root .line-row, #editor-root .cm-line');
+    const row = Array.from(rows).find((candidate) => candidate.textContent?.trim() === 'line 2');
+    if (row === undefined) throw new Error('the tapped line is not rendered');
+    return row.getBoundingClientRect().top;
+  });
+  const before = await rowTop();
+
+  await page.locator('#editor-root .line-row').nth(3).tap();
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  expect(await rowTop()).toBe(before);
+});

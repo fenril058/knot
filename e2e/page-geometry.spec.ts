@@ -78,6 +78,32 @@ test('本文とタイトルを Cosense と同じ字と行送りで描き、編�
   expect(await rowHeights(page)).toEqual([63, 28, 28, 28]);
 });
 
+// 触った行の画面上の上端。閲覧表示の .line-row と CodeMirror の .cm-line を同じ数え方で測る。
+async function viewportRowTop(page: Page, text: string): Promise<number> {
+  return page.evaluate((expected) => {
+    const rows = document.querySelectorAll('#editor-root .line-row, #editor-root .cm-line');
+    const row = Array.from(rows).find((candidate) => candidate.textContent?.trim() === expected);
+    if (row === undefined) throw new Error(`no row renders ${JSON.stringify(expected)}`);
+    return row.getBoundingClientRect().top;
+  }, text);
+}
+
+test('scroll できるページの上の方から編集を始めても、画面は 1px も動かない', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'geometry-e2e');
+  const title = `geometry-scroll-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, Array.from({ length: 40 }, (_, index) => `line ${index}`));
+
+  await page.setViewportSize({ width: 1280, height: 600 });
+  await page.goto(`/e2e/${title}`);
+  const before = await viewportRowTop(page, 'line 2');
+
+  await page.locator('#editor-root .line-row').nth(3).click({ position: lineRowClickPosition });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  // 行送りは字より高いので、caret の矩形と行の箱を比べると、その差だけ scroll してしまう。
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  expect(await viewportRowTop(page, 'line 2')).toBe(before);
+});
+
 test('上部のバーにプロジェクト名を Cosense と同じ字で置き、ページ操作は紙面の右に置く', async ({ page }, testInfo) => {
   await loginE2eAccount(page, 'geometry-e2e');
   const title = `geometry-chrome-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
