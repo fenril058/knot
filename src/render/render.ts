@@ -1,7 +1,9 @@
 import { html } from 'hono/html';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import {
+  indentMark,
   presentationLines,
+  type IndentMark,
   type KnownPage,
   type PresentedNode,
   type RenderConfig,
@@ -9,7 +11,12 @@ import {
 
 export type { KnownPage, RenderConfig } from './presentation.ts';
 
-export type RenderedLine = { lineId: string; indent: number; html: HtmlEscapedString | Promise<HtmlEscapedString> };
+export type RenderedLine = {
+  lineId: string;
+  indent: number;
+  mark: IndentMark;
+  html: HtmlEscapedString | Promise<HtmlEscapedString>;
+};
 type RenderedHtml = HtmlEscapedString | Promise<HtmlEscapedString>;
 
 // oxlint-disable-next-line typescript/consistent-return -- union を網羅する switch。末尾の return を書かず分岐漏れを型エラーにする
@@ -73,6 +80,6 @@ export function renderLines(
         (cell) => html`<td>${cell.map(renderNode)}</td>`,
       )}</tr></table></div>`;
     } else throw new Error('unknown presented line role');
-    return { lineId: lines[index]!.id, indent: line.indent, html: rendered };
+    return { lineId: lines[index]!.id, indent: line.indent, mark: indentMark(line), html: rendered };
   });
 }

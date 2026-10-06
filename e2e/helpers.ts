@@ -124,6 +124,73 @@ export async function rowHeights(target: Page): Promise<number[]> {
   ));
 }
 
+// 行の視覚行ごとの文字の範囲 [left, top, width]。top は #editor-root 上端からの相対値。
+// 同じ高さに並ぶ文字の矩形を 1 つにまとめるので、閲覧表示と CodeMirror で文字の区切り方
+// （text node の分け方）が違っても、折り返した各行がどこから始まりどこまで続くかを比べられる。
+export async function visualLineRects(target: Page): Promise<number[][][]> {
+  return target.evaluate(() => {
+    const root = document.querySelector('#editor-root');
+    if (root === null) throw new Error('editor root is missing');
+    const rootTop = root.getBoundingClientRect().top;
+    return Array.from(root.querySelectorAll('.line-row, .cm-line'), (row) => {
+      const lines = new Map<number, { left: number; right: number }>();
+      const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode() !== null) {
+        const node = walker.currentNode;
+        if (node.parentElement?.closest('.telomere') != null) continue;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        for (const rect of Array.from(range.getClientRects())) {
+          if (rect.width === 0 || rect.height === 0) continue;
+          const top = Math.round(rect.top - rootTop);
+          const line = lines.get(top);
+          lines.set(top, {
+            left: Math.min(line?.left ?? rect.left, rect.left),
+            right: Math.max(line?.right ?? rect.right, rect.right),
+          });
+        }
+      }
+      return Array.from(lines, ([top, { left, right }]) => [Math.round(left), top, Math.round(right - left)])
+        .toSorted((a, b) => a[1]! - b[1]!);
+    });
+  });
+}
+
+export type IndentMark = {
+  // 字下げした本文の開始位置（0.5px 単位）。
+  textLeft: number;
+  // 行頭の印。位置は本文の開始位置と行の上端からの相対値。印が無ければ null。
+  mark: { x: number; y: number; width: number; height: number; color: string; radius: string } | null;
+};
+
+// 字下げした行の、本文の開始位置と行頭の印。字下げの無い行は null。
+// 印は本文の要素の ::before なので、要素の矩形と computed style から位置を求める。
+export async function indentMarks(target: Page): Promise<(IndentMark | null)[]> {
+  return target.evaluate(() => Array.from(
+    document.querySelectorAll('#editor-root .line-row, #editor-root .cm-line'),
+    (row) => {
+      const content = row.querySelector<HTMLElement>('.line-indent-content, .cm-wysiwyg-indent-content');
+      if (content === null) return null;
+      const box = content.getBoundingClientRect();
+      const before = getComputedStyle(content, '::before');
+      const shown = before.display !== 'none' && before.content !== 'none';
+      return {
+        textLeft: Math.round(box.left * 2) / 2,
+        mark: shown
+          ? {
+            x: Number.parseFloat(before.left),
+            y: Math.round((box.top - row.getBoundingClientRect().top + Number.parseFloat(before.top)) * 2) / 2,
+            width: Number.parseFloat(before.width),
+            height: Number.parseFloat(before.height),
+            color: before.backgroundColor,
+            radius: before.borderRadius,
+          }
+          : null,
+      };
+    },
+  ));
+}
+
 export type PageGeometry = {
   bodyBackground: string;
   bar: { height: number; background: string };
