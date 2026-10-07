@@ -48,6 +48,7 @@ const accountNames = [
   'search-e2e',
   'search-mobile-e2e',
   'page-menu-e2e',
+  'selection-e2e',
 ];
 for (const name of accountNames) {
   await storage.addAccount(

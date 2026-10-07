@@ -190,3 +190,18 @@ export function sourcePosition(line: PresentedLine, elements: LineElements, targ
   const last = aligned.at(-1);
   return last === undefined ? line.to : itemEnd(last);
 }
+
+// selection の端の原文の位置。inLine は端が行の字下げか本文の中にあること。triple click で行を
+// 選ぶと、終わりの端は次の行の頭（テロメア）に来る。本文の外の端は、本文より前なら行頭、
+// 後ろなら行末にする。
+export type SelectionPoint = { position: number; inLine: boolean };
+
+export function selectionPoint(line: PresentedLine, elements: LineElements, node: Node, offset: number): SelectionPoint | undefined {
+  if (elements.content.contains(node) || elements.prefix?.contains(node) === true) {
+    const position = sourcePosition(line, elements, { node, offset, pastEnd: false });
+    return position === undefined ? undefined : { position, inLine: true };
+  }
+  const range = document.createRange();
+  range.setStart(node, offset);
+  return { position: range.comparePoint(elements.prefix ?? elements.content, 0) >= 0 ? line.from : line.to, inLine: false };
+}
