@@ -22,6 +22,27 @@ void test('GET /:project/:title: レンダリング結果・空リンク・テ�
   void alphaId;
 });
 
+void test('ページが無くても、ほかのページからリンクされているリンク先は空リンクの色にしない（#285）', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'Beta', ['[Via Beta]'], s.clock.t);
+  await seedPage(s.storage, project.id, 'Other', ['[Hub Topic] #shared'], s.clock.t + 1);
+  await seedPage(s.storage, project.id, 'Alpha', ['[Beta] [Hub Topic] #shared [Via Beta] [Lonely]'], s.clock.t + 2);
+
+  const body = await (await s.request('/proj/Alpha', {}, cookie)).text();
+
+  // 2-hop の札（Other）や 1-hop の札（Beta）がリンクしているリンク先は、ページのあるリンクと同じ見た目。
+  assert.match(body, /<a href="\/proj\/Hub_Topic" class="page-link">Hub Topic<\/a>/);
+  assert.match(body, /<a href="\/proj\/shared" class="page-link">#shared<\/a>/);
+  assert.match(body, /<a href="\/proj\/Via_Beta" class="page-link">Via Beta<\/a>/);
+  // このページからしかリンクされていないリンク先だけを空リンクにする。
+  assert.match(body, /<a href="\/proj\/Lonely" class="empty-link">Lonely<\/a>/);
+  // 編集表示も同じ色で描くよう、リンク先を編集表示へ渡す。
+  assert.match(body, /data-known-pages="[^"]*&quot;title&quot;:&quot;Hub Topic&quot;,&quot;image&quot;:null[^"]*"/);
+  assert.doesNotMatch(body, /data-known-pages="[^"]*Lonely[^"]*"/);
+});
+
 void test('テロメアは押せるボタンで、行のテロメアの tab stop は先頭の行の 1 つだけにする', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);

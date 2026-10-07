@@ -1,11 +1,11 @@
 import type { Hono } from 'hono';
 import { checkSearchQuery } from '../../core/searchQuery.ts';
-import { pageHref } from '../../core/title.ts';
+import { pageHref, titleLc } from '../../core/title.ts';
 import { renderLines } from '../../render/render.ts';
 import type { ApplicationDeps } from '../application.ts';
 import { resolvePage, resolveProject, safeDecode, type ApiEnv } from '../http.ts';
 import { pageListPage } from '../views/pageList.ts';
-import { pageNotFoundPage, pageViewPage, projectNotFoundPage } from '../views/pageView.ts';
+import { linkedEmptyPages, pageNotFoundPage, pageViewPage, projectNotFoundPage } from '../views/pageView.ts';
 import { projectIndexPage } from '../views/projectIndex.ts';
 import { searchResultsPage } from '../views/searchPage.ts';
 
@@ -94,6 +94,10 @@ export function registerPageRoutes(app: Hono<ApiEnv>, deps: ApplicationDeps): vo
     const previousVisit = await deps.storage.getVisit(accountId, page.id);
     const related = await deps.storage.getRelatedPages(project.id, page.id, page.titleLc);
     const knownPages = new Map(titles.map((entry) => [entry.titleLc, { title: entry.title, image: entry.image }]));
+    // ページは無いが、ほかのページからリンクされているリンク先は、Cosense と同じく空リンクにしない（#285）。
+    const linkedEmpty = linkedEmptyPages(page, related, new Set(knownPages.keys()));
+    for (const entry of linkedEmpty) knownPages.set(titleLc(entry.title), entry);
+    const pageKnownPages = [...knownPagesList, ...linkedEmpty];
     const rendered = renderLines(page.lines, knownPages, project.name, renderConfig);
     const isCrossSite = c.req.header('Sec-Fetch-Site')?.toLowerCase() === 'cross-site';
     const isPrefetch = c.req.header('Sec-Purpose')?.toLowerCase().includes('prefetch') === true;
@@ -110,7 +114,7 @@ export function registerPageRoutes(app: Hono<ApiEnv>, deps: ApplicationDeps): vo
         actor?.name ?? '',
         styleNonce,
         renderConfig,
-        knownPagesList,
+        pageKnownPages,
         now(),
       ),
     );

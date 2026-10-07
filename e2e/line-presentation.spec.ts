@@ -172,6 +172,38 @@ test('リンクを Cosense と同じ色と下線で描き、hover とカーソ�
   expect(await rawLooks(2)).toEqual([[`[${target}.icon]`, 'rgb(74, 74, 74)', 'none']]);
 });
 
+test('ページが無くても、ほかのページからリンクされているリンク先は、閲覧表示と編集表示で空リンクの色にしない', async (
+  { page },
+  testInfo,
+) => {
+  await loginE2eAccount(page, 'line-e2e');
+  const suffix = `${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  const hub = `line-linked-hub-${suffix}`;
+  const lonely = `line-lonely-${suffix}`;
+  const title = `line-linked-empty-${suffix}`;
+  await createE2ePage(page, `line-linked-other-${suffix}`, [`[${hub}] へのリンク`]);
+  const body = [`[${hub}] [${lonely}]`, 'last body'];
+  await createE2ePage(page, title, body);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  // hub はページが無いが、ほかのページからリンクされている（#285）。lonely はこのページからだけ。
+  const expected: LinkLook[] = [
+    { text: hub, color: 'rgb(61, 114, 245)', decoration: 'none' },
+    { text: lonely, color: 'rgb(253, 115, 115)', decoration: 'none' },
+  ];
+  expect(await linkLooks(page, 1)).toEqual(expected);
+
+  await startEditingAtLastRow(page, body.length);
+  expect(await linkLooks(page, 1)).toEqual(expected);
+  const row = page.locator('#editor-root .cm-line').nth(1);
+  const rowBox = (await row.boundingBox())!;
+  await page.mouse.click(rowBox.x + rowBox.width - 8, rowBox.y + 8);
+  await expect(row.locator('a')).toHaveCount(0);
+  expect(await row.locator('[class*="cm-sb-"]').evaluateAll((spans) => spans.map((span) => [span.textContent, getComputedStyle(span).color])))
+    .toEqual([[`[${hub}]`, 'rgb(61, 114, 245)'], [`[${lonely}]`, 'rgb(253, 115, 115)']]);
+});
+
 test('字下げした行でも、リンクの click は遷移し、行末の click は原文の編集に入る', async ({ page }, testInfo) => {
   await loginE2eAccount(page, 'line-e2e');
   const suffix = `${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
