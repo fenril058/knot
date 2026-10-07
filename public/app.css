@@ -270,11 +270,12 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
 /* バッククオートは消さずに薄く残す。コマンドラインと数式には付かない。 */
 #editor-root code:not(.code-line, .cli, .formula)::before,
 #editor-root code:not(.code-line, .cli, .formula)::after { content: "`"; opacity: .1; }
-/* 強調の段階（Cosense の .line strong.level-N）。行送りも段階に合わせて広げる。 */
-#editor-root strong.level-2 { font-size: 1.2em; line-height: 28px; }
-#editor-root strong.level-3 { font-size: 1.44em; line-height: 35px; }
-#editor-root strong.level-4 { font-size: 1.73em; line-height: 42px; }
-#editor-root strong.level-5 { font-size: 2.07em; line-height: 49px; }
+/* 強調の段階（Cosense の .line strong.level-N）。行送りも段階に合わせて広げる。
+   カーソル行の原文表示も、Cosense と同じく記法の字ごと同じ大きさで描き、行の高さを変えない（#267）。 */
+#editor-root strong.level-2, #editor-root .cm-sb-level-2 { font-size: 1.2em; line-height: 28px; }
+#editor-root strong.level-3, #editor-root .cm-sb-level-3 { font-size: 1.44em; line-height: 35px; }
+#editor-root strong.level-4, #editor-root .cm-sb-level-4 { font-size: 1.73em; line-height: 42px; }
+#editor-root strong.level-5, #editor-root .cm-sb-level-5 { font-size: 2.07em; line-height: 49px; }
 .error { color: #c0392b; }
 .create-project { border: 1px solid #ddd; border-radius: 6px; max-width: 28rem; padding: 1rem; }
 .create-project h2 { margin-top: 0; }
