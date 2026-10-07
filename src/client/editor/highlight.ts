@@ -5,6 +5,7 @@ export type SpanKind =
   | 'title'
   | 'indent'
   | 'link'
+  | 'empty-link'
   | 'external-link'
   | 'hashtag'
   | 'icon'
@@ -23,15 +24,21 @@ export type SpanStyle = 'strong' | 'italic' | 'strike' | `level-${number}`;
 
 export type Span = { from: number; to: number; kind: SpanKind; styles?: readonly SpanStyle[] };
 
+// ページがあるかどうか。渡されたときは、閲覧表示と同じくページの無いリンクとハッシュタグを
+// empty-link にする（カーソル行でも空リンクの色を保つ、#273）。
+export type IsKnownTitle = (title: string) => boolean;
+
 // span にならない node 型があるため戻り値に undefined を含む。そのぶん分岐漏れは
 // 型エラーにならないので、未知の型は末尾で明示的に undefined にする。
-function nodeKind(node: SyntaxNode): SpanKind | undefined {
+function nodeKind(node: SyntaxNode, isKnownTitle: IsKnownTitle | undefined): SpanKind | undefined {
   switch (node.type) {
     case 'link':
-      if (node.pathType === 'relative') return 'link';
+      if (node.pathType === 'relative') {
+        return isKnownTitle === undefined || isKnownTitle(node.href.split('#')[0]!) ? 'link' : 'empty-link';
+      }
       return node.raw.startsWith('[') ? 'external-link' : 'url';
     case 'hashTag':
-      return 'hashtag';
+      return isKnownTitle === undefined || isKnownTitle(node.href) ? 'hashtag' : 'empty-link';
     case 'icon':
     case 'strongIcon':
       return 'icon';
@@ -95,8 +102,9 @@ function appendNodeSpans(
   node: SyntaxNode,
   inheritedKind: SpanKind | undefined,
   inheritedStyles: readonly SpanStyle[],
+  isKnownTitle: IsKnownTitle | undefined,
 ): void {
-  const kind = nodeKind(node) ?? inheritedKind;
+  const kind = nodeKind(node, isKnownTitle) ?? inheritedKind;
   const ownStyles = decorationStyles(node);
   const styles = ownStyles.length === 0 ? inheritedStyles : [...inheritedStyles, ...ownStyles];
   if (!('nodes' in node) || node.nodes.length === 0) {
@@ -107,13 +115,13 @@ function appendNodeSpans(
   let cursor = node.range.from;
   for (const child of node.nodes) {
     appendSpan(spans, cursor, child.range.from, kind, styles);
-    appendNodeSpans(spans, child, kind, styles);
+    appendNodeSpans(spans, child, kind, styles, isKnownTitle);
     cursor = child.range.to;
   }
   appendSpan(spans, cursor, node.range.to, kind, styles);
 }
 
-export function highlightSpans(docText: string): Span[] {
+export function highlightSpans(docText: string, isKnownTitle?: IsKnownTitle): Span[] {
   const spans: Span[] = [];
   let blocks;
   try {
@@ -128,7 +136,7 @@ export function highlightSpans(docText: string): Span[] {
         appendSpan(spans, block.range.from, block.range.to, 'title', []);
       } else if (block.type === 'line') {
         appendSpan(spans, block.range.from, block.range.from + block.indent, 'indent', []);
-        for (const node of block.nodes) appendNodeSpans(spans, node, undefined, []);
+        for (const node of block.nodes) appendNodeSpans(spans, node, undefined, [], isKnownTitle);
       } else {
         for (const range of block.lineRanges) {
           appendSpan(spans, range.from, range.to, 'code-block', []);
