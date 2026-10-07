@@ -51,7 +51,9 @@ void test('1-hop と 2-hop の関連ページを一覧と同じカードで表�
 
   const body = await (await s.request('/proj/Alpha', {}, cookie)).text();
 
-  assert.match(body, /<section class="related-pages"><h2>関連ページ<\/h2><ul class="card-grid" role="list">/);
+  // 見出しは画面に出さず、1-hop の行は「Links」の札で始まる（#249）。
+  assert.match(body, /<section class="related-pages" aria-labelledby="related-pages-title"><h2 id="related-pages-title" class="visually-hidden">関連ページ<\/h2>/);
+  assert.match(body, /<ul class="card-grid related-group" role="list" aria-label="Links"><li class="relation-label links"><span class="relation-label-card"><span class="relation-label-title">Links<\/span>/);
   assert.match(body, /<li><a class="card" href="\/proj\/Beta">/);
   assert.match(body, /href="\/proj\/Beta">[\s\S]*?<h3>Beta<\/h3>/);
   assert.match(
@@ -61,13 +63,39 @@ void test('1-hop と 2-hop の関連ページを一覧と同じカードで表�
   // Cosense と同じく、画像のあるページの札は画像だけを置き、無いページの札は説明文を置く。
   assert.doesNotMatch(body, /Beta Link の説明/);
   assert.match(body, /href="\/proj\/Delta">[\s\S]*?<h3>Delta<\/h3>\s*<p>Delta の説明<\/p>/);
-  assert.match(body, /<section class="related-pages"><h2>2-hop リンク<\/h2><ul class="card-grid" role="list">/);
+  // 2-hop の行は共有するリンク先（ページの無い Ghost）の名前の札で始まる。
+  assert.match(body, /<ul class="card-grid related-group" role="list" aria-label="Ghost"><li class="relation-label headword"><a class="relation-label-card" href="\/proj\/Ghost"><span class="relation-label-title">Ghost<\/span>/);
   assert.match(body, /<li><a class="card" href="\/proj\/Gamma">/);
+  assert.doesNotMatch(body, /逆リンクまたはアイコン参照あり/);
   assert.match(
     body,
     /<img class="card-image" src="\/files\/01ABC\/gamma\.png" alt="" width="320" height="100" loading="lazy">/,
   );
   assert.doesNotMatch(body, /Gamma の説明/);
+});
+
+void test('2-hop の札は共有するリンク先ごとの行に分け、行はページの中でリンクが現れた順に並べる（#249）', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'Zeta Page', ['zeta'], s.clock.t);
+  await seedPage(s.storage, project.id, 'Viaz', ['[zeta_page]'], s.clock.t + 1);
+  await seedPage(s.storage, project.id, 'Both', ['[Zeta Page] [Eta]'], s.clock.t + 2);
+  await seedPage(s.storage, project.id, 'Viae', ['[Eta]'], s.clock.t + 3);
+  await seedPage(s.storage, project.id, 'Alpha', ['[Zeta Page] の後に [Eta]'], s.clock.t + 4);
+
+  const body = await (await s.request('/proj/Alpha', {}, cookie)).text();
+
+  const labels = [...body.matchAll(/<ul class="card-grid related-group" role="list" aria-label="([^"]+)">/g)].map((match) => match[1]);
+  assert.deepEqual(labels, ['Links', 'Zeta Page', 'Eta']);
+  const group = (label: string): string => {
+    const start = body.indexOf(`aria-label="${label}">`);
+    return body.slice(start, body.indexOf('</ul>', start));
+  };
+  // 見出しはリンク先のページのタイトル（書かれたリンクの綴りではない）で、そのページへのリンク。
+  assert.match(group('Zeta Page'), /<a class="relation-label-card" href="\/proj\/Zeta_Page">/);
+  assert.deepEqual([...group('Zeta Page').matchAll(/<h3>([^<]+)<\/h3>/g)].map((match) => match[1]), ['Both', 'Viaz']);
+  assert.deepEqual([...group('Eta').matchAll(/<h3>([^<]+)<\/h3>/g)].map((match) => match[1]), ['Viae', 'Both']);
 });
 
 void test('関連ページの外部画像は allowedImageHosts で許可したホストだけ表示する', async () => {

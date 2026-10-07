@@ -11,9 +11,9 @@ type Card = {
   descriptions: number;
 };
 
-// 札（.card）の並びと中身。位置と大きさは 0.1px 単位に丸める。
+// 札（.card）の並びと中身。位置と大きさは 0.1px 単位に丸める。関連ページの行の先頭の見出しの札は除く。
 async function cards(page: Page, gridSelector: string): Promise<Card[]> {
-  return page.locator(`${gridSelector} > li`).evaluateAll((items) => items.map((item) => {
+  return page.locator(`${gridSelector} > li:not(.relation-label)`).evaluateAll((items) => items.map((item) => {
     const card = item.querySelector('.card');
     if (card === null) throw new Error('card is missing');
     const box = item.getBoundingClientRect();
@@ -37,7 +37,8 @@ const CARD_LOOK = {
   radius: '2px',
   shadow: 'rgba(0, 0, 0, 0.12) 0px 2px 0px 0px',
   topBand: '4px solid rgb(242, 242, 243)',
-  title: { fontSize: '13px', fontWeight: '700', lineHeight: '20px', color: 'rgb(54, 60, 73)', padding: '10px 12px' },
+  // Cosense はタイトルの外側の要素に padding 10px 12px を持つ。knot は下の 10px を margin にする（#249）。
+  title: { fontSize: '13px', fontWeight: '700', lineHeight: '20px', color: 'rgb(54, 60, 73)', padding: '10px 12px 0px', marginBottom: '10px' },
   description: { fontSize: '12px', lineHeight: '20px', color: 'rgb(128, 128, 128)' },
 };
 
@@ -62,6 +63,7 @@ async function cardLook(page: Page, title: string): Promise<typeof CARD_LOOK> {
         lineHeight: titleStyle.lineHeight,
         color: titleStyle.color,
         padding: titleStyle.padding,
+        marginBottom: titleStyle.marginBottom,
       },
       description: descriptionStyle === null
         ? { fontSize: '', lineHeight: '', color: '' }
@@ -150,7 +152,109 @@ test('関連ページの札は紙面の幅に Cosense と同じ列幅で並ぶ',
 
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(`/e2e/${title}`);
-  const related = await cards(page, '.related-pages .card-grid');
-  // 紙面の幅 960px に 6 列。列幅は (960 - 16 * 5) / 6、高さはその 1.1 倍。
-  expect(related[0]).toMatchObject({ x: 132, width: 146.7, height: 161.3 });
+  const related = await cards(page, '.related-pages .related-group');
+  // 紙面の幅 960px に 6 列。列幅は (960 - 16 * 5) / 6、高さはその 1.1 倍。1 列目は見出しの札（#249）。
+  expect(related[0]).toMatchObject({ x: 132 + 146.7 + 16, width: 146.7, height: 161.3 });
+});
+
+type Label = {
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  background: string;
+  color: string;
+  href: string | null;
+  arrow: { width: string; color: string; halfHeight: string; atRightEdge: boolean; centered: boolean };
+};
+
+// 見出しの札の右端の中央に付ける、札の色の右向きの三角（幅 5px・高さ 14px）。
+function labelArrow(color: string): Label['arrow'] {
+  return { width: '5px', color, halfHeight: '7px', atRightEdge: true, centered: true };
+}
+
+// 関連ページの行の先頭の見出しの札（#249）。位置と大きさは 0.1px 単位に丸める。
+async function relatedLabels(page: Page): Promise<Label[]> {
+  return page.locator('.related-group > li.relation-label').evaluateAll((items) => items.map((item) => {
+    const card = item.querySelector('.relation-label-card');
+    if (card === null) throw new Error('label card is missing');
+    const box = item.getBoundingClientRect();
+    const [x, y, width, height] = [box.left, box.top + window.scrollY, box.width, box.height]
+      .map((value) => Math.round(value * 10) / 10);
+    const style = getComputedStyle(card);
+    const arrow = getComputedStyle(item, '::after');
+    return {
+      text: card.textContent?.trim() ?? '',
+      x: x!,
+      y: y!,
+      width: width!,
+      height: height!,
+      background: style.backgroundColor,
+      color: style.color,
+      href: card.getAttribute('href'),
+      arrow: {
+        width: arrow.borderLeftWidth,
+        color: arrow.borderLeftColor,
+        halfHeight: arrow.borderTopWidth,
+        atRightEdge: Math.abs(Number.parseFloat(arrow.left) - box.width) < 0.5,
+        centered: Math.abs(Number.parseFloat(arrow.top) - (box.height - 14) / 2) < 0.5,
+      },
+    };
+  }));
+}
+
+test('関連ページを、Links の札と共有するリンク先ごとの行に並べる', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'cards-e2e');
+  const suffix = `${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  const hub = `group-hub-${suffix}`;
+  const title = `group-page-${suffix}`;
+  await createE2ePage(page, hub, ['リンク先のページ']);
+  await createE2ePage(page, `group-other-${suffix}`, [`[${hub}] を共有するページ`]);
+  await createE2ePage(page, title, [`[${hub}] へのリンク`]);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  const labels = await relatedLabels(page);
+  // 1-hop の行は青い「Links」、2-hop の行は共有するリンク先の名前の札で始まり、それぞれ新しい行から
+  // 始まる。行の間は 40px。札の右端の中央に、札の色の右向きの三角（幅 5px・高さ 14px）を付ける。
+  const top = labels[0]!.y;
+  expect(labels).toEqual([
+    {
+      text: 'Links', x: 132, y: top, width: 146.7, height: 161.3,
+      background: 'rgb(61, 114, 245)', color: 'rgb(255, 255, 255)', href: null, arrow: labelArrow('rgb(61, 114, 245)'),
+    },
+    {
+      text: hub, x: 132, y: Math.round((top + 161.3 + 40) * 10) / 10, width: 146.7, height: 161.3,
+      background: 'rgb(155, 171, 193)', color: 'rgb(255, 255, 255)', href: `/e2e/${hub}`, arrow: labelArrow('rgb(155, 171, 193)'),
+    },
+  ]);
+  await expect(page.locator('.related-group').nth(1).locator('.card h3')).toHaveText([`group-other-${suffix}`]);
+  // 見出しの文は画面に出さない。
+  await expect(page.getByText('2-hop リンク')).toHaveCount(0);
+  await expect(page.getByText('逆リンクまたはアイコン参照あり')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '関連ページ', level: 2 })).toHaveClass('visually-hidden');
+});
+
+test('札のタイトルは 3 行で切り、4 行目を札の中に覗かせない', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'cards-e2e');
+  const suffix = `${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  const longTitle = `long-title-${suffix}-${'とても長いタイトルの札'.repeat(4)}`;
+  const title = `long-title-page-${suffix}`;
+  await createE2ePage(page, longTitle, ['本文']);
+  await createE2ePage(page, title, [`[${longTitle}]`]);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  const heading = page.locator('.card h3', { hasText: `long-title-${suffix}-` });
+  const lines = await heading.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const tops = [...new Set(Array.from(range.getClientRects(), (rect) => Math.round(rect.top)))].toSorted((a, b) => a - b);
+    return { bottom: Math.round(box.bottom), tops };
+  });
+  // 4 行以上ある。3 行目までは見え、4 行目は札のタイトルの箱の下端から始まる（箱の外なので見えない）。
+  expect(lines.tops.length).toBeGreaterThanOrEqual(4);
+  expect(lines.tops[3]!).toBeGreaterThanOrEqual(lines.bottom);
 });

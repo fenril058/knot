@@ -82,17 +82,33 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
   .page-menu { inset-inline-end: 8px; position: absolute; top: 0; }
 }
 .page { background-color: var(--page-bg); border-radius: 4px 4px 3px 3px; box-shadow: 0 4px 0 rgb(0 0 0 / 16%); padding: var(--page-padding-top) var(--page-padding-inline) var(--page-padding-bottom); }
-.backlinks-badge { color: #555; font-size: 12px; margin: 8px 0 0; }
+/* 画面には出さず、支援技術にだけ伝える見出しなど。 */
+.visually-hidden { clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
 .related-pages { margin-top: 24px; }
 /* カード（札）の並び。Cosense の既定テーマと同じ列幅・間隔で、札の縦横比は 1 : 1.1（#233）。 */
 .card-grid { display: grid; gap: clamp(8px, 1.5svw, 16px); grid-template-columns: repeat(auto-fill, minmax(147px, 1fr)); list-style: none; margin: 0; padding: 0; }
 .related-pages .card-grid { grid-template-columns: repeat(auto-fill, minmax(146px, 1fr)); }
 .card-grid > li { aspect-ratio: 1 / 1.1; display: flex; min-width: 0; }
 .card-grid > li > .card { flex: 1; }
+/* 関連ページの行（#249）。行ごとに新しい行から始め、行の間は Cosense と同じ 40px（767px 以下は 32px）。 */
+.related-group { margin-bottom: 40px; }
+@media (max-width: 767px) {
+  .related-group { margin-bottom: 32px; }
+}
+/* 行の先頭の見出しの札。1-hop は青い「Links」、2-hop は共有するリンク先の名前で、右端の中央に札の色の
+   右向きの三角を付ける（Cosense の .relation-label）。 */
+.relation-label { position: relative; }
+.relation-label-card { align-items: center; background-color: #3d72f5; box-sizing: border-box; color: #fff; display: flex; flex: 1; flex-direction: column; font-family: Roboto, Helvetica, Arial, "Hiragino Sans", sans-serif; justify-content: center; min-width: 0; padding: 8px 0; text-decoration: none; }
+.relation-label.headword .relation-label-card { background-color: #9babc1; }
+.relation-label-title { font-size: 14px; line-height: 20px; max-width: 100%; overflow-wrap: anywhere; padding-inline: 8px; text-align: center; }
+.relation-label-icon { flex-shrink: 0; margin-block: 8px; }
+.relation-label::after { border: 7px solid transparent; border-inline-start: 5px solid #3d72f5; border-inline-end-width: 5px; content: ""; inset-inline-start: 100%; position: absolute; top: calc(50% - 7px); }
+.relation-label.headword::after { border-inline-start-color: #9babc1; }
 .card { background-color: #fff; border-radius: 2px; box-shadow: 0 2px 0 rgb(0 0 0 / 12%); color: #555; display: block; font-family: Roboto, Helvetica, Arial, "Hiragino Sans", sans-serif; min-width: 0; overflow: hidden; overflow-wrap: anywhere; position: relative; text-decoration: none; }
 .card:focus-visible { box-shadow: 0 0 0 3px rgb(102 175 233 / 60%); outline: none; }
-/* タイトルは 3 行まで。上端の 4px の帯は Cosense と同じくタイトルの border にする。 */
-.card h2, .card h3 { -webkit-box-orient: vertical; -webkit-line-clamp: 3; border-top: 4px solid #f2f2f3; color: #363c49; display: -webkit-box; font-size: 13px; font-weight: 700; line-height: 20px; margin: 0; overflow: hidden; padding: 10px 12px; }
+/* タイトルは 3 行まで。上端の 4px の帯は Cosense と同じくタイトルの border にする。下の 10px は
+   padding ではなく margin にする。padding だと、3 行で切った 4 行目の上の方が padding の中に覗く。 */
+.card h2, .card h3 { -webkit-box-orient: vertical; -webkit-line-clamp: 3; border-top: 4px solid #f2f2f3; color: #363c49; display: -webkit-box; font-size: 13px; font-weight: 700; line-height: 20px; margin: 0 0 10px; overflow: hidden; padding: 10px 12px 0; }
 .card p { color: #808080; font-size: 12px; line-height: 20px; margin: 0; padding: 0 12px; }
 .card img.card-image { border-radius: 2px; display: block; height: auto; margin-inline: 5px; width: calc(100% - 10px); }
 /* ピン留めした札は、右上を 14px の三角に折り返す。 */
