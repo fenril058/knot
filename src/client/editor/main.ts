@@ -7,6 +7,7 @@ import { titleLc, pageHref } from '../../core/title.ts';
 import { knownPageMap, presentationLines, type KnownPage } from '../../render/presentation.ts';
 import { fetchPage, postCommit, uploadFile } from './api.ts';
 import { clickTarget, lineElements, sourcePosition, type ClickTarget, type LineElements } from './caretPosition.ts';
+import { answerSettleEdits, type SettledPage } from '../editSession.ts';
 import { mapSelectionByLineId } from './documentChanges.ts';
 import { titleAutocompletion } from './cm/complete.ts';
 import { syntaxHighlighting } from './cm/decorations.ts';
@@ -665,7 +666,8 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
 
   editorRoot.replaceChildren();
   if (editButton !== null) editButton.hidden = true;
-  document.querySelector<HTMLElement>('#page-menu-root')?.setAttribute('hidden', '');
+  // ページメニューは編集中も出したままにする（#192）。ページ操作の前には、メニューが
+  // answerSettleEdits の約束事で手元の編集を保存し終えるのを待つ。
   view = new EditorView({
     doc: initialLines.join('\n'),
     parent: editorRoot,
@@ -748,6 +750,34 @@ function handleVisibilityChange(): void {
   if (document.visibilityState === 'hidden') flushOnExit();
 }
 
+// ページ操作（複製・リネーム・削除）の前に、手元の編集を保存し終えるのを待つ（#192）。
+// 自動保存の待ち時間を飛ばして送り、送信中のコミットが返るまで待つ。保存できない状態
+// （競合中・送信の失敗）では待たずに断り、ページ操作を止めてもらう。
+const SETTLE_TIMEOUT_MS = 10_000;
+const SETTLE_POLL_MS = 100;
+
+async function settleEdits(): Promise<SettledPage> {
+  const deadline = Date.now() + SETTLE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (engine.status === 'conflict' || engine.status === 'error') {
+      throw new Error('手元に保存できていない編集があります。保存し終えてから、もう一度操作してください');
+    }
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      timer = undefined;
+    }
+    await executeEffects(engine.flush());
+    renderStatus();
+    if (engine.status === 'saved') return { version: engine.confirmedVersion, title: engine.currentTitle };
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, SETTLE_POLL_MS);
+    });
+  }
+  throw new Error('編集の保存が終わりません。保存し終えてから、もう一度操作してください');
+}
+
+answerSettleEdits(() => (editorRoot.classList.contains('editor-active') ? settleEdits() : undefined));
+
 resolveConflictButton.addEventListener('click', () => {
   resolveConflictButton.disabled = true;
   statusMessage = undefined;
@@ -804,8 +834,8 @@ document.addEventListener('keydown', (event) => {
   if (!event.ctrlKey && !event.metaKey) return;
   // 入力欄と CodeMirror 本体の中では素通りさせる（macOS の ctrl+e は行末移動）。
   if (event.target instanceof Element && event.target.closest(typingTargetSelector) !== null) return;
-  // 操作メニューのダイアログは #page-menu-root の子で、start() がその親を hidden にする。
-  // 開いたまま起動すると、modal が画面から消えても open のまま残り、文書全体が inert になる。
+  // ページ操作などの modal なダイアログを開いている間は、エディタを起動も focus もしない。
+  // focus が modal の後ろへ移り、ダイアログの入力が届かなくなる。
   if (document.querySelector('dialog[open]') !== null) return;
   event.preventDefault();
   if (editorRoot.classList.contains('editor-active')) {
