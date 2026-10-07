@@ -4,9 +4,17 @@ import { keymap, EditorView } from '@codemirror/view';
 import { applyOps } from '../../core/apply.ts';
 import type { RebaseConflict, RebaseLineState } from '../../core/rebase.ts';
 import { titleLc, pageHref } from '../../core/title.ts';
-import { knownPageMap, presentationLines, type KnownPage } from '../../render/presentation.ts';
+import { knownPageMap, presentationLines, type KnownPage, type PresentedLine } from '../../render/presentation.ts';
 import { fetchPage, postCommit, uploadFile } from './api.ts';
-import { clickTarget, lineElements, sourcePosition, type ClickTarget, type LineElements } from './caretPosition.ts';
+import {
+  clickTarget,
+  lineElements,
+  selectionPoint,
+  sourcePosition,
+  type ClickTarget,
+  type LineElements,
+  type SelectionPoint,
+} from './caretPosition.ts';
 import { answerSettleEdits, type SettledPage } from '../editSession.ts';
 import { mapSelectionByLineId } from './documentChanges.ts';
 import { titleAutocompletion } from './cm/complete.ts';
@@ -616,14 +624,74 @@ function loadedImageSizes(): Map<string, ImageSize> {
 // 原文の位置へ直す。
 type InitialEditTarget = { lineId: string; lineNumber: number; click?: { elements: LineElements; target: ClickTarget } };
 
-function clickedSourcePosition(doc: string, lineNumber: number, click: NonNullable<InitialEditTarget['click']>): number | undefined {
+// 押した位置や選んでいた範囲を原文の位置へ直せないときは、その位置を使わずに編集を始める。
+// 直す途中で例外が出ても、編集の開始は止めない。
+function unlessThrows<T>(compute: () => T | undefined): T | undefined {
   try {
-    const line = presentationLines(doc, knownPageMap(knownPages), project, { allowedImageHosts, allowedMediaHosts })
-      .find((candidate) => candidate.number === lineNumber);
-    return line === undefined ? undefined : sourcePosition(line, click.elements, click.target);
+    return compute();
   } catch {
     return undefined;
   }
+}
+
+function presentedLines(doc: string): PresentedLine[] {
+  return presentationLines(doc, knownPageMap(knownPages), project, { allowedImageHosts, allowedMediaHosts });
+}
+
+function clickedSourcePosition(
+  lines: readonly PresentedLine[],
+  lineNumber: number,
+  click: NonNullable<InitialEditTarget['click']>,
+): number | undefined {
+  const line = lines.find((candidate) => candidate.number === lineNumber);
+  return line === undefined ? undefined : sourcePosition(line, click.elements, click.target);
+}
+
+type SourceRange = { anchor: number; head: number };
+type RowPosition = { row: HTMLElement; node: Node; offset: number };
+
+// selection の端がある行。最後の行を triple click で選ぶと、終わりの端は本文より後ろ（関連ページ
+// など）に来るので、最後の行の終わりとして扱う。
+function selectionRow(rows: readonly HTMLElement[], node: Node, offset: number): RowPosition | undefined {
+  const row = (node instanceof Element ? node : node.parentElement)?.closest<HTMLElement>('.line-row');
+  if (row !== null && row !== undefined && row.parentElement === editorRoot) return { row, node, offset };
+  const last = rows.at(-1);
+  if (last === undefined) return undefined;
+  const range = document.createRange();
+  range.setStart(node, offset);
+  const end = last.childNodes.length;
+  return range.comparePoint(last, end) < 0 ? { row: last, node: last, offset: end } : undefined;
+}
+
+// 閲覧表示で選んでいた範囲（double click の単語、triple click の行など）。本文を差し替えると消えるので、
+// その前に原文の位置へ直し、編集表示でも同じ範囲を選んだまま始める（#194）。端が行の本文の外に
+// あるのは triple click で次の行の頭まで選んだときで、CodeMirror の triple click と同じく、
+// 前の端を行頭に寄せて行ごと選ぶ。
+function selectedSourceRange(lines: readonly PresentedLine[]): SourceRange | undefined {
+  const selection = window.getSelection();
+  if (selection === null || selection.isCollapsed || selection.anchorNode === null || selection.focusNode === null) {
+    return undefined;
+  }
+  const rows = Array.from(editorRoot.querySelectorAll<HTMLElement>(':scope > .line-row'));
+  const pointOf = (node: Node, offset: number): (SelectionPoint & { lineFrom: number }) | undefined => {
+    const end = selectionRow(rows, node, offset);
+    if (end === undefined) return undefined;
+    // 行番号は、編集開始の行と同じく行 ID から引く。
+    const confirmedIndex = engine.confirmedLines.findIndex(({ id }) => `L${id}` === end.row.id);
+    const lineNumber = confirmedIndex === -1 ? rows.indexOf(end.row) + 1 : confirmedIndex + 1;
+    const line = lines.find((candidate) => candidate.number === lineNumber);
+    const elements = lineElements(end.row);
+    if (line === undefined || elements === undefined) return undefined;
+    const point = selectionPoint(line, elements, end.node, end.offset);
+    return point === undefined ? undefined : { ...point, lineFrom: line.from };
+  };
+  const anchor = pointOf(selection.anchorNode, selection.anchorOffset);
+  const head = pointOf(selection.focusNode, selection.focusOffset);
+  if (anchor === undefined || head === undefined || anchor.position === head.position) return undefined;
+  if (anchor.inLine && head.inLine) return { anchor: anchor.position, head: head.position };
+  return anchor.position < head.position
+    ? { anchor: anchor.lineFrom, head: head.position }
+    : { anchor: anchor.position, head: head.lineFrom };
 }
 
 async function start(initialTarget?: InitialEditTarget): Promise<void> {
@@ -659,10 +727,17 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
   const anchorTop = initialTarget === undefined ? undefined : visibleRowTop(initialTarget.lineId);
   // 閲覧表示で読み込み済みの画像の大きさも、差し替えで img が消える前に覚える。
   const imageSizes = loadedImageSizes();
-  // 押した位置も、閲覧表示の行が消える前に原文の位置へ直す。
-  const clickedPosition = initialTarget?.click === undefined || initialLineNumber === undefined
+  // 押した位置と選んでいた範囲も、閲覧表示の行が消える前に原文の位置へ直す。
+  const initialPresentation = initialLineNumber === undefined
     ? undefined
-    : clickedSourcePosition(initialLines.join('\n'), initialLineNumber, initialTarget.click);
+    : unlessThrows(() => presentedLines(initialLines.join('\n')));
+  const click = initialTarget?.click;
+  const clickedPosition = click === undefined || initialLineNumber === undefined || initialPresentation === undefined
+    ? undefined
+    : unlessThrows(() => clickedSourcePosition(initialPresentation, initialLineNumber, click));
+  const selectedRange = initialPresentation === undefined
+    ? undefined
+    : unlessThrows(() => selectedSourceRange(initialPresentation));
 
   editorRoot.replaceChildren();
   if (editButton !== null) editButton.hidden = true;
@@ -723,7 +798,7 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
       ? clickedPosition
       : undefined;
     view.dispatch({
-      selection: { anchor: clickedAnchor ?? editStartPosition(view.state, selectedLine.number) },
+      selection: selectedRange ?? { anchor: clickedAnchor ?? editStartPosition(view.state, selectedLine.number) },
       scrollIntoView: anchorTop === undefined,
     });
     // coordsAtPos は保留中の計測を済ませてから位置を返すので、そのあとの lineBlockAt は
