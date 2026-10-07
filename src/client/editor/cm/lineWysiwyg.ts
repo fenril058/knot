@@ -315,6 +315,52 @@ class FormattedLineWidget extends WidgetType {
   }
 }
 
+// カーソル行の原文表示。字下げの空白は整形表示の 1 段と同じ幅で描き（#241）、引用の枠と、
+// コードブロックの帯・札も整形表示と同じに描く（#269）。記法の字（> や code:）は見せる。
+function addActiveLineDecorations(builder: RangeSetBuilder<Decoration>, line: PresentedLine): void {
+  const quote = isQuoteLine(line);
+  // コードブロックの本文の行は、ブロックの字下げに 1 字足した空白から字が始まる。整形表示と同じく、
+  // 帯はブロックの字下げの位置から引き、字は帯の中の 1 段深い位置から始める。
+  const prefix = line.role === 'codeLine' ? line.textSpan.from - line.from : line.indent;
+  const classes: string[] = [];
+  const properties: string[] = [];
+  if (prefix > 0 && (line.role === 'line' || line.role === 'codeHeader' || line.role === 'codeLine')) {
+    classes.push('cm-active-indent');
+    properties.push(`--indent-level: ${prefix}`);
+  }
+  // 枠と帯は、ブロック（引用は行）の字下げの位置から引く。
+  if (quote) classes.push('cm-active-quote');
+  if (line.role === 'codeLine') classes.push('cm-active-code-line');
+  if (quote || line.role === 'codeLine') properties.push(`--block-indent: ${line.indent}`);
+  if (classes.length > 0) {
+    // 段数は custom property で渡す。CodeMirror は line decoration の style を
+    // style.cssText（CSSOM）で書くので、style 属性と違って CSP の style-src に止められない。
+    builder.add(line.from, line.from, Decoration.line({
+      class: classes.join(' '),
+      attributes: { style: properties.join('; ') },
+    }));
+  }
+  if (line.role === 'codeLine' && prefix > 0) {
+    // コードブロックの本文の行の字下げは、widget ではなく空白の字のまま 1 字を 1 段の幅で描く。
+    // widget（と CodeMirror が前後に置く buffer の img）の後ろでは行を折り返せるので、長い 1 語の
+    // コードが widget の後ろで折り返し、閲覧表示と違って次の行から始まってしまう。
+    builder.add(line.from, line.from + prefix, Decoration.mark({ class: 'cm-code-indent' }));
+  } else if (classes.includes('cm-active-indent')) {
+    const mark = indentMark(line);
+    for (let offset = 0; offset < prefix; offset += 1) {
+      builder.add(line.from + offset, line.from + offset + 1, Decoration.replace({
+        widget: new IndentSpaceWidget(offset === prefix - 1 ? mark : undefined),
+      }));
+    }
+  }
+  // 引用の > は、整形表示で見えない > が占める位置（枠の線と余白の後ろ）に置く。
+  if (quote) builder.add(line.from + line.indent, line.from + line.indent + 1, Decoration.mark({ class: 'cm-quote-mark' }));
+  // コードブロックの見出しは、code: も札の中に見せる。
+  if (line.role === 'codeHeader' && line.from + line.indent < line.to) {
+    builder.add(line.from + line.indent, line.to, Decoration.mark({ class: 'code-block-start' }));
+  }
+}
+
 function buildDecorations(view: EditorView, config: LineWysiwygConfig): DecorationSet {
   const editing = editingLineNumbers(view.state);
   const imageSizes = config.imageSizes ?? new Map<string, ImageSize>();
@@ -337,20 +383,7 @@ function buildDecorations(view: EditorView, config: LineWysiwygConfig): Decorati
       // 行末の余白も、閲覧表示と同じ行にだけ置く。カーソルが入っても折り返しの幅を変えない。
       if (isLinkOnlyLine(line)) builder.add(line.from, line.from, Decoration.line({ class: 'link-only' }));
       if (editing.has(line.number)) {
-        if (line.role === 'line' && line.indent > 0) {
-          // 段数は custom property で渡す。CodeMirror は line decoration の style を
-          // style.cssText（CSSOM）で書くので、style 属性と違って CSP の style-src に止められない。
-          builder.add(line.from, line.from, Decoration.line({
-            class: 'cm-active-indent',
-            attributes: { style: `--indent-level: ${line.indent}` },
-          }));
-          const mark = indentMark(line);
-          for (let offset = 0; offset < line.indent; offset += 1) {
-            builder.add(line.from + offset, line.from + offset + 1, Decoration.replace({
-              widget: new IndentSpaceWidget(offset === line.indent - 1 ? mark : undefined),
-            }));
-          }
-        }
+        addActiveLineDecorations(builder, line);
         continue;
       }
       const widget = new FormattedLineWidget(line, imageSizes);
