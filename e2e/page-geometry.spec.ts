@@ -176,11 +176,21 @@ test('上部のバーにプロジェクト名を Cosense と同じ字で置き�
     return { color: style.color, fontSize: style.fontSize, fontWeight: style.fontWeight };
   })).toEqual({ color: 'rgb(54, 60, 73)', fontSize: '14px', fontWeight: '600' });
 
-  // Cosense のページメニュー列は紙面の右 10px から始まり、上端は紙面と揃う。
-  const menu = (await page.locator('#page-actions > summary').boundingBox())!;
-  expect({ x: Math.round(menu.x), y: Math.round(menu.y) }).toEqual({ x: 132 + 960 + 10, y: 72 });
-  await page.locator('#page-actions > summary').click();
+  // Cosense のページメニュー列は紙面の右 10px から始まり、上端は紙面と揃う。46px 四方のボタンが
+  // ページ情報、ページの操作の順に縦に並び、印は #848484（#251）。
+  const menuButtons = await page.locator('.page-actions > summary').evaluateAll((summaries) => summaries.map((summary) => {
+    const box = summary.getBoundingClientRect();
+    return { label: summary.getAttribute('aria-label'), x: box.x, y: box.y, width: box.width, height: box.height, color: getComputedStyle(summary).color };
+  }));
+  const menuButton = { x: 132 + 960 + 10, width: 46, height: 46, color: 'rgb(132, 132, 132)' };
+  expect(menuButtons).toEqual([{ label: 'ページ情報', y: 72, ...menuButton }, { label: 'ページの操作', y: 118, ...menuButton }]);
+  const actions = page.locator('#page-actions > summary');
+  await actions.click();
   await expect(page.locator('#rename-button')).toBeInViewport();
+  // 開いている間は円の背景が付き、メニューはボタンの左に、上端を 2px 下げて開く。
+  await expect(actions).toHaveCSS('background-color', 'rgb(204, 204, 204)');
+  const opened = (await page.locator('#page-actions .page-actions-menu').boundingBox())!;
+  expect({ right: Math.round(opened.x + opened.width), top: Math.round(opened.y) }).toEqual({ right: menuButton.x, top: 118 + 2 });
   // メニューは紙面の上へ左に開く。紙面に重なった部分を押しても、紙面ではなくメニューに届く。
   const hits = await page.locator('.page-actions-menu button').evaluateAll((buttons) => buttons.map((button) => {
     const box = button.getBoundingClientRect();
@@ -191,4 +201,20 @@ test('上部のバーにプロジェクト名を Cosense と同じ字で置き�
   await page.locator('#rename-button').click({ position: { x: 2, y: 8 } });
   await expect(page.locator('#rename-dialog')).toBeVisible();
   await expect(page.locator('#editor-root .cm-editor')).toHaveCount(0);
+});
+
+test('ページ情報のボタンで、作成と更新の日時を相対の日時で出し、正確な日時を tooltip に置く', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'geometry-e2e');
+  const title = `geometry-info-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, BODY);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  await page.locator('#page-info > summary').click();
+  const times = page.locator('#page-info .page-info-menu time');
+  // 作ったばかりのページなので、どちらも秒か分の単位の相対の日時になる（#251）。
+  await expect(times).toHaveText([/^\d+ (秒|分)前$/, /^\d+ (秒|分)前$/]);
+  await expect(page.locator('#page-info .page-info-row')).toHaveText([/^作成 \d+ (秒|分)前$/, /^更新 \d+ (秒|分)前$/]);
+  const titles = await times.evaluateAll((elements) => elements.map((element) => element.getAttribute('title')));
+  for (const exact of titles) expect(exact).toMatch(/^\d{4}\/\d{2}\/\d{2} \d{1,2}:\d{2}:\d{2}$/);
 });
