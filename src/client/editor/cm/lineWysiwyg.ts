@@ -16,7 +16,6 @@ import {
   isQuoteLine,
   knownPageMap,
   presentationLines,
-  type IndentMark,
   type KnownPage,
   type PresentedLine,
   type PresentedNode,
@@ -200,29 +199,6 @@ export function editStartPosition(state: EditorState, lineNumber: number): numbe
   }
 }
 
-// カーソル行の字下げ。字下げの空白 1 文字ずつを、整形表示の 1 段と同じ幅で描く（#241）。
-// 空白は文書に残るので、Tab / Backspace / Enter / undo / IME による編集の意味は変わらない。
-// 最後の 1 文字の widget が、整形表示と同じ位置に行頭の印を描く。
-class IndentSpaceWidget extends WidgetType {
-  readonly mark: IndentMark | undefined;
-
-  constructor(mark: IndentMark | undefined) {
-    super();
-    this.mark = mark;
-  }
-
-  override eq(other: WidgetType): boolean {
-    return other instanceof IndentSpaceWidget && other.mark === this.mark;
-  }
-
-  toDOM(): HTMLElement {
-    const space = document.createElement('span');
-    space.className = this.mark === undefined ? 'cm-indent-space' : `cm-indent-space mark-${this.mark}`;
-    space.ariaHidden = 'true';
-    return space;
-  }
-}
-
 class FormattedLineWidget extends WidgetType {
   readonly line: PresentedLine;
   readonly imageSizes: ReadonlyMap<string, ImageSize>;
@@ -317,6 +293,15 @@ class FormattedLineWidget extends WidgetType {
 
 // カーソル行の原文表示。字下げの空白は整形表示の 1 段と同じ幅で描き（#241）、引用の枠と、
 // コードブロックの帯・札も整形表示と同じに描く（#269）。記法の字（> や code:）は見せる。
+//
+// 字下げの空白は widget に替えず、字のまま 1 字を 1 段の幅にする（#271）。widget（と CodeMirror が
+// 前後に置く buffer の img）の後ろではブラウザが行を折り返せるので、字下げした行が長い 1 語で
+// 始まると、語が 1 行目に入らず次の行から始まってしまう。空白は本文と同じ font のまま、空白だけを
+// 広げる word-spacing で 1 段にし、空白の後ろでは折り返さない（CSS の .cm-indent-text）。
+// CodeMirror は本文の先頭の caret を DOM ではこの空白の text の末尾に置くので、そこで始めた IME の
+// 変換中の字もこの span に入る。font を変えず、空白以外は広げないので、変換中の字も本文と同じに描く。
+// 空白は文書に残るので、Tab / Backspace / Enter / undo / IME による編集の意味は変わらず、caret も
+// 字下げの中を 1 段ずつ動く。行頭の印は、行の ::before で整形表示と同じ位置に描く。
 function addActiveLineDecorations(builder: RangeSetBuilder<Decoration>, line: PresentedLine): void {
   const quote = isQuoteLine(line);
   // コードブロックの本文の行は、ブロックの字下げに 1 字足した空白から字が始まる。整形表示と同じく、
@@ -324,9 +309,12 @@ function addActiveLineDecorations(builder: RangeSetBuilder<Decoration>, line: Pr
   const prefix = line.role === 'codeLine' ? line.textSpan.from - line.from : line.indent;
   const classes: string[] = [];
   const properties: string[] = [];
-  if (prefix > 0 && (line.role === 'line' || line.role === 'codeHeader' || line.role === 'codeLine')) {
+  const indented = prefix > 0 && (line.role === 'line' || line.role === 'codeHeader' || line.role === 'codeLine');
+  if (indented) {
     classes.push('cm-active-indent');
     properties.push(`--indent-level: ${prefix}`);
+    const mark = indentMark(line);
+    if (mark !== 'none') classes.push(`mark-${mark}`);
   }
   // 枠と帯は、ブロック（引用は行）の字下げの位置から引く。
   if (quote) classes.push('cm-active-quote');
@@ -340,19 +328,7 @@ function addActiveLineDecorations(builder: RangeSetBuilder<Decoration>, line: Pr
       attributes: { style: properties.join('; ') },
     }));
   }
-  if (line.role === 'codeLine' && prefix > 0) {
-    // コードブロックの本文の行の字下げは、widget ではなく空白の字のまま 1 字を 1 段の幅で描く。
-    // widget（と CodeMirror が前後に置く buffer の img）の後ろでは行を折り返せるので、長い 1 語の
-    // コードが widget の後ろで折り返し、閲覧表示と違って次の行から始まってしまう。
-    builder.add(line.from, line.from + prefix, Decoration.mark({ class: 'cm-code-indent' }));
-  } else if (classes.includes('cm-active-indent')) {
-    const mark = indentMark(line);
-    for (let offset = 0; offset < prefix; offset += 1) {
-      builder.add(line.from + offset, line.from + offset + 1, Decoration.replace({
-        widget: new IndentSpaceWidget(offset === prefix - 1 ? mark : undefined),
-      }));
-    }
-  }
+  if (indented) builder.add(line.from, line.from + prefix, Decoration.mark({ class: 'cm-indent-text' }));
   // 引用の > は、整形表示で見えない > が占める位置（枠の線と余白の後ろ）に置く。
   if (quote) builder.add(line.from + line.indent, line.from + line.indent + 1, Decoration.mark({ class: 'cm-quote-mark' }));
   // コードブロックの見出しは、code: も札の中に見せる。
@@ -399,11 +375,24 @@ function buildDecorations(view: EditorView, config: LineWysiwygConfig): Decorati
   return builder.finish();
 }
 
+// 本文の font の空白の幅。カーソル行の字下げの空白を、この幅に word-spacing を足して 1 段にする。
+// CSS では font の空白の幅を得られないので、canvas で測って custom property に入れる。
+// knot は web font を読み込まないので、測った後で font が替わることはない。
+function measureSpaceWidth(view: EditorView): void {
+  const context = document.createElement('canvas').getContext('2d');
+  if (context === null) return;
+  const style = getComputedStyle(view.contentDOM);
+  context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+  const width = context.measureText(' ').width;
+  if (width > 0) view.dom.style.setProperty('--indent-space-width', `${width}px`);
+}
+
 export function lineWysiwyg(config: LineWysiwygConfig): Extension {
   const plugin = ViewPlugin.fromClass(class {
     decorations: DecorationSet;
 
     constructor(view: EditorView) {
+      measureSpaceWidth(view);
       this.decorations = buildDecorations(view, config);
     }
 

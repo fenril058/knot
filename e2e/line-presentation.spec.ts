@@ -90,11 +90,8 @@ test('折り返した字下げ行は 2 行目以降も字下げの位置から�
   for (const [row, depth] of [[1, 1], [2, 2]] as const) {
     const lines = before[row]!;
     expect(lines.length).toBeGreaterThanOrEqual(2);
-    // 1 本目は字下げの空白から、2 本目以降は本文の開始位置から始まる。
-    expect(lines.map(([left]) => left)).toEqual([
-      TEXT_LEFT,
-      ...lines.slice(1).map(() => Math.round(TEXT_LEFT + INDENT * depth)),
-    ]);
+    // 字下げは字として数えないので、1 本目も 2 本目以降も本文の開始位置から始まる。
+    expect(lines.map(([left]) => left)).toEqual(lines.map(() => Math.round(TEXT_LEFT + INDENT * depth)));
   }
 
   await startEditingAtLastRow(page, WRAP_BODY.length);
@@ -495,12 +492,6 @@ test('引用・コードブロック・表を Cosense と同じ帯・札・セ�
   expect(await visualLineRects(page)).toEqual(rects);
 });
 
-// 矩形 [左端, 上端, 幅] の、上端と右端。
-function topAndRight(rect: number[] | undefined): number[] {
-  const [left = 0, top = 0, width = 0] = rect ?? [];
-  return [top, left + width];
-}
-
 // 行（row 番目）の text の first 字目の左端。
 async function charLeft(page: Page, selector: string, row: number, text: string): Promise<number> {
   return page.locator(selector).nth(row).evaluate((line, target) => {
@@ -559,13 +550,9 @@ test('カーソル行でも、引用の枠とコードブロックの帯・札�
     expect(await rowHeights(page)).toEqual(heights);
   }
   // 折り返した長いコードの行も、字は閲覧表示と同じ 1 行目の位置から始まり、同じ位置で折り返す。
-  // 閲覧表示の字下げは本文と別の字（1 つ目の矩形）だが、カーソル行の字下げはコードと同じ行の空白の字。
   await putCursorOn(6, 'long_code');
   expect(await charLeft(page, '#editor-root .cm-line', 6, 'long_code')).toBe(lefts.get(6));
-  const [, readFirst, ...readRest] = rects[6]!;
-  const [cursorFirst, ...cursorRest] = (await visualLineRects(page))[6]!;
-  expect(cursorRest).toEqual(readRest);
-  expect(topAndRight(cursorFirst)).toEqual(topAndRight(readFirst));
+  expect((await visualLineRects(page))[6]).toEqual(rects[6]);
   expect(await rowHeights(page)).toEqual(heights);
   // 引用は字下げの位置から枠を引き、> は閲覧表示で見えない > と同じ位置に置く。
   for (const [row, depth] of [[7, 0], [8, 1]] as const) {
@@ -615,15 +602,14 @@ const ACTIVE_INDENT_BODY = [
 // 印は字下げの最後の widget の ::after に描く。
 async function activeLineLook(page: Page, rowIndex: number): Promise<{ lefts: number[]; mark: { x: number; y: number } | null }> {
   const lines = (await visualLineRects(page))[rowIndex]!;
+  // 行頭の印は、カーソル行の ::before（#271）。
   const mark = await page.locator('#editor-root .cm-line').nth(rowIndex).evaluate((row) => {
-    const widget = Array.from(row.querySelectorAll('.cm-indent-space')).at(-1);
-    if (widget === undefined) return null;
-    const style = getComputedStyle(widget, '::after');
+    const style = getComputedStyle(row, '::before');
     if (style.content === 'none') return null;
-    const box = widget.getBoundingClientRect();
+    const box = row.getBoundingClientRect();
     return {
       x: Math.round((box.left + Number.parseFloat(style.left)) * 2) / 2,
-      y: Math.round((box.top - row.getBoundingClientRect().top + Number.parseFloat(style.top)) * 2) / 2,
+      y: Math.round(Number.parseFloat(style.top) * 2) / 2,
     };
   });
   return { lefts: lines.map(([left]) => left!), mark };
@@ -740,6 +726,34 @@ test('カーソル行のコードブロックの本文の先頭でも、IME の�
   expect((await persisted.json()).lines.map((line: { text: string }) => line.text)).toEqual([title, 'code:a.js', ' にほcode()', 'last body']);
 });
 
+test('字下げした行が長い 1 語で始まっても、カーソル行の字は閲覧表示と同じ 1 行目から始まり、行の高さを変えない', async (
+  { page },
+  testInfo,
+) => {
+  await loginE2eAccount(page, 'active-line-e2e');
+  const title = `line-active-long-word-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  // 空白を含まない長い 1 語（長い URL など）で始まる行。
+  const body = [` ${'abcdefghij'.repeat(40)}`, `  ${'0123456789'.repeat(30)} tail`, 'last body'];
+  await createE2ePage(page, title, body);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  const heights = await rowHeights(page);
+  const rects = await visualLineRects(page);
+  const marks = await indentMarks(page);
+
+  await startEditingAtLastRow(page, body.length);
+  for (const rowIndex of [1, 2]) {
+    await page.locator('#editor-root .cm-line').nth(rowIndex).click({ position: { x: 60, y: 8 } });
+    await expect(page.locator('#editor-root .cm-line').nth(rowIndex).locator('.cm-wysiwyg-line')).toHaveCount(0);
+    // 字は閲覧表示と同じ位置から始まり、同じ位置で折り返す（#271）。
+    expect((await visualLineRects(page))[rowIndex]).toEqual(rects[rowIndex]);
+    expect(await rowHeights(page)).toEqual(heights);
+    const formatted = marks[rowIndex]!;
+    expect((await activeLineLook(page, rowIndex)).mark).toEqual({ x: formatted.textLeft + formatted.mark!.x, y: formatted.mark!.y });
+  }
+});
+
 test('カーソルのある字下げした行でも、IME の変換中の文字列を確定して保存できる', async ({ page }, testInfo) => {
   await loginE2eAccount(page, 'active-line-e2e');
   const title = `line-active-ime-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
@@ -762,7 +776,36 @@ test('カーソルのある字下げした行でも、IME の変換中の文字�
 
   const row = page.locator('#editor-root .cm-line').nth(1);
   await expect(row).toHaveText(' 日本一段目の行');
+
+  // Enter で作った字下げだけの行で始めた変換中の字も、字下げの位置から、確定後と同じ大きさで描く
+  // （#271。変換中の字は字下げの空白と同じ text に入る）。
+  await page.keyboard.press('End');
+  await page.keyboard.press('Enter');
+  expect(await page.locator('#editor-root .cm-line').nth(2).evaluate((line) => line.textContent)).toBe(' ');
+  const box = async (): Promise<number[]> => page.locator('#editor-root .cm-line').nth(2).evaluate((line) => {
+    const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      if (!(node instanceof Text)) continue;
+      const index = node.data.indexOf('にほ');
+      if (index === -1) continue;
+      const range = document.createRange();
+      range.setStart(node, index);
+      range.setEnd(node, index + 2);
+      const rect = range.getBoundingClientRect();
+      return [Math.round(rect.left), Math.round(rect.width)];
+    }
+    throw new Error('にほ is missing');
+  });
+  for (const text of ['に', 'にほ']) {
+    await cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
+  }
+  const composing = await box();
+  await cdp.send('Input.insertText', { text: 'にほ' });
+  await expect(page.locator('#editor-root .cm-line').nth(2)).toHaveText(' にほ');
+  expect(composing).toEqual(await box());
+  expect(composing[0]).toBe(textLeftBefore);
+
   await expect(page.locator('#save-status')).toHaveText('保存済み');
   const persisted = await page.request.get(`/api/pages/e2e/${title}`);
-  expect((await persisted.json()).lines.map((line: { text: string }) => line.text)[1]).toBe(' 日本一段目の行');
+  expect((await persisted.json()).lines.map((line: { text: string }) => line.text).slice(1, 3)).toEqual([' 日本一段目の行', ' にほ']);
 });
