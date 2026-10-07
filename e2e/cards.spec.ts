@@ -258,3 +258,37 @@ test('札のタイトルは 3 行で切り、4 行目を札の中に覗かせな
   expect(lines.tops.length).toBeGreaterThanOrEqual(4);
   expect(lines.tops[3]!).toBeGreaterThanOrEqual(lines.bottom);
 });
+
+test('プロジェクトのトップは見出しを出さず、札の上の toolbar に新規作成、右下にページ数を置く', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'cards-e2e');
+  const project = `top-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createProject(page, project);
+  await createPageIn(page, project, 'first card', ['本文']);
+  await createPageIn(page, project, 'second card', ['本文']);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/${project}`);
+  // 見出しは支援技術にだけ伝える（#253）。
+  await expect(page.getByRole('heading', { level: 1, name: project })).toHaveClass('visually-hidden');
+  // 新規作成は Cosense の toolbar のボタンと同じ見た目で、札の並びの右端に揃える。札は y=110 から。
+  const button = page.locator('#create-page-button');
+  const buttonBox = (await button.boundingBox())!;
+  expect(Math.round(buttonBox.x + buttonBox.width)).toBe(48 + 1184);
+  expect(await button.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { color: style.color, fontSize: style.fontSize, padding: style.padding, background: style.backgroundColor, radius: style.borderRadius };
+  })).toEqual({ color: 'rgb(54, 60, 73)', fontSize: '14px', padding: '6px 10px 3px', background: 'rgba(0, 0, 0, 0)', radius: '3px' });
+  expect(Math.round((await page.locator('main > .card-grid > li').first().boundingBox())!.y)).toBe(110);
+  // ページ数は画面の右下に置く。
+  const status = page.locator('.page-list-status');
+  await expect(status).toHaveText('2 pages');
+  const statusBox = (await status.boundingBox())!;
+  expect({ right: Math.round(statusBox.x + statusBox.width), bottom: Math.round(statusBox.y + statusBox.height) })
+    .toEqual({ right: 1280, bottom: 800 });
+
+  // 新規作成の dialog から、入れたタイトルのページを開く。
+  await button.click();
+  await page.locator('#create-page-title').fill('third card');
+  await page.locator('#create-page-form button[type="submit"]').click();
+  await expect(page).toHaveURL(`/${project}/third_card`);
+});
