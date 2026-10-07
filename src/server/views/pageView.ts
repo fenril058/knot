@@ -39,6 +39,7 @@ ${nestIndentedLine(rendered.html, rendered.indent, rendered.mark)}
 
 // ページメニューのボタンの印（Cosense の Page info menu と Page edit menu）。色は文字色に従う。
 const infoIcon = html`<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 11v6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"/><circle cx="12" cy="7.5" r="1.25" fill="currentColor"/></svg>`;
+const shuffleIcon = html`<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="M3 7h3.5c2.2 0 3.6 1 4.8 3l1.4 2.4c1.2 2 2.6 3 4.8 3H21M3 17h3.5c2.2 0 3.6-1 4.8-3M14.5 9c1-1.3 2.2-2 4-2H21M18 4l3 3-3 3M18 13l3 3-3 3" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>`;
 const documentIcon = html`<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2"/><path d="M14 3v4h4M9 12h6M9 16h6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"/></svg>`;
 
 // ページの作成・更新の日時。閲覧者の時間帯と相対の日時は page-menu.js が書き直すので、
@@ -170,6 +171,7 @@ ${pageNav(project.name, projectLink(project), { pageMenu: true })}
 <button type="button" id="delete-button">削除</button>
 </div>
 </details>
+<a class="page-menu-link" href="/${encodeURIComponent(project.name)}/random/page" aria-label="ランダムなページへ移る">${shuffleIcon}</a>
 <dialog id="duplicate-dialog"><form id="duplicate-form">
 <h2>ページを複製</h2>
 <label>新しいタイトル <input id="duplicate-title" name="title" required></label>

@@ -59,8 +59,8 @@ a { color: #2c6ea3; }
   .page-nav-start { flex: 1; }
   .nav-search { display: none; }
   .nav-search-toggle { display: flex; }
-  /* ページの閲覧表示では、ページメニューの 2 つのボタン（.page-menu）がバーの右端に重なる。その左に置く。 */
-  .page-nav.with-page-menu .nav-search-toggle { margin-inline-end: 92px; }
+  /* ページの閲覧表示では、ページメニューの 3 つのボタン（.page-menu）がバーの右端に重なる。その左に置く。 */
+  .page-nav.with-page-menu .nav-search-toggle { margin-inline-end: 138px; }
   .page-nav.search-open .nav-search { background-color: #cbccd1; display: block; inset-inline: 0; padding: 7px 8px 8px; position: absolute; top: 100%; z-index: 2; }
   .page-nav.search-open .nav-search-input { background-color: #fff; }
   .page-nav.search-open .nav-search-button { inset-block-start: 7px; inset-inline-end: 8px; }
@@ -269,16 +269,16 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
 .page-actions { position: relative; }
 /* ページメニューのボタン（Cosense の .page-menu .tool-btn、#251）。46px 四方で、印は 24px・#848484。
    hover と開いている間は、直径 46px の円の背景を付ける。 */
-.page-actions > summary { align-items: center; border-radius: 50%; box-sizing: border-box; color: #848484; cursor: pointer; display: flex; height: 46px; justify-content: center; list-style: none; width: 46px; }
+.page-actions > summary, .page-menu-link { align-items: center; border-radius: 50%; box-sizing: border-box; color: #848484; cursor: pointer; display: flex; height: 46px; justify-content: center; list-style: none; width: 46px; }
 .page-actions > summary::-webkit-details-marker { display: none; }
 .page-actions[open] > summary { background-color: #ccc; }
 @media (hover: hover) {
-  .page-actions > summary:hover { background-color: #ccc; }
+  .page-actions > summary:hover, .page-menu-link:hover { background-color: #ccc; }
 }
 /* 767px 以下では、ボタンを上部のバーの右端に横に並べる（.page-menu）。 */
 @media (max-width: 767px) {
   #page-menu-root { display: flex; }
-  .page-actions > summary { border-radius: 4px; height: 41px; }
+  .page-actions > summary, .page-menu-link { border-radius: 4px; height: 41px; }
 }
 /* メニューはボタンの左に、上端を 2px 下げて開く（Cosense の .dropdown-menu-right）。 */
 .page-actions-menu { background-color: #fff; border: 1px solid rgb(0 0 0 / 15%); border-radius: 4px; box-shadow: 0 6px 12px rgb(0 0 0 / 17.6%); box-sizing: border-box; display: grid; inset-inline-end: 46px; margin-top: 2px; min-width: 160px; padding: 8px 0 4px; position: absolute; top: 0; z-index: 1; }

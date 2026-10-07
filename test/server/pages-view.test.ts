@@ -141,6 +141,7 @@ void test('閲覧画面に操作メニューと複製・リネーム・削除 di
   // ページ情報とページの操作は、印だけのボタン（#251）。名前は aria-label で伝える。
   assert.match(body, /<details id="page-info" class="page-actions">\n<summary aria-label="ページ情報"><svg /);
   assert.match(body, /<details id="page-actions" class="page-actions">\n<summary aria-label="ページの操作"><svg /);
+  assert.match(body, /<a class="page-menu-link" href="\/proj\/random\/page" aria-label="ランダムなページへ移る"><svg /);
   // 作成と更新の日時は、閲覧者の時間帯で page-menu.js が書き直す。サーバは UTC で置く。
   const created = new Date((s.clock.t) * 1000).toISOString();
   assert.match(body, new RegExp(`<p class="page-info-row">作成 <time datetime="${created}">${created.slice(0, 16).replace('T', ' ')} UTC</time></p>`));
@@ -221,3 +222,25 @@ for (const [name, headers] of [
     assert.match(await second.text(), /telomere unread/);
   });
 }
+
+void test('GET /:project/random/page は同じプロジェクトの無作為なページへ移る（#258）', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  await s.storage.ensureProject('empty', s.clock.t);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  for (const title of ['Alpha', 'Beta Page', 'Gamma']) await seedPage(s.storage, project.id, title, ['body'], s.clock.t);
+
+  const seen = new Set<string>();
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const res = await s.request('/proj/random/page', { redirect: 'manual' }, cookie);
+    assert.equal(res.status, 302);
+    seen.add(res.headers.get('location') ?? '');
+  }
+  // 40 回のうちに 3 つのページのどれにも移り、ほかへは移らない。
+  assert.deepEqual([...seen].toSorted(), ['/proj/Alpha', '/proj/Beta_Page', '/proj/Gamma']);
+
+  const none = await s.request('/empty/random/page', { redirect: 'manual' }, cookie);
+  assert.equal(none.status, 302);
+  assert.equal(none.headers.get('location'), '/empty');
+  assert.equal((await s.request('/missing/random/page', { redirect: 'manual' }, cookie)).status, 404);
+});
