@@ -205,8 +205,14 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
 }
 /* テロメアは紙面の左端に置き、紙面の左 padding の残りを本文までの余白にする。
    Cosense と同じく左の border で線を描き、線の太さ（w-1〜w-10、render/telomere.ts）で新しさを表す。
-   押せる幅は線の太さによらず最大の太さぶん取る。 */
-.telomere { align-self: stretch; border-left: 1px solid #e2e2e2; box-sizing: border-box; cursor: pointer; flex-shrink: 0; margin-inline-end: calc(var(--page-padding-inline) - 10px); width: 10px; }
+   押せる幅は線の太さによらず最大の太さぶん取る。閲覧表示では button なので、既定の見た目を外す（#173）。 */
+.telomere { align-self: stretch; appearance: none; background: none; border: 0 solid #e2e2e2; border-left-width: 1px; box-sizing: border-box; cursor: pointer; flex-shrink: 0; margin: 0; margin-inline-end: calc(var(--page-padding-inline) - 10px); padding: 0; width: 10px; }
+.telomere:focus-visible { outline: 2px solid rgb(102 175 233 / 60%); outline-offset: -2px; }
+/* hover できる環境では、押せる幅を Cosense と同じ 20px にする。touch では本文の左端を tap したときに
+   テロメアへ吸い寄せられやすくなるので広げない。 */
+@media (hover: hover) {
+  .telomere { margin-inline-end: calc(var(--page-padding-inline) - 20px); width: 20px; }
+}
 .telomere.unread { border-left-color: #89a3ff; }
 .telomere.w-1 { border-left-width: 1px; }
 .telomere.w-2 { border-left-width: 2px; }
@@ -218,7 +224,16 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
 .telomere.w-8 { border-left-width: 8px; }
 .telomere.w-9 { border-left-width: 9px; }
 .telomere.w-10 { border-left-width: 10px; }
-.line-row.highlight { background: #fff8dc; }
+/* 行へのリンクで開いた行と、テロメアを押した行（Cosense の .line.permalink）。本文の左端から塗る。
+   編集表示の行は本文の左端から始まるので、行をそのまま塗る。 */
+.line-row.highlight { background: linear-gradient(to right, transparent var(--page-padding-inline), rgb(234 218 74 / 75%) var(--page-padding-inline)); }
+#editor-root .cm-line.highlight { background-color: rgb(234 218 74 / 75%); }
+/* テロメアの更新日時とメニュー（Cosense の .telomere .description / .menu-item、#173）。テロメアの
+   左端から 2px 右に、幅 160px の帯で出す（位置は telomereInfo.ts が決める）。 */
+.telomere-info { position: absolute; width: 160px; z-index: 3; }
+.telomere-updated, .telomere-menu-item { background-color: #808b8c; box-sizing: border-box; color: #fff; display: block; font: inherit; font-size: 12px; line-height: 28px; margin: 0; overflow: hidden; padding: 0 7px; text-align: start; text-overflow: ellipsis; white-space: nowrap; width: 100%; }
+.telomere-menu-item { border: 0; cursor: pointer; }
+.telomere-menu-item:focus-visible { outline: 2px solid rgb(102 175 233 / 60%); outline-offset: -2px; }
 /* コードブロックの行（見出しと本文）の行送りは Cosense と同じ 1.7em（25.5px）。行に掛けるので、
    カーソルが入って原文表示になっても行の高さは変わらない。 */
 #editor-root .line-row.code-block-line, #editor-root .cm-line.code-block-line { line-height: 1.7em; }

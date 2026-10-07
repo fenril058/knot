@@ -673,12 +673,13 @@ void test('既存ページの送信にはタイトル変更後も同じ pageId �
   assert.equal(effect(rebased, 'persist')?.record?.pageId, 'page-1');
 });
 
-void test('lineMeta は keep の元メタを保ち、追加行には自己メタと最大 version を使う', () => {
+void test('lineMeta は keep の元メタと行 ID を保ち、追加行には自己メタと最大 version を使う', () => {
   const confirmed = [line('a', 'keep', 3, 'other'), line('b', 'remove', 4, 'other-2')];
 
+  // 追加行はまだサーバに無いので、行へのリンクに使う ID が無い。
   assert.deepEqual(lineMeta(confirmed, ['keep', 'added'], { userId: 'self', now: 999 }), [
-    { updated: 20, userId: 'other', updatedVersion: 3 },
-    { updated: 999, userId: 'self', updatedVersion: Number.MAX_SAFE_INTEGER },
+    { id: 'a', updated: 20, userId: 'other', updatedVersion: 3 },
+    { id: undefined, updated: 999, userId: 'self', updatedVersion: Number.MAX_SAFE_INTEGER },
   ]);
 });
 

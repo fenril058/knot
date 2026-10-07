@@ -25,14 +25,15 @@ function nestIndentedLine(content: Html, indent: number, mark: IndentMark): Html
 }
 
 // テロメアの線の太さは、表示した時刻からの行の経過時間で決める（Cosense と同じく、ページの中の相対値ではない）。
-function lineRow(line: Line, rendered: RenderedLine, previousVisit: Visit | null, now: number): Html {
+// テロメアは押せるボタン（#173）。行のあいだは矢印キーで移るので、tab stop は先頭の行の 1 つだけにする。
+function lineRow(line: Line, rendered: RenderedLine, previousVisit: Visit | null, now: number, first: boolean): Html {
   const unread = previousVisit === null || line.updatedVersion > previousVisit.lastSeenVersion;
   const width = telomereWidth(now - line.updated);
   const classes = ['line-row'];
   if (rendered.codeBlock) classes.push('code-block-line');
   if (rendered.linkOnly) classes.push('link-only');
   return html`<div class="${classes.join(' ')}" id="L${line.id}">
-<span class="telomere${unread ? ' unread' : ''} w-${width}" data-updated="${line.updated}" data-user="${line.userId}"></span>
+<button type="button" class="telomere${unread ? ' unread' : ''} w-${width}" tabindex="${first ? '0' : '-1'}" aria-label="行の更新日時" data-updated="${line.updated}"></button>
 ${nestIndentedLine(rendered.html, rendered.indent, rendered.mark)}
 </div>`;
 }
@@ -211,13 +212,13 @@ ${recoveryDialog()}
   data-allowed-media-hosts="${JSON.stringify(renderConfig.allowedMediaHosts)}"
   data-known-pages="${JSON.stringify(knownPages)}"
   data-rendered-at="${now}"
->${rendered.map((line, index) => lineRow(page.lines[index]!, line, previousVisit, now))}</div>
+>${rendered.map((line, index) => lineRow(page.lines[index]!, line, previousVisit, now, index === 0))}</div>
 </div>
 ${relatedSection(page, related, project.name, renderConfig.allowedImageHosts, knownPages, eagerImagePageId)}
 </div>
 </div>
 </main>
-<script src="/assets/line-ui.js" defer></script>
+<script type="module" src="/assets/build/line-ui.js"></script>
 <script type="module" src="/assets/build/page-menu.js"></script>
 <script type="module" src="/assets/build/editor.js"></script>
 <script type="module" src="/assets/build/search.js"></script>`,

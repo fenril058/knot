@@ -41,6 +41,7 @@ const accountNames = [
   'cards-e2e',
   'cards-mobile-e2e',
   'telomere-e2e',
+  'telomere-mobile-e2e',
   'active-line-e2e',
   'caret-e2e',
   'caret-mobile-e2e',

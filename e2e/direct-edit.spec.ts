@@ -121,20 +121,21 @@ test('本文がまだない既存ページにも直接編集の click target が
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
 });
 
-test('telomere click は更新情報表示だけを行い Editor を起動しない', async ({ page }, testInfo) => {
+test('telomere click は更新情報とメニューを出すだけで Editor を起動しない', async ({ page }, testInfo) => {
   await loginDirectEditE2e(page);
   const title = `direct-edit-telomere-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
   await createPage(page, title, ['body']);
 
   await page.goto(`/e2e/${title}`);
-  const dialogHandled = new Promise<void>((resolve) => {
-    page.once('dialog', (dialog) => {
-      void dialog.dismiss().then(resolve);
-    });
-  });
-  await page.locator('#editor-root .line-row').nth(1).locator('.telomere').click();
-  await dialogHandled;
+  // hover で出る帯がテロメアに重なるので、人と同じく帯ごと押す（帯を押すとテロメアを押したことになる）。
+  const telomere = (await page.locator('#editor-root .line-row').nth(1).locator('.telomere').boundingBox())!;
+  await page.mouse.click(telomere.x + telomere.width / 2, telomere.y + telomere.height / 2);
+  await expect(page.locator('.telomere-menu-item')).toHaveText(['リンクをコピー', 'リーダブルリンクをコピー']);
   await expect(page.locator('#editor-root .cm-editor')).toHaveCount(0);
+  // メニューと帯は行の先頭に重なるので、閉じてテロメアから離れてから行を押す。
+  await page.keyboard.press('Escape');
+  await page.mouse.move(0, 0);
+  await expect(page.locator('.telomere-info')).toBeHidden();
 
   await page.locator('#editor-root .line-row').nth(1).click({ position: lineRowClickPosition });
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();

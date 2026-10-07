@@ -22,6 +22,18 @@ void test('GET /:project/:title: レンダリング結果・空リンク・テ�
   void alphaId;
 });
 
+void test('テロメアは押せるボタンで、行のテロメアの tab stop は先頭の行の 1 つだけにする', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'Alpha', ['one', 'two'], s.clock.t);
+  const body = await (await s.request('/proj/Alpha', {}, cookie)).text();
+  const telomeres = Array.from(body.matchAll(/<button type="button" class="telomere[^"]*" tabindex="(-?\d+)"[^>]*><\/button>/g));
+  assert.deepEqual(telomeres.map((match) => match[1]), ['0', '-1', '-1']);
+  // 行の Actor の ID は人が読める名前ではないので、閲覧表示には出さない。
+  assert.doesNotMatch(body, /data-user=/);
+});
+
 void test('深いインデントを深さ分のDOM要素へ展開しない', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
