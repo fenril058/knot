@@ -73,8 +73,8 @@ test('閲覧表示で triple click した行は、記法ごと行を選んだま
   await expect.poll(() => selectedText(page)).toBe('bold word tail\n');
   release();
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
-  // カーソル行は記法を出す。字下げは widget で描くので、選んだ字の並びには入らない。
-  await expect.poll(() => selectedText(page)).toBe('[* bold word] tail\n');
+  // カーソル行は記法と、字下げの空白を字のまま見せる（#271）。
+  await expect.poll(() => selectedText(page)).toBe(' [* bold word] tail\n');
 
   // CodeMirror の triple click と同じく、字下げと記法を含む行と、その後ろの改行を選んでいる。
   await page.keyboard.type('X');

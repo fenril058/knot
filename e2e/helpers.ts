@@ -137,9 +137,17 @@ export async function visualLineRects(target: Page): Promise<number[][][]> {
       const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
       while (walker.nextNode() !== null) {
         const node = walker.currentNode;
-        if (node.parentElement?.closest('.telomere') != null) continue;
+        // 字下げは字ではないので数えない（閲覧表示の全角空白）。
+        if (node.parentElement?.closest('.telomere, .line-indent-prefix') != null) continue;
         const range = document.createRange();
         range.selectNodeContents(node);
+        // カーソル行の字下げの空白も数えない。IME の変換中の字は空白の後ろの同じ text に入るので、
+        // 空白の後ろからは数える。
+        if (node.parentElement?.closest('.cm-indent-text') != null && node instanceof Text) {
+          const start = node.data.search(/\S/);
+          if (start === -1) continue;
+          range.setStart(node, start);
+        }
         for (const rect of Array.from(range.getClientRects())) {
           if (rect.width === 0 || rect.height === 0) continue;
           const top = Math.round(rect.top - rootTop);

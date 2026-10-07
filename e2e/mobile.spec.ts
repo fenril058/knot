@@ -644,16 +644,23 @@ test('mobile browser でも字下げした行を tap すると、字の位置と
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
     let textLeft = 0;
     while (walker.nextNode() !== null && textLeft === 0) {
+      const node = walker.currentNode;
+      // 字下げの空白（#271）は字ではないので、空白の後ろから測る。
+      const start = node instanceof Text && node.parentElement?.closest('.cm-indent-text') != null
+        ? node.data.search(/\S/)
+        : 0;
+      if (start === -1) continue;
       const range = document.createRange();
-      range.selectNodeContents(walker.currentNode);
+      range.selectNodeContents(node);
+      range.setStart(node, start);
       const rect = Array.from(range.getClientRects()).find((candidate) => candidate.width > 0);
       if (rect !== undefined) textLeft = rect.left;
     }
-    const widget = Array.from(element.querySelectorAll('.cm-indent-space')).at(-1);
-    const mark = widget === undefined ? null : getComputedStyle(widget, '::after');
+    // 行頭の印は、カーソル行の ::before（#271）。
+    const mark = getComputedStyle(element, '::before');
     return {
       textLeft: Math.round(textLeft * 2) / 2,
-      markLeft: widget === undefined || mark === null ? null : widget.getBoundingClientRect().left + Number.parseFloat(mark.left),
+      markLeft: mark.content === 'none' ? null : element.getBoundingClientRect().left + Number.parseFloat(mark.left),
     };
   });
   expect(active).toEqual({ textLeft: formatted.textLeft, markLeft: formatted.textLeft + formatted.mark!.x });
