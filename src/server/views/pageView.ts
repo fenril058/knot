@@ -1,5 +1,7 @@
 import { html } from 'hono/html';
+import { extractRefs } from '../../core/links.ts';
 import type { Line } from '../../core/ops.ts';
+import { pageHref, titleLc } from '../../core/title.ts';
 import type { IndentMark } from '../../render/presentation.ts';
 import type { KnownPage, RenderConfig, RenderedLine } from '../../render/render.ts';
 import { telomereWidth } from '../../render/telomere.ts';
@@ -7,6 +9,10 @@ import type { PageSnapshot, Project, RelatedPage, RelatedPages, Visit } from '..
 import { layout, type Html } from './layout.ts';
 import { canDisplayCardImage, pageCardListItem } from './pageCard.ts';
 import { pageNav } from './pageNav.ts';
+
+function knownTitleMap(knownPages: readonly KnownPage[]): Map<string, string> {
+  return new Map(knownPages.map(({ title }) => [titleLc(title), title]));
+}
 
 function projectLink(project: Project): Html {
   return html`<a href="/${encodeURIComponent(project.name)}">${project.displayName}</a>`;
@@ -31,20 +37,69 @@ ${nestIndentedLine(rendered.html, rendered.indent, rendered.mark)}
 </div>`;
 }
 
-function relatedSection(
-  title: string,
-  pages: RelatedPage[],
+// 関連ページの見出しの札に添えるリンクの印。色は文字色（currentColor）に従う。
+const linkIcon = html`<svg class="relation-label-icon" viewBox="0 0 24 24" width="36" height="36" aria-hidden="true" focusable="false"><path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"/><path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"/></svg>`;
+
+type RelatedGroup = { label: string; href: string | null; pages: RelatedPage[] };
+
+// 2-hop の札を、このページと共有するリンク先ごとに分ける。行の順は、このページの中でリンクが
+// 最初に現れた順（Cosense と同じ）。見出しはリンク先のページのタイトル（無ければ書かれたリンク）。
+function twoHopGroups(
+  page: PageSnapshot,
+  links2hop: readonly RelatedPage[],
+  projectName: string,
+  knownTitles: ReadonlyMap<string, string>,
+): RelatedGroup[] {
+  const targets = extractRefs(page.lines.slice(1).map(({ text }) => text).join('\n')).linkTargets;
+  const order = new Map(targets.map((target, index) => [target.titleLc, { index, title: target.title }]));
+  const groups = new Map<string, RelatedPage[]>();
+  for (const related of links2hop) {
+    for (const shared of related.linksLc) groups.set(shared, [...(groups.get(shared) ?? []), related]);
+  }
+  return [...groups]
+    .toSorted(([left], [right]) => (order.get(left)?.index ?? Infinity) - (order.get(right)?.index ?? Infinity))
+    .map(([sharedLc, pages]) => {
+      const label = knownTitles.get(sharedLc) ?? order.get(sharedLc)?.title ?? sharedLc;
+      return { label, href: pageHref(projectName, label), pages };
+    });
+}
+
+function relatedGroupList(
+  group: RelatedGroup,
   projectName: string,
   allowedImageHosts: string[],
   eagerImagePageId: string | null,
 ): Html {
-  if (pages.length === 0) return html``;
-  return html`<section class="related-pages"><h2>${title}</h2><ul class="card-grid" role="list">${pages.map((page) =>
-    pageCardListItem(projectName, page, allowedImageHosts, {
+  const labelClass = group.href === null ? 'relation-label links' : 'relation-label headword';
+  const labelBody = html`<span class="relation-label-title">${group.label}</span>${linkIcon}`;
+  return html`<ul class="card-grid related-group" role="list" aria-label="${group.label}"><li class="${labelClass}">${group.href === null
+    ? html`<span class="relation-label-card">${labelBody}</span>`
+    : html`<a class="relation-label-card" href="${group.href}">${labelBody}</a>`}</li>${group.pages.map((related) =>
+    pageCardListItem(projectName, related, allowedImageHosts, {
       headingLevel: 3,
-      imageLoading: page.id === eagerImagePageId ? 'eager' : 'lazy',
+      imageLoading: related.id === eagerImagePageId ? 'eager' : 'lazy',
     }),
-  )}</ul></section>`;
+  )}</ul>`;
+}
+
+// 関連ページ（#249）。Cosense と同じく見出しを置かず、行の先頭に札と同じ大きさの見出しの札を置く。
+// 1-hop の行は「Links」、2-hop の行は共有するリンク先の名前の札で始まる。
+function relatedSection(
+  page: PageSnapshot,
+  related: RelatedPages,
+  projectName: string,
+  allowedImageHosts: string[],
+  knownTitles: ReadonlyMap<string, string>,
+  eagerImagePageId: string | null,
+): Html {
+  const groups: RelatedGroup[] = [
+    ...(related.links1hop.length === 0 ? [] : [{ label: 'Links', href: null, pages: related.links1hop }]),
+    ...twoHopGroups(page, related.links2hop, projectName, knownTitles),
+  ];
+  if (groups.length === 0) return html``;
+  return html`<section class="related-pages" aria-labelledby="related-pages-title"><h2 id="related-pages-title" class="visually-hidden">関連ページ</h2>${groups.map((group) =>
+    relatedGroupList(group, projectName, allowedImageHosts, eagerImagePageId),
+  )}</section>`;
 }
 
 function editConflictPanel(): Html {
@@ -135,9 +190,7 @@ ${recoveryDialog()}
   data-rendered-at="${now}"
 >${rendered.map((line, index) => lineRow(page.lines[index]!, line, previousVisit, now))}</div>
 </div>
-${related.hasBackLinks ? html`<p class="backlinks-badge">逆リンクまたはアイコン参照あり</p>` : ''}
-${relatedSection('関連ページ', related.links1hop, project.name, renderConfig.allowedImageHosts, eagerImagePageId)}
-${relatedSection('2-hop リンク', related.links2hop, project.name, renderConfig.allowedImageHosts, eagerImagePageId)}
+${relatedSection(page, related, project.name, renderConfig.allowedImageHosts, knownTitleMap(knownPages), eagerImagePageId)}
 </div>
 </div>
 </main>

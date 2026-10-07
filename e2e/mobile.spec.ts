@@ -757,3 +757,37 @@ test('mobile browser では検索ボタンでバーの下に検索欄を開き�
   await expect(page.locator('.search-result a')).toHaveAttribute('href', `/e2e/${title}`);
   await expectMobileLayout(page, expectedWidth);
 });
+
+test('mobile browser でも関連ページを、Links の札と共有するリンク先ごとの 2 列の行に並べる', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'cards-mobile-e2e');
+
+  const suffix = `${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  const hub = `mgroup-hub-${suffix}`;
+  const title = `mgroup-page-${suffix}`;
+  await createE2ePage(page, hub, ['リンク先のページ']);
+  await createE2ePage(page, `mgroup-other-${suffix}`, [`[${hub}] を共有するページ`]);
+  await createE2ePage(page, title, [`[${hub}] へのリンク`]);
+
+  await page.goto(`/e2e/${title}`);
+  const groups = await page.locator('.related-group').evaluateAll((lists) => lists.map((list) => {
+    const items = Array.from(list.children, (item) => item.getBoundingClientRect());
+    const box = list.getBoundingClientRect();
+    return {
+      label: list.querySelector('.relation-label-card')?.textContent?.trim() ?? '',
+      columns: items.map((item) => Math.round(item.x * 10) / 10),
+      width: Math.round(items[0]!.width * 10) / 10,
+      top: box.top,
+      bottom: box.bottom,
+    };
+  }));
+  // 紙面の幅に 2 列（間隔 8px）。行の先頭が見出しの札で、行の間は 32px（#249）。
+  const width = Math.round(((expectedWidth - 16 - 8) / 2) * 10) / 10;
+  expect(groups.map(({ label, columns, width: cardWidth }) => ({ label, columns, width: cardWidth }))).toEqual([
+    { label: 'Links', columns: [8, Math.round((8 + width + 8) * 10) / 10], width },
+    { label: hub, columns: [8, Math.round((8 + width + 8) * 10) / 10], width },
+  ]);
+  expect(Math.round(groups[1]!.top - groups[0]!.bottom)).toBe(32);
+  await expectMobileLayout(page, expectedWidth);
+});
