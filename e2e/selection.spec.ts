@@ -46,7 +46,7 @@ test('閲覧表示で double click した語は、編集を始めても選んだ
   expect(await persistedLines(page, title)).toEqual([title, 'alpha X gamma', 'last body']);
 });
 
-test('日本語の行の double click も、ブラウザが選んだ語を編集表示で選んだままにする', async ({ page }, testInfo) => {
+test('日本語の行の double click も、選んだ語を編集表示で選んだままにする', async ({ page }, testInfo) => {
   const title = `selection-japanese-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
   await loginE2eAccount(page, 'selection-e2e');
   const release = await openWithFetchGate(page, title, ['クリックすると別のページに飛ぶ', '[* 太字のページ] の行']);
@@ -101,4 +101,64 @@ test('最後の行の triple click は、本文の後ろまで及んでも、そ
 
   await page.keyboard.type('X');
   expect(await persistedLines(page, title)).toEqual([title, `first [${linked}] body`, 'X']);
+});
+
+// double click で選ぶ語は、Cosense と同じく同じ種類の字が続く範囲にする（#261）。漢字・ひらがな・
+// カタカナ・英数字を別の語として扱う。字の右半分を押すと、caret の後ろの字（次の字）の語を選ぶ。
+const MIXED_ROW = 'agent-skillsからsubagent-consultationを追加、sanity-reviewの更新を取り込み (#8313)';
+
+async function doubleClickAt(page: Page, row: number, text: string, fraction: number): Promise<void> {
+  const point = await charPoint(page.locator('#editor-root .cm-line').nth(row), text, 0, fraction);
+  await page.mouse.dblclick(point.x, point.y);
+}
+
+test('編集表示の double click は、Cosense と同じく漢字・かな・英数字の続く範囲を語として選ぶ', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'selection-e2e');
+  const title = `selection-cm-word-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, [MIXED_ROW, 'package-lock.json と 4.7.1', 'last body']);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  await page.locator('#editor-root .line-row').nth(3).click({ position: { x: 60, y: 8 } });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+
+  const cases: Array<[number, string, number, string]> = [
+    [1, '込', 0.3, '込'],
+    [1, '加', 0.3, '追加'],
+    // 字の右半分を押すと、Cosense と同じく次の字（、）の語になる。
+    [1, '加', 0.8, '、'],
+    [1, 'consultation', 0.3, 'consultation'],
+    [1, '(#', 0.2, '(#'],
+    [2, 'lock', 0.3, 'lock'],
+    [2, '7', 0.3, '7'],
+  ];
+  for (const [row, text, fraction, expected] of cases) {
+    await doubleClickAt(page, row, text, fraction);
+    expect(await selectedText(page), `${text} @ ${fraction}`).toBe(expected);
+  }
+
+  // double click から押したまま動かすと、語の単位で広げる。
+  const start = await charPoint(page.locator('#editor-root .cm-line').nth(1), '追', 0, 0.3);
+  const end = await charPoint(page.locator('#editor-root .cm-line').nth(1), '更', 0, 0.3);
+  await page.mouse.click(start.x, start.y);
+  await page.mouse.down({ clickCount: 2 });
+  await page.mouse.move(end.x, end.y, { steps: 4 });
+  await page.mouse.up({ clickCount: 2 });
+  expect(await selectedText(page)).toBe('追加、sanity-reviewの更新');
+});
+
+test('閲覧表示の double click も、編集表示と同じ区切りの語を選んだまま編集を始める', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'selection-e2e');
+  const title = `selection-read-word-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  const release = await openWithFetchGate(page, title, [MIXED_ROW, 'last body']);
+
+  // ブラウザ（ICU）の区切りでは「取り込み」が 1 語になる。
+  const point = await charPoint(page.locator('#editor-root .line-row').nth(1), '込', 0, 0.3);
+  await page.mouse.dblclick(point.x, point.y);
+  await expect.poll(() => selectedText(page)).toBe('込');
+  release();
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  expect(await selectedText(page)).toBe('込');
+
+  await page.keyboard.type('X');
+  expect(await persistedLines(page, title)).toEqual([title, MIXED_ROW.replace('取り込み', '取りXみ'), 'last body']);
 });

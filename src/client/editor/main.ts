@@ -18,6 +18,7 @@ import {
 import { answerSettleEdits, type SettledPage } from '../editSession.ts';
 import { mapSelectionByLineId } from './documentChanges.ts';
 import { titleAutocompletion } from './cm/complete.ts';
+import { doubleClickWordSelection, wordRange } from './cm/wordSelection.ts';
 import { syntaxHighlighting } from './cm/decorations.ts';
 import { editorKeymap } from './cm/keymap.ts';
 import { editStartPosition, imageSizeKey, lineWysiwyg, type ImageSize } from './cm/lineWysiwyg.ts';
@@ -753,6 +754,7 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
       EditorView.lineWrapping,
       historyExtension(),
       lineWysiwyg({ project, allowedImageHosts, allowedMediaHosts, knownPages, imageSizes }),
+      doubleClickWordSelection,
       // blur は defaultKeymap より後ろに置く。補完の Escape は Prec.highest で先に処理され、
       // 選択の simplifySelection も先に試されて、どちらも該当しないときだけ抜ける。
       keymap.of([
@@ -945,5 +947,19 @@ if (initialPageId !== undefined) {
       lineNumber: index + 1,
       ...(elements === undefined || target === undefined ? {} : { click: { elements, target } }),
     });
+  });
+
+  // 閲覧表示の double click も、編集表示と同じ区切りの語を選ぶ（#261）。ブラウザの区切りは Cosense と
+  // 違う（ICU は漢字とかなの続く語や、. や : でつながる英数字をまとめる）。選んだ範囲は、編集を始める
+  // ときに編集表示へ持ち越す（#194）。編集表示に替わった後は CodeMirror が扱う。
+  editorRoot.addEventListener('dblclick', (event) => {
+    if (editorRoot.classList.contains('editor-active') || !(event.target instanceof Element)) return;
+    if (blocksEditorActivation(event.target)) return;
+    const row = event.target.closest<HTMLElement>('.line-row');
+    const elements = row === null || row.parentElement !== editorRoot ? undefined : lineElements(row);
+    const target = elements === undefined ? undefined : clickTarget(elements, event.clientX, event.clientY);
+    if (!(target?.node instanceof Text)) return;
+    const { from, to } = wordRange(target.node.data, target.offset);
+    window.getSelection()?.setBaseAndExtent(target.node, from, target.node, to);
   });
 }
