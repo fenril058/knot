@@ -1,6 +1,7 @@
 import { test, expect, type Page, type Response } from '@playwright/test';
 import {
   blockLooks,
+  charPoint,
   createE2ePage,
   expectSameTextBox,
   firstRectCenter,
@@ -205,13 +206,13 @@ test('mobile browser は見えているタイトルの tap から title 行の�
   await expect(heading).toBeInViewport();
   expect(await visibleTitleCount(page, title)).toBe(1);
 
-  await heading.tap();
+  // タイトルの 1 字目の左端を tap する。caret は押した字の位置に入る（#243）ので、タイトル行の先頭に入る。
+  await heading.tap({ position: { x: 2, y: 21 } });
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);
   await expect(page.locator('#editor-root .cm-line').first()).toHaveText(title);
   expect(await visibleTitleCount(page, title)).toBe(1);
-  // 行が折り返すと End は視覚行の末尾へ移る。tap 直後の caret はタイトル行の先頭なので、
-  // 折り返しの有無に依らない位置として、そこへ挿入する。
+  // 行が折り返すと End は視覚行の末尾へ移る。折り返しの有無に依らない位置として、先頭へ挿入する。
   await page.keyboard.insertText('edited-');
   await expect(page.locator('#editor-root .cm-line')).toHaveText([`edited-${title}`, 'mobile の本文']);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(`edited-${title}`);
@@ -628,7 +629,9 @@ test('mobile browser でも字下げした行を tap すると、字の位置と
   const formatted = (await indentMarks(page))[1]!;
   expect(formatted.textLeft).toBe(29 + 22.5);
 
-  await page.locator('#editor-root .line-row').nth(1).tap();
+  // 本文の 1 字目の左半分を tap する。caret は押した字の位置（#243）、つまり本文の先頭に入る。
+  const rowBox = (await page.locator('#editor-root .line-row').nth(1).boundingBox())!;
+  await page.touchscreen.tap(formatted.textLeft + 3, rowBox.y + 14);
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
   await page.keyboard.insertText('X');
   const row = page.locator('#editor-root .cm-line').nth(1);
@@ -650,5 +653,33 @@ test('mobile browser でも字下げした行を tap すると、字の位置と
     };
   });
   expect(active).toEqual({ textLeft: formatted.textLeft, markLeft: formatted.textLeft + formatted.mark!.x });
+  await expectMobileLayout(page, expectedWidth);
+});
+
+test('mobile browser でも、閲覧表示と整形表示の行を tap した字の位置に caret が入る', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'caret-mobile-e2e');
+
+  const title = `mc-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  const body = ['テキストを`[`と`]`で囲む', ' [* 強調] の行', 'last body'];
+  await createE2ePage(page, title, body);
+  await page.goto(`/e2e/${title}`);
+
+  // 閲覧表示の行の「ス」の右半分を tap して編集を始める（#243）。
+  const first = await charPoint(page.locator('#editor-root .line-row').nth(1), 'ス', 0, 0.75);
+  await page.touchscreen.tap(first.x, first.y);
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await page.keyboard.insertText('|');
+
+  // 編集表示の整形表示の行では、太字の「強」の左半分を tap する。
+  const second = await charPoint(page.locator('#editor-root .cm-line').nth(2), '強', 0, 0.25);
+  await page.touchscreen.tap(second.x, second.y);
+  await page.keyboard.insertText('|');
+
+  await expect(page.locator('#save-status')).toHaveText('保存済み');
+  const persisted = await page.request.get(`/api/pages/e2e/${title}`);
+  expect((await persisted.json()).lines.map((line: { text: string }) => line.text))
+    .toEqual([title, 'テキス|トを`[`と`]`で囲む', ' [* |強調] の行', 'last body']);
   await expectMobileLayout(page, expectedWidth);
 });
