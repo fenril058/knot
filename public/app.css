@@ -120,6 +120,13 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
   .card:hover { box-shadow: 0 2px 0 rgb(0 0 0 / 23%); }
   .card:hover:not(:active)::after { background-color: rgb(0 0 0 / 5%); }
 }
+/* プロジェクトのトップ（#253）。札の上の toolbar は Cosense と同じく高さ 42px で、札まで 12px あける。
+   ボタンは Cosense の toolbar の tool-btn と同じ見た目で右端に置く。 */
+.page-list-toolbar { align-items: center; display: flex; height: 42px; justify-content: flex-end; margin-bottom: 12px; }
+.tool-button { background: none; border: 0; border-radius: 3px; color: #363c49; cursor: pointer; font: inherit; font-size: 14px; line-height: 20px; padding: 6px 10px 3px; }
+.tool-button:focus-visible { box-shadow: 0 0 0 3px rgb(102 175 233 / 60%); outline: none; }
+/* ページ数（Cosense の .page-list-status）。画面の右下に固定し、scroll しても動かさない。 */
+.page-list-status { background-color: var(--body-bg); bottom: 0; color: #666874; font-size: 12px; line-height: 20px; padding: 0 4px; position: fixed; right: 0; }
 /* 全文検索の結果（Cosense の /search/page の .page-list-item、#247）。1 ページ 1 行で、左の 70px に
    画像、右にタイトル（16px）と語を含む行の抜粋（12px、2 行まで）。語は太字・黄色の背景。 */
 .search-heading { font-size: 14px; font-weight: 700; line-height: 20px; margin: 0 0 16px; }

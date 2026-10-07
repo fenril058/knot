@@ -121,6 +121,10 @@ void test('一覧ページに新規作成ボタンとタイトル入力 dialog �
   const body = await res.text();
 
   assert.match(body, /<button[^>]*id="create-page-button"[^>]*>新規作成<\/button>/);
+  // 見出しは画面に出さず、新規作成は札の上の toolbar に置き、ページ数を右下に出す（#253）。
+  assert.match(body, /<h1 class="visually-hidden">proj<\/h1>/);
+  assert.match(body, /<div id="page-list-root" class="page-list-toolbar" data-project="proj">\n<button type="button" id="create-page-button" class="tool-button">新規作成<\/button>/);
+  assert.match(body, /<div class="page-list-status">0 pages<\/div>/);
   assert.match(body, /<dialog[^>]*id="create-page-dialog"/);
   assert.match(body, /<input[^>]*id="create-page-title"[^>]*required/);
   assert.doesNotMatch(body, /\son[a-z]+\s*=/i);

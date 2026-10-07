@@ -791,3 +791,23 @@ test('mobile browser でも関連ページを、Links の札と共有するリ�
   expect(Math.round(groups[1]!.top - groups[0]!.bottom)).toBe(32);
   await expectMobileLayout(page, expectedWidth);
 });
+
+test('mobile browser でもプロジェクトのトップの新規作成とページ数を画面の中で使える', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'cards-mobile-e2e');
+
+  await page.goto('/e2e');
+  // 新規作成は札の並びの右端、ページ数は画面の右下（#253）。
+  const button = (await page.locator('#create-page-button').boundingBox())!;
+  expect(Math.round(button.x + button.width)).toBe(expectedWidth - 8);
+  const status = (await page.locator('.page-list-status').boundingBox())!;
+  const viewport = page.viewportSize()!;
+  expect({ right: Math.round(status.x + status.width), bottom: Math.round(status.y + status.height) })
+    .toEqual({ right: viewport.width, bottom: viewport.height });
+  await expect(page.locator('.page-list-status')).toHaveText(/^\d+ pages$/);
+
+  await page.locator('#create-page-button').tap();
+  await expect(page.locator('#create-page-dialog')).toBeVisible();
+  await expectMobileLayout(page, expectedWidth);
+});
