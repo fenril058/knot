@@ -93,6 +93,8 @@ for (const [title, pinned] of [['pinned card', true], ['plain card', false]] as 
 // 札の更新日時を決めておくため、HTTP API ではなくここで作る。rel-base から見た関連度の順は
 // bravo（rel-base にリンクする）・alpha・charlie、更新日時の順は alpha・charlie・bravo。
 // 2-hop の rel-alpha の行は、関連度と更新日時の順が zulu・yankee、タイトルの順が yankee・zulu。
+// rel-new の nowhere の 2 つは、ページが無く、ほかのページからもリンクされない（「New Links」の行に入る）。
+// rel-new は rel-base と関連しないよう、rel-base のリンク先にはリンクしない。
 const relatedProject = await storage.ensureProject('e2e-related', now);
 for (const [lines, at] of [
   [['rel-alpha', 'alpha の説明'], now - 100],
@@ -101,6 +103,8 @@ for (const [lines, at] of [
   [['rel-two-zulu', '[rel-alpha] を共有する'], now - 50],
   [['rel-two-yankee', '[rel-alpha] を共有する'], now - 400],
   [['rel-base', '[rel-alpha] [rel-bravo] [rel-charlie]'], now],
+  [['rel-solo', 'solo の説明'], now - 500],
+  [['rel-new', '[rel-nowhere-one] と [rel-solo] と [rel-nowhere-two]'], now],
 ] as const) {
   await seedPage(relatedProject.id, [...lines], at);
 }

@@ -171,6 +171,33 @@ void test('Links の行は、前方リンクの札を先に、関連度の大き
   ]);
 });
 
+void test('関連ページの最後に、ページが無く、ほかのページからもリンクされていないリンク先を「New Links」の行に並べる（#283）', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'Beta', ['[Via Beta]'], s.clock.t);
+  await seedPage(s.storage, project.id, 'Other', ['[Shared Ghost]'], s.clock.t + 1);
+  await seedPage(s.storage, project.id, 'Alpha', ['[Beta] [Lonely One] [Shared Ghost] [Via Beta] [Lonely Two]'], s.clock.t + 2);
+  await seedPage(s.storage, project.id, 'Solo', ['[Nowhere]'], s.clock.t + 3);
+
+  const body = await (await s.request('/proj/Alpha', {}, cookie)).text();
+
+  // Shared Ghost は 2-hop の札（Other）が、Via Beta は 1-hop の札（Beta）がリンクしているので入らない。
+  assert.deepEqual([...relatedGroups(body)], [
+    ['Links', ['Beta']],
+    ['Shared Ghost', ['Other']],
+    ['New Links', ['Lonely One', 'Lonely Two']],
+  ]);
+  assert.match(body, /<li class="relation-label empty-links"><span class="relation-label-card"><span class="relation-label-title">New Links<\/span>/);
+  // 札はそのページへのリンクで、絞り込みはタイトルで探す。説明文の代わりに線を描く。
+  assert.match(body, /<li class="new-link" data-title="Lonely One" data-search="Lonely One"><a class="card" href="\/proj\/Lonely_One">\s*<h3>Lonely One<\/h3>\s*<span class="card-placeholder" aria-hidden="true">/);
+
+  // 関連ページが無くても、New Links の行と toolbar は置く。
+  const solo = await (await s.request('/proj/Solo', {}, cookie)).text();
+  assert.deepEqual([...relatedGroups(solo)], [['New Links', ['Nowhere']]]);
+  assert.match(solo, /class="related-toolbar"/);
+});
+
 void test('関連ページの行の上に絞り込み欄と並び替えを置き、札に並び替えと絞り込みに使う値を付ける（#281）', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);

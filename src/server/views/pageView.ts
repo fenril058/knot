@@ -53,6 +53,10 @@ function pageTime(unixSeconds: number): Html {
 
 // 関連ページの見出しの札に添えるリンクの印。色は文字色（currentColor）に従う。
 const linkIcon = html`<svg class="relation-label-icon" viewBox="0 0 24 24" width="36" height="36" aria-hidden="true" focusable="false"><path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"/><path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"/></svg>`;
+// 「New Links」の見出しの札に添える、切れたリンクの印（#283）。
+const linkOffIcon = html`<svg class="relation-label-icon" viewBox="0 0 24 24" width="36" height="36" aria-hidden="true" focusable="false"><path d="m12.5 6.5 2-2a3.54 3.54 0 0 1 5 5l-2 2M11.5 17.5l-2 2a3.54 3.54 0 0 1-5-5l2-2" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"/><path d="M9 4.5v2M4.5 9h2M15 19.5v-2M19.5 15h-2" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"/></svg>`;
+// 「New Links」の札で、説明文の代わりに描く 5 本の線（#283）。
+const cardPlaceholder = html`<span class="card-placeholder" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></span>`;
 
 type RelatedGroup = { label: string; href: string | null; pages: RelatedPage[] };
 
@@ -157,8 +161,28 @@ ${relatedSorts.map(({ key, label }) => (relatedSortTabs.includes(key)
 </div>`;
 }
 
+type PageLink = { title: string; titleLc: string };
+
+// 本文のリンク先のうち、ページが無く、ほかのどのページからもリンクされていないもの（#283）。ほかのページから
+// リンクされていれば、そのページは 1-hop の札（linksLc はそのページのすべてのリンク先）か 2-hop の札（linksLc は
+// 共有するリンク先）なので、どちらかの linksLc に現れる。本文のリンクの順のまま返す。
+function newLinkTargets(pageLinks: readonly PageLink[], related: RelatedPages, knownTitles: ReadonlyMap<string, string>): PageLink[] {
+  const linkedElsewhere = new Set([...related.links1hop, ...related.links2hop].flatMap((relatedPage) => relatedPage.linksLc));
+  return pageLinks.filter((link) => !knownTitles.has(link.titleLc) && !linkedElsewhere.has(link.titleLc));
+}
+
+// 「New Links」の行（#283）。Cosense と同じく関連ページの最後に置き、見出しの札は空リンクの色、札はそのページへの
+// リンクで、説明文の代わりに線を描く。絞り込みはタイトルで探す。
+function newLinksList(links: readonly PageLink[], projectName: string): Html {
+  return html`<ul class="card-grid related-group" role="list" aria-label="New Links"><li class="relation-label empty-links"><span class="relation-label-card"><span class="relation-label-title">New Links</span>${linkOffIcon}</span></li>${links.map(({ title }) =>
+    html`<li class="new-link" data-title="${title}" data-search="${title}"><a class="card" href="${pageHref(projectName, title)}">
+<h3>${title}</h3>
+${cardPlaceholder}
+</a></li>`)}</ul>`;
+}
+
 // 関連ページ（#249）。Cosense と同じく見出しを置かず、行の先頭に札と同じ大きさの見出しの札を置く。
-// 1-hop の行は「Links」、2-hop の行は共有するリンク先の名前の札で始まる。
+// 1-hop の行は「Links」、2-hop の行は共有するリンク先の名前、最後の行は「New Links」の札で始まる。
 function relatedSection(
   page: PageSnapshot,
   related: RelatedPages,
@@ -168,19 +192,21 @@ function relatedSection(
 ): Html {
   const pageLinks = extractRefs(page.lines.slice(1).map(({ text }) => text).join('\n')).linkTargets;
   const linkSet = new Set(pageLinks.map((link) => link.titleLc));
+  const knownTitles = knownTitleMap(knownPages);
   const order = (pages: readonly RelatedPage[]): RelatedPage[] => byRelevance(pages, titleLc(page.title), linkSet);
   const groups: RelatedGroup[] = [
     ...(related.links1hop.length === 0 ? [] : [{ label: 'Links', href: null, pages: order(related.links1hop) }]),
-    ...twoHopGroups(related.links2hop, pageLinks, projectName, knownTitleMap(knownPages), order),
+    ...twoHopGroups(related.links2hop, pageLinks, projectName, knownTitles, order),
   ];
-  if (groups.length === 0) return html``;
+  const newLinks = newLinkTargets(pageLinks, related, knownTitles);
+  if (groups.length === 0 && newLinks.length === 0) return html``;
   // 画面で最初に現れる画像の札だけ、画像をすぐに読む。
   const eagerImagePageId = groups.flatMap((group) => group.pages)
     .find((relatedPage) => canDisplayCardImage(relatedPage.image, allowedImageHosts))?.id ?? null;
   const cardPages = knownPageMap(knownPages);
   return html`<section class="related-pages" aria-labelledby="related-pages-title"><h2 id="related-pages-title" class="visually-hidden">関連ページ</h2>${relatedToolbar()}${groups.map((group) =>
     relatedGroupList(group, projectName, allowedImageHosts, cardPages, eagerImagePageId),
-  )}</section>`;
+  )}${newLinks.length === 0 ? '' : newLinksList(newLinks, projectName)}</section>`;
 }
 
 function editConflictPanel(): Html {

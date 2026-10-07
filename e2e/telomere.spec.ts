@@ -228,7 +228,8 @@ test('テロメアは Tab と上下の矢印で選び、Enter と Space でメ�
   await expect(page.getByRole('button', { name: 'リーダブルリンクをコピー' })).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(page.locator('.telomere-info')).toBeHidden();
-  await expect(page.getByRole('link', { name: 'link one' })).toBeFocused();
+  // 関連ページの「New Links」の札にも同じ名前のリンクがあるので、本文の中で探す。
+  await expect(page.locator('#editor-root').getByRole('link', { name: 'link one' })).toBeFocused();
   await expect(page.locator('#editor-root .cm-editor')).toHaveCount(0);
 });
 
