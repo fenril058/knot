@@ -163,12 +163,30 @@ ${relatedSorts.map(({ key, label }) => (relatedSortTabs.includes(key)
 
 type PageLink = { title: string; titleLc: string };
 
-// 本文のリンク先のうち、ページが無く、ほかのどのページからもリンクされていないもの（#283）。ほかのページから
-// リンクされていれば、そのページは 1-hop の札（linksLc はそのページのすべてのリンク先）か 2-hop の札（linksLc は
-// 共有するリンク先）なので、どちらかの linksLc に現れる。本文のリンクの順のまま返す。
+// 本文（タイトル行を除く）のリンク先。本文のリンクの順。
+function pageLinkTargets(page: PageSnapshot): PageLink[] {
+  return extractRefs(page.lines.slice(1).map(({ text }) => text).join('\n')).linkTargets;
+}
+
+// 関連ページの札のリンク先。ほかのページがこのページのリンク先にリンクしていれば、そのページは 1-hop の札
+// （linksLc はそのページのすべてのリンク先）か 2-hop の札（linksLc は共有するリンク先）なので、ここに現れる。
+function linkedByRelatedPages(related: RelatedPages): Set<string> {
+  return new Set([...related.links1hop, ...related.links2hop].flatMap((relatedPage) => relatedPage.linksLc));
+}
+
+// 本文のリンク先のうち、ページは無いが、ほかのページからリンクされているもの（#285）。Cosense と同じく空リンクの
+// 色にしないので、閲覧表示と編集表示がリンクの見た目を決める既知のページに足す。
+export function linkedEmptyPages(page: PageSnapshot, related: RelatedPages, knownTitlesLc: ReadonlySet<string>): KnownPage[] {
+  const linked = linkedByRelatedPages(related);
+  return pageLinkTargets(page)
+    .filter((link) => !knownTitlesLc.has(link.titleLc) && linked.has(link.titleLc))
+    .map((link) => ({ title: link.title, image: null }));
+}
+
+// 本文のリンク先のうち、ページが無く、ほかのどのページからもリンクされていないもの（#283）。本文のリンクの順。
 function newLinkTargets(pageLinks: readonly PageLink[], related: RelatedPages, knownTitles: ReadonlyMap<string, string>): PageLink[] {
-  const linkedElsewhere = new Set([...related.links1hop, ...related.links2hop].flatMap((relatedPage) => relatedPage.linksLc));
-  return pageLinks.filter((link) => !knownTitles.has(link.titleLc) && !linkedElsewhere.has(link.titleLc));
+  const linked = linkedByRelatedPages(related);
+  return pageLinks.filter((link) => !knownTitles.has(link.titleLc) && !linked.has(link.titleLc));
 }
 
 // 「New Links」の行（#283）。Cosense と同じく関連ページの最後に置き、見出しの札は空リンクの色、札はそのページへの
@@ -190,7 +208,7 @@ function relatedSection(
   allowedImageHosts: string[],
   knownPages: readonly KnownPage[],
 ): Html {
-  const pageLinks = extractRefs(page.lines.slice(1).map(({ text }) => text).join('\n')).linkTargets;
+  const pageLinks = pageLinkTargets(page);
   const linkSet = new Set(pageLinks.map((link) => link.titleLc));
   const knownTitles = knownTitleMap(knownPages);
   const order = (pages: readonly RelatedPage[]): RelatedPage[] => byRelevance(pages, titleLc(page.title), linkSet);
