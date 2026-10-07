@@ -37,6 +37,17 @@ ${nestIndentedLine(rendered.html, rendered.indent, rendered.mark)}
 </div>`;
 }
 
+// ページメニューのボタンの印（Cosense の Page info menu と Page edit menu）。色は文字色に従う。
+const infoIcon = html`<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 11v6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"/><circle cx="12" cy="7.5" r="1.25" fill="currentColor"/></svg>`;
+const documentIcon = html`<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2"/><path d="M14 3v4h4M9 12h6M9 16h6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"/></svg>`;
+
+// ページの作成・更新の日時。閲覧者の時間帯と相対の日時は page-menu.js が書き直すので、
+// サーバでは時間帯によらない UTC の日時を置く。
+function pageTime(unixSeconds: number): Html {
+  const iso = new Date(unixSeconds * 1000).toISOString();
+  return html`<time datetime="${iso}">${iso.slice(0, 16).replace('T', ' ')} UTC</time>`;
+}
+
 // 関連ページの見出しの札に添えるリンクの印。色は文字色（currentColor）に従う。
 const linkIcon = html`<svg class="relation-label-icon" viewBox="0 0 24 24" width="36" height="36" aria-hidden="true" focusable="false"><path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"/><path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"/></svg>`;
 
@@ -141,8 +152,15 @@ ${pageNav(project.name, projectLink(project), { pageMenu: true })}
 <div class="page-column">
 <div class="page-menu">
 <div id="page-menu-root" data-project="${project.name}" data-title="${page.title}" data-page-id="${page.id}" data-version="${page.version}">
+<details id="page-info" class="page-actions">
+<summary aria-label="ページ情報">${infoIcon}</summary>
+<div class="page-actions-menu page-info-menu">
+<p class="page-info-row">作成 ${pageTime(page.created)}</p>
+<p class="page-info-row">更新 ${pageTime(page.updated)}</p>
+</div>
+</details>
 <details id="page-actions" class="page-actions">
-<summary>操作</summary>
+<summary aria-label="ページの操作">${documentIcon}</summary>
 <div class="page-actions-menu">
 <button type="button" id="duplicate-button">複製</button>
 <button type="button" id="rename-button">リネーム</button>

@@ -74,6 +74,31 @@ if (project === undefined || title === undefined || pageId === undefined || page
 const version = Number(versionText);
 if (!Number.isInteger(version)) throw new Error('page version is invalid');
 
+// ページ情報の作成・更新の日時を、相対の日時（「8 年前」）にする。正確な日時は、閲覧者の時間帯で
+// title（tooltip）に置く（Cosense と同じ）。単位は、差が 1 以上になる最も大きい単位を選び、端数は切り捨てる。
+const relativeFormat = new Intl.RelativeTimeFormat('ja', { numeric: 'always' });
+const exactFormat = new Intl.DateTimeFormat('ja-JP', { dateStyle: 'medium', timeStyle: 'medium' });
+const relativeUnits: [Intl.RelativeTimeFormatUnit, number][] = [
+  ['year', 365 * 86_400],
+  ['month', 30 * 86_400],
+  ['day', 86_400],
+  ['hour', 3600],
+  ['minute', 60],
+];
+
+function relativeTime(date: Date): string {
+  const seconds = (date.getTime() - Date.now()) / 1000;
+  const [unit, size] = relativeUnits.find(([, length]) => Math.abs(seconds) >= length) ?? ['second', 1];
+  return relativeFormat.format(Math.trunc(seconds / size), unit);
+}
+
+for (const time of root.querySelectorAll<HTMLTimeElement>('.page-info-menu time')) {
+  const date = new Date(time.dateTime);
+  if (Number.isNaN(date.getTime())) continue;
+  time.textContent = relativeTime(date);
+  time.title = exactFormat.format(date);
+}
+
 const duplicate = dialogElements('duplicate');
 const rename = dialogElements('rename');
 const remove = dialogElements('delete');

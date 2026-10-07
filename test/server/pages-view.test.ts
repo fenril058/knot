@@ -125,7 +125,13 @@ void test('閲覧画面に操作メニューと複製・リネーム・削除 di
     body,
     /id="page-menu-root"[^>]*data-project="proj"[^>]*data-title="Alpha"[^>]*data-page-id="[^"]+"[^>]*data-version="1"/,
   );
-  assert.match(body, /<details[^>]*id="page-actions"/);
+  // ページ情報とページの操作は、印だけのボタン（#251）。名前は aria-label で伝える。
+  assert.match(body, /<details id="page-info" class="page-actions">\n<summary aria-label="ページ情報"><svg /);
+  assert.match(body, /<details id="page-actions" class="page-actions">\n<summary aria-label="ページの操作"><svg /);
+  // 作成と更新の日時は、閲覧者の時間帯で page-menu.js が書き直す。サーバは UTC で置く。
+  const created = new Date((s.clock.t) * 1000).toISOString();
+  assert.match(body, new RegExp(`<p class="page-info-row">作成 <time datetime="${created}">${created.slice(0, 16).replace('T', ' ')} UTC</time></p>`));
+  assert.match(body, /<p class="page-info-row">更新 <time datetime="[^"]+">[^<]+ UTC<\/time><\/p>/);
   assert.match(body, /<dialog[^>]*id="duplicate-dialog"/);
   assert.match(body, /<dialog[^>]*id="rename-dialog"/);
   assert.match(body, /<dialog[^>]*id="delete-dialog"/);

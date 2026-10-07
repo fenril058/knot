@@ -59,8 +59,8 @@ a { color: #2c6ea3; }
   .page-nav-start { flex: 1; }
   .nav-search { display: none; }
   .nav-search-toggle { display: flex; }
-  /* ページの閲覧表示では、ページメニュー（.page-menu）がバーの右端に重なる。その左に置く。 */
-  .page-nav.with-page-menu .nav-search-toggle { margin-inline-end: 46px; }
+  /* ページの閲覧表示では、ページメニューの 2 つのボタン（.page-menu）がバーの右端に重なる。その左に置く。 */
+  .page-nav.with-page-menu .nav-search-toggle { margin-inline-end: 92px; }
   .page-nav.search-open .nav-search { background-color: #cbccd1; display: block; inset-inline: 0; padding: 7px 8px 8px; position: absolute; top: 100%; z-index: 2; }
   .page-nav.search-open .nav-search-input { background-color: #fff; }
   .page-nav.search-open .nav-search-button { inset-block-start: 7px; inset-inline-end: 8px; }
@@ -254,15 +254,27 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
 .create-project input { box-sizing: border-box; font-size: 1rem; min-height: 2.75rem; padding: 0.5rem; width: 100%; }
 .create-project p { margin: 0; }
 .page-actions { position: relative; }
-/* Cosense のページメニューの tool button と同じ 46px 四方の押せる面にする。 */
-.page-actions > summary { align-items: center; box-sizing: border-box; color: #848484; cursor: pointer; display: flex; font-size: 13px; height: 46px; justify-content: center; list-style: none; width: 46px; }
+/* ページメニューのボタン（Cosense の .page-menu .tool-btn、#251）。46px 四方で、印は 24px・#848484。
+   hover と開いている間は、直径 46px の円の背景を付ける。 */
+.page-actions > summary { align-items: center; border-radius: 50%; box-sizing: border-box; color: #848484; cursor: pointer; display: flex; height: 46px; justify-content: center; list-style: none; width: 46px; }
 .page-actions > summary::-webkit-details-marker { display: none; }
-@media (max-width: 767px) {
-  .page-actions > summary { height: 41px; }
+.page-actions[open] > summary { background-color: #ccc; }
+@media (hover: hover) {
+  .page-actions > summary:hover { background-color: #ccc; }
 }
-/* メニューは右端に揃えて左へ開く。右列やバーの右端から開いても画面の外へ出さない。 */
-.page-actions-menu { background: white; border: 1px solid #ddd; border-radius: 4px; display: grid; gap: 0.25rem; inset-inline-end: 0; padding: 0.5rem; position: absolute; z-index: 1; }
-.page-actions-menu button { text-align: left; white-space: nowrap; }
+/* 767px 以下では、ボタンを上部のバーの右端に横に並べる（.page-menu）。 */
+@media (max-width: 767px) {
+  #page-menu-root { display: flex; }
+  .page-actions > summary { border-radius: 4px; height: 41px; }
+}
+/* メニューはボタンの左に、上端を 2px 下げて開く（Cosense の .dropdown-menu-right）。 */
+.page-actions-menu { background-color: #fff; border: 1px solid rgb(0 0 0 / 15%); border-radius: 4px; box-shadow: 0 6px 12px rgb(0 0 0 / 17.6%); box-sizing: border-box; display: grid; inset-inline-end: 46px; margin-top: 2px; min-width: 160px; padding: 8px 0 4px; position: absolute; top: 0; z-index: 1; }
+.page-actions-menu button { background: none; border: 0; color: #333; cursor: pointer; font: inherit; line-height: 28px; padding: 0 16px; text-align: start; white-space: nowrap; }
+.page-actions-menu button:focus-visible { background-color: #f5f5f5; color: #262626; outline: none; }
+@media (hover: hover) {
+  .page-actions-menu button:hover { background-color: #f5f5f5; color: #262626; }
+}
+.page-info-row { line-height: 27px; margin: 0; padding: 0 16px; white-space: nowrap; }
 dialog { border: 1px solid #ccc; border-radius: 6px; max-width: min(28rem, calc(100% - 2rem)); }
 dialog::backdrop { background: rgb(0 0 0 / 35%); }
 dialog form { display: grid; gap: 1rem; }
