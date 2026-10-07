@@ -47,7 +47,7 @@ void test('アップロード画像(/files/)はカードのサムネイルにな
   );
 });
 
-void test('カードの冒頭行は記法を剥がした平文で出す', async () => {
+void test('カードの冒頭行は記法の括弧を外して出す', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
@@ -55,7 +55,9 @@ void test('カードの冒頭行は記法を剥がした平文で出す', async 
 
   const body = await (await s.request('/proj', {}, cookie)).text();
 
-  assert.match(body, /Foo Bar と #tag を含む行/);
+  // リンクは色を付ける span に入る（#256）が、字は記法を外した平文と同じ。
+  const paragraph = /<p>(.*)<\/p>/.exec(body.slice(body.indexOf('href="/proj/Page"')))?.[1] ?? '';
+  assert.equal(paragraph.replaceAll(/<[^>]+>/g, ''), 'Foo Bar と #tag を含む行');
   assert.doesNotMatch(body, /\[Foo Bar\]/);
 });
 
@@ -142,4 +144,28 @@ void test('カード画像は allowedImageHosts で許可したホストだけ�
 
   assert.match(body, /<img class="card-image" src="https:\/\/allowed\.example\/a\.png"/);
   assert.doesNotMatch(body, /<img class="card-image" src="https:\/\/blocked\.example\/b\.png"/);
+});
+
+void test('札の説明文は、リンク・URL・コードを Cosense と同じ印で描き、装飾は付けない（#256）', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(
+    s.storage,
+    project.id,
+    'Alpha',
+    ['[Beta] と #tag と https://example.com/ と `code` と [* bold] と [Gamma.icon]'],
+    s.clock.t,
+  );
+
+  const body = await (await s.request('/proj', {}, cookie)).text();
+  const card = body.slice(body.indexOf('<a class="card" href="/proj/Alpha">'), body.indexOf('</a></li>', body.indexOf('href="/proj/Alpha"')));
+  assert.equal(
+    card.slice(card.indexOf('<p>')),
+    '<p><span class="card-link">Beta</span> と <span class="card-link">#tag</span> と '
+      + '<span class="card-url">https://example.com/</span> と <code>code</code> と bold と '
+      + '<span class="card-link">Gamma</span></p>\n',
+  );
+  // 札全体が 1 つのリンクなので、説明文の中に a 要素を入れない。
+  assert.doesNotMatch(card.slice(card.indexOf('<p>')), /<a /);
 });

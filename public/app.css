@@ -110,6 +110,12 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
    padding ではなく margin にする。padding だと、3 行で切った 4 行目の上の方が padding の中に覗く。 */
 .card h2, .card h3 { -webkit-box-orient: vertical; -webkit-line-clamp: 3; border-top: 4px solid #f2f2f3; color: #363c49; display: -webkit-box; font-size: 13px; font-weight: 700; line-height: 20px; margin: 0 0 10px; overflow: hidden; padding: 10px 12px 0; }
 .card p { color: #808080; font-size: 12px; line-height: 20px; margin: 0; padding: 0 12px; }
+/* 説明文の中のリンク・コード・アイコン（Cosense の札の .description、#256）。札全体が 1 つの
+   リンクなので、中のリンクは押せない span で、色だけで示す。 */
+.card .card-link, .card .card-url { color: #396bdd; }
+.card .card-url { text-decoration: underline; }
+.card p code { background-color: rgb(0 0 0 / 4%); border-radius: 4px; color: #342d9c; font-family: Menlo, Monaco, Consolas, "Courier New", monospace; font-size: 90%; }
+.card img.inline-icon { height: 1.1em; vertical-align: baseline; width: auto; }
 .card img.card-image { border-radius: 2px; display: block; height: auto; margin-inline: 5px; width: calc(100% - 10px); }
 /* ピン留めした札は、右上を 14px の三角に折り返す。 */
 .card.pinned::before { background: linear-gradient(45deg, #aaa 50%, var(--body-bg) 50%); border-radius: 0 0 0 4px; content: ""; height: 14px; inset-inline-end: 0; position: absolute; top: 0; width: 14px; z-index: 2; }

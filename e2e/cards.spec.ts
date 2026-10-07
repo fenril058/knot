@@ -292,3 +292,39 @@ test('プロジェクトのトップは見出しを出さず、札の上の tool
   await page.locator('#create-page-form button[type="submit"]').click();
   await expect(page).toHaveURL(`/${project}/third_card`);
 });
+
+test('札の説明文の中のリンク・URL・コードを Cosense と同じ色と形で描き、押すと札のページへ移る', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'cards-e2e');
+  const project = `desc-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createProject(page, project);
+  await createPageIn(page, project, 'described', ['[linked page] と https://example.com/ と `code` と [* bold]']);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/${project}`);
+  const description = page.locator('.card', { has: page.locator('h2:text-is("described")') }).locator('p');
+  const looks = await description.evaluate((paragraph) => {
+    const style = (selector: string): Record<string, string> => {
+      const element = paragraph.querySelector(selector);
+      if (element === null) throw new Error(`${selector} is missing`);
+      const computed = getComputedStyle(element);
+      return {
+        color: computed.color,
+        decoration: computed.textDecorationLine,
+        background: computed.backgroundColor,
+        fontSize: computed.fontSize,
+        radius: computed.borderRadius,
+      };
+    };
+    return { link: style('.card-link'), url: style('.card-url'), code: style('code'), strong: paragraph.querySelector('strong') !== null };
+  });
+  // Cosense の札の説明文と同じ（#256）。装飾は付けない。
+  expect(looks).toEqual({
+    link: { color: 'rgb(57, 107, 221)', decoration: 'none', background: 'rgba(0, 0, 0, 0)', fontSize: '12px', radius: '0px' },
+    url: { color: 'rgb(57, 107, 221)', decoration: 'underline', background: 'rgba(0, 0, 0, 0)', fontSize: '12px', radius: '0px' },
+    code: { color: 'rgb(52, 45, 156)', decoration: 'none', background: 'rgba(0, 0, 0, 0.04)', fontSize: '10.8px', radius: '4px' },
+    strong: false,
+  });
+  // 説明文の中のリンクを押しても、札のページへ移る。
+  await description.locator('.card-url').click();
+  await expect(page).toHaveURL(`/${project}/described`);
+});
