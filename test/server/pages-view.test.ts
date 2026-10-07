@@ -106,8 +106,64 @@ void test('2-hop の札は共有するリンク先ごとの行に分け、行は
   };
   // 見出しはリンク先のページのタイトル（書かれたリンクの綴りではない）で、そのページへのリンク。
   assert.match(group('Zeta Page'), /<a class="relation-label-card" href="\/proj\/Zeta_Page">/);
-  assert.deepEqual([...group('Zeta Page').matchAll(/<h3>([^<]+)<\/h3>/g)].map((match) => match[1]), ['Both', 'Viaz']);
-  assert.deepEqual([...group('Eta').matchAll(/<h3>([^<]+)<\/h3>/g)].map((match) => match[1]), ['Viae', 'Both']);
+  assert.deepEqual(cardTitles(group('Zeta Page')), ['Both', 'Viaz']);
+  // Both は Eta も共有するが、本文で先に現れる Zeta Page の行にだけ置く（#278）。
+  assert.deepEqual(cardTitles(group('Eta')), ['Viae']);
+});
+
+function cardTitles(html: string): (string | undefined)[] {
+  return [...html.matchAll(/<h3>([^<]+)<\/h3>/g)].map((match) => match[1]);
+}
+
+function relatedGroups(body: string): Map<string, (string | undefined)[]> {
+  const groups = new Map<string, (string | undefined)[]>();
+  for (const match of body.matchAll(/<ul class="card-grid related-group" role="list" aria-label="([^"]+)">([\s\S]*?)<\/ul>/g)) {
+    groups.set(match[1] ?? '', cardTitles(match[2] ?? ''));
+  }
+  return groups;
+}
+
+void test('2-hop の札は、本文で最初に共有するリンク先の行にだけ置き、行の中は共有するリンク先の多い順に並べる（#278）', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'Zeta Page', ['zeta'], s.clock.t);
+  await seedPage(s.storage, project.id, 'Both', ['[Zeta Page] [Eta] [Theta]'], s.clock.t + 2);
+  await seedPage(s.storage, project.id, 'Viae', ['[Eta]'], s.clock.t + 3);
+  await seedPage(s.storage, project.id, 'Viae Newer', ['[Eta]'], s.clock.t + 4);
+  await seedPage(s.storage, project.id, 'Viaz', ['[Zeta Page]'], s.clock.t + 5);
+  await seedPage(s.storage, project.id, 'Alpha', ['[Zeta Page] の後に [Eta] と [Theta]'], s.clock.t + 6);
+
+  const body = await (await s.request('/proj/Alpha', {}, cookie)).text();
+
+  // Theta を共有する札（Both）は Zeta Page の行に入ったので、Theta の行は出さない。
+  assert.deepEqual([...relatedGroups(body)], [
+    ['Links', ['Zeta Page']],
+    // Both は 3 つ、Viaz は 1 つのリンク先を共有する。
+    ['Zeta Page', ['Both', 'Viaz']],
+    // 共有する数が同じ札は、更新日時の新しい順。
+    ['Eta', ['Viae Newer', 'Viae']],
+  ]);
+});
+
+void test('Links の行は、前方リンクの札を先に、関連度の大きい順、同じなら更新日時の新しい順に並べる（#278）', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'Alpha', ['[Plain] [Mutual] [Sharing] と [Hub]'], s.clock.t);
+  // 前方リンク: Mutual はこのページにリンクし、Sharing はこのページと Hub を共有する（どちらも関連度 1）。
+  await seedPage(s.storage, project.id, 'Mutual', ['[Alpha]'], s.clock.t + 6);
+  await seedPage(s.storage, project.id, 'Sharing', ['[Hub]'], s.clock.t + 7);
+  await seedPage(s.storage, project.id, 'Plain', ['plain'], s.clock.t + 9);
+  // 逆リンク: Back Sharing はこのページにリンクし、Hub も共有する（関連度 2）。
+  await seedPage(s.storage, project.id, 'Back Sharing', ['[Alpha] [Hub]'], s.clock.t + 8);
+  await seedPage(s.storage, project.id, 'Back', ['[Alpha]'], s.clock.t + 10);
+
+  const body = await (await s.request('/proj/Alpha', {}, cookie)).text();
+
+  assert.deepEqual([...relatedGroups(body)], [
+    ['Links', ['Sharing', 'Mutual', 'Plain', 'Back Sharing', 'Back']],
+  ]);
 });
 
 void test('関連ページの札の説明文のアイコンは、画像の分かるページなら字の高さの画像で描く（#256）', async () => {

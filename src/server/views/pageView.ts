@@ -55,26 +55,49 @@ const linkIcon = html`<svg class="relation-label-icon" viewBox="0 0 24 24" width
 
 type RelatedGroup = { label: string; href: string | null; pages: RelatedPage[] };
 
-// 2-hop の札を、このページと共有するリンク先ごとに分ける。行の順は、このページの中でリンクが
-// 最初に現れた順（Cosense と同じ）。見出しはリンク先のページのタイトル（無ければ書かれたリンク）。
+// 関連度の順（#278）。Cosense の関連ページの既定の並びと同じく、このページがリンクする札（前方リンク）を先に、
+// 次に「札がこのページにリンクしていれば 1」と「札とこのページが共通にリンクするリンク先の数」の和の大きい順、
+// 同じなら更新日時の新しい順に並べる。2-hop の札の linksLc は共有するリンク先だけなので、共有する数の順になる。
+function byRelevance(pages: readonly RelatedPage[], pageTitleLc: string, pageLinks: ReadonlySet<string>): RelatedPage[] {
+  const keyed = pages.map((related) => ({
+    related,
+    forward: pageLinks.has(related.titleLc) ? 1 : 0,
+    score: (related.linksLc.includes(pageTitleLc) ? 1 : 0) + related.linksLc.filter((link) => pageLinks.has(link)).length,
+  }));
+  return keyed
+    .toSorted((left, right) =>
+      right.forward - left.forward || right.score - left.score || right.related.updated - left.related.updated)
+    .map(({ related }) => related);
+}
+
+// 2-hop の札を、このページと共有するリンク先ごとの行に分ける。Cosense と同じく、本文のリンクの順に
+// リンク先をたどり、そのリンク先を共有する札のうち、まだどの行にも入っていない札をその行に置く（#278）。
+// 見出しはリンク先のページのタイトル（無ければ書かれたリンク）。
 function twoHopGroups(
-  page: PageSnapshot,
   links2hop: readonly RelatedPage[],
+  pageLinks: readonly { title: string; titleLc: string }[],
   projectName: string,
   knownTitles: ReadonlyMap<string, string>,
+  order: (pages: readonly RelatedPage[]) => RelatedPage[],
 ): RelatedGroup[] {
-  const targets = extractRefs(page.lines.slice(1).map(({ text }) => text).join('\n')).linkTargets;
-  const order = new Map(targets.map((target, index) => [target.titleLc, { index, title: target.title }]));
-  const groups = new Map<string, RelatedPage[]>();
+  const written = new Map(pageLinks.map((link) => [link.titleLc, link.title]));
+  // 本文から読めないリンク先（保存した時の本文と、いまの本文の違いなど）を共有する札も落とさず、後ろの行に置く。
+  const targets = [...new Set([...written.keys(), ...links2hop.flatMap((related) => related.linksLc)])];
+  const position = new Map(targets.map((target, index) => [target, index]));
+  const rows = new Map<string, RelatedPage[]>();
   for (const related of links2hop) {
-    for (const shared of related.linksLc) groups.set(shared, [...(groups.get(shared) ?? []), related]);
+    const first = related.linksLc.toSorted((left, right) => (position.get(left) ?? 0) - (position.get(right) ?? 0))[0];
+    if (first === undefined) continue;
+    const row = rows.get(first);
+    if (row === undefined) rows.set(first, [related]);
+    else row.push(related);
   }
-  return [...groups]
-    .toSorted(([left], [right]) => (order.get(left)?.index ?? Infinity) - (order.get(right)?.index ?? Infinity))
-    .map(([sharedLc, pages]) => {
-      const label = knownTitles.get(sharedLc) ?? order.get(sharedLc)?.title ?? sharedLc;
-      return { label, href: pageHref(projectName, label), pages };
-    });
+  return targets.flatMap((target) => {
+    const pages = rows.get(target);
+    if (pages === undefined) return [];
+    const label = knownTitles.get(target) ?? written.get(target) ?? target;
+    return [{ label, href: pageHref(projectName, label), pages: order(pages) }];
+  });
 }
 
 function relatedGroupList(
@@ -105,13 +128,18 @@ function relatedSection(
   projectName: string,
   allowedImageHosts: string[],
   knownPages: readonly KnownPage[],
-  eagerImagePageId: string | null,
 ): Html {
+  const pageLinks = extractRefs(page.lines.slice(1).map(({ text }) => text).join('\n')).linkTargets;
+  const linkSet = new Set(pageLinks.map((link) => link.titleLc));
+  const order = (pages: readonly RelatedPage[]): RelatedPage[] => byRelevance(pages, titleLc(page.title), linkSet);
   const groups: RelatedGroup[] = [
-    ...(related.links1hop.length === 0 ? [] : [{ label: 'Links', href: null, pages: related.links1hop }]),
-    ...twoHopGroups(page, related.links2hop, projectName, knownTitleMap(knownPages)),
+    ...(related.links1hop.length === 0 ? [] : [{ label: 'Links', href: null, pages: order(related.links1hop) }]),
+    ...twoHopGroups(related.links2hop, pageLinks, projectName, knownTitleMap(knownPages), order),
   ];
   if (groups.length === 0) return html``;
+  // 画面で最初に現れる画像の札だけ、画像をすぐに読む。
+  const eagerImagePageId = groups.flatMap((group) => group.pages)
+    .find((relatedPage) => canDisplayCardImage(relatedPage.image, allowedImageHosts))?.id ?? null;
   const cardPages = knownPageMap(knownPages);
   return html`<section class="related-pages" aria-labelledby="related-pages-title"><h2 id="related-pages-title" class="visually-hidden">関連ページ</h2>${groups.map((group) =>
     relatedGroupList(group, projectName, allowedImageHosts, cardPages, eagerImagePageId),
@@ -148,9 +176,6 @@ export function pageViewPage(
   knownPages: readonly KnownPage[],
   now: number,
 ): Html {
-  const eagerImagePageId = [...related.links1hop, ...related.links2hop].find((relatedPage) =>
-    canDisplayCardImage(relatedPage.image, renderConfig.allowedImageHosts),
-  )?.id ?? null;
   return layout(page.title, html`
 ${pageNav(project.name, projectLink(project), { pageMenu: true })}
 <main>
@@ -214,7 +239,7 @@ ${recoveryDialog()}
   data-rendered-at="${now}"
 >${rendered.map((line, index) => lineRow(page.lines[index]!, line, previousVisit, now, index === 0))}</div>
 </div>
-${relatedSection(page, related, project.name, renderConfig.allowedImageHosts, knownPages, eagerImagePageId)}
+${relatedSection(page, related, project.name, renderConfig.allowedImageHosts, knownPages)}
 </div>
 </div>
 </main>
