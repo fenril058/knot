@@ -78,9 +78,8 @@ export function pageViewPage(
   return layout(page.title, html`
 <nav class="page-nav"><a href="/${encodeURIComponent(project.name)}">${project.displayName}</a></nav>
 <main>
-<div id="save-status" aria-live="polite" hidden></div>
-${editConflictPanel()}
-${recoveryDialog()}
+<div class="page-column">
+<div class="page-menu">
 <div id="page-menu-root" data-project="${project.name}" data-title="${page.title}" data-page-id="${page.id}" data-version="${page.version}">
 <details id="page-actions" class="page-actions">
 <summary>操作</summary>
@@ -110,7 +109,12 @@ ${recoveryDialog()}
 <div class="dialog-actions"><button type="submit" class="danger">削除</button><button type="button" data-dialog-close>キャンセル</button></div>
 </form></dialog>
 </div>
-${related.hasBackLinks ? html`<p class="backlinks-badge">逆リンクまたはアイコン参照あり</p>` : ''}
+</div>
+<div class="page-main">
+<div id="save-status" aria-live="polite" hidden></div>
+${editConflictPanel()}
+${recoveryDialog()}
+<div class="page">
 <div
   id="editor-root"
   class="page-body"
@@ -124,8 +128,12 @@ ${related.hasBackLinks ? html`<p class="backlinks-badge">逆リンクまたは�
   data-allowed-media-hosts="${JSON.stringify(renderConfig.allowedMediaHosts)}"
   data-known-pages="${JSON.stringify(knownPages)}"
 >${rendered.map((line, index) => lineRow(page, page.lines[index]!, line, previousVisit))}</div>
+</div>
+${related.hasBackLinks ? html`<p class="backlinks-badge">逆リンクまたはアイコン参照あり</p>` : ''}
 ${relatedSection('関連ページ', related.links1hop, project.name, renderConfig.allowedImageHosts, eagerImagePageId)}
 ${relatedSection('2-hop リンク', related.links2hop, project.name, renderConfig.allowedImageHosts, eagerImagePageId)}
+</div>
+</div>
 </main>
 <script src="/assets/line-ui.js" defer></script>
 <script type="module" src="/assets/build/page-menu.js"></script>
@@ -144,11 +152,14 @@ export function pageNotFoundPage(
   return layout('ページが見つかりません', html`
 <nav class="page-nav"><a href="/${encodeURIComponent(project.name)}">${project.displayName}</a></nav>
 <main>
-<h1>「${title}」はまだありません</h1>
-<button type="button" id="edit-page-button">このタイトルで新規作成する</button>
+<div class="page-column">
+<div class="page-main">
 <div id="save-status" aria-live="polite" hidden></div>
 ${editConflictPanel()}
 ${recoveryDialog()}
+<div class="page">
+<h1>「${title}」はまだありません</h1>
+<button type="button" id="edit-page-button">このタイトルで新規作成する</button>
 <div
   id="editor-root"
   class="page-body"
@@ -161,6 +172,9 @@ ${recoveryDialog()}
   data-allowed-media-hosts="${JSON.stringify(renderConfig.allowedMediaHosts)}"
   data-known-pages="${JSON.stringify(knownPages)}"
 ><p>このページはまだ作成されていません。</p></div>
+</div>
+</div>
+</div>
 </main>
 <script type="module" src="/assets/build/editor.js"></script>`,
   );
