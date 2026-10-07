@@ -143,12 +143,20 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
 /* 行の先頭の見出しの札。1-hop は青い「Links」、2-hop は共有するリンク先の名前で、右端の中央に札の色の
    右向きの三角を付ける（Cosense の .relation-label）。 */
 .relation-label { position: relative; }
-.relation-label-card { align-items: center; background-color: #3d72f5; box-sizing: border-box; color: #fff; display: flex; flex: 1; flex-direction: column; font-family: Roboto, Helvetica, Arial, "Hiragino Sans", sans-serif; justify-content: center; min-width: 0; padding: 8px 0; text-decoration: none; }
+.relation-label-card { align-items: center; background-color: #3d72f5; border-radius: 3px; box-sizing: border-box; color: #fff; display: flex; flex: 1; flex-direction: column; font-family: Roboto, Helvetica, Arial, "Hiragino Sans", sans-serif; justify-content: center; min-width: 0; padding: 8px 0; text-decoration: none; }
 .relation-label.headword .relation-label-card { background-color: #9babc1; }
 .relation-label-title { font-size: 14px; line-height: 20px; max-width: 100%; overflow-wrap: anywhere; padding-inline: 8px; text-align: center; }
 .relation-label-icon { flex-shrink: 0; margin-block: 8px; }
 .relation-label::after { border: 7px solid transparent; border-inline-start: 5px solid #3d72f5; border-inline-end-width: 5px; content: ""; inset-inline-start: 100%; position: absolute; top: calc(50% - 7px); }
 .relation-label.headword::after { border-inline-start-color: #9babc1; }
+/* 「New Links」の行（#283）。見出しの札は空リンクの色。札は不透明度を半分にし、説明文の代わりに、タイトルの
+   8px 下から高さ 4px の線を 12px おきに 5 本引く（5 本目は 70% の幅）。 */
+.relation-label.empty-links .relation-label-card { background-color: #fd7373; }
+.relation-label.empty-links::after { border-inline-start-color: #fd7373; }
+.related-group > li.new-link { opacity: .5; }
+.card-placeholder { display: grid; gap: 8px; padding: 8px 12px 0; }
+.card-placeholder > span { background-color: #e9eaeb; height: 4px; }
+.card-placeholder > span:last-child { width: 70%; }
 .card { background-color: #fff; border-radius: 2px; box-shadow: 0 2px 0 rgb(0 0 0 / 12%); color: #555; display: block; font-family: Roboto, Helvetica, Arial, "Hiragino Sans", sans-serif; min-width: 0; overflow: hidden; overflow-wrap: anywhere; position: relative; text-decoration: none; }
 .card:focus-visible { box-shadow: 0 0 0 3px rgb(102 175 233 / 60%); outline: none; }
 /* タイトルは 3 行まで。上端の 4px の帯は Cosense と同じくタイトルの border にする。下の 10px は

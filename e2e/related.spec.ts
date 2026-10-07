@@ -178,3 +178,52 @@ test('並び替えの menu はキーボードで開いて選べ、Escape と men
   await page.mouse.click(paper.x + paper.width / 2, paper.y + paper.height + 10);
   await expect(menu).not.toHaveAttribute('open');
 });
+
+// 「New Links」の札の線。札の上端からの位置・高さ・幅と色。
+function placeholderLine(offset: number, width: number): { offset: number; height: number; width: number; color: string } {
+  return { offset, height: 4, width, color: 'rgb(233, 234, 235)' };
+}
+
+test('関連ページの最後に、ページの無いリンク先を Cosense と同じ見た目の「New Links」の行に並べる', async ({ page }) => {
+  await openRelatedBase(page, 1280);
+  await page.goto('/e2e-related/rel-new');
+  expect(await visibleGroups(page)).toEqual([
+    ['Links', ['rel-solo']],
+    ['New Links', ['rel-nowhere-one', 'rel-nowhere-two']],
+  ]);
+  const group = page.locator('.related-group[aria-label="New Links"]');
+  const look = await group.evaluate((list) => {
+    const label = list.querySelector('.relation-label-card');
+    const item = list.querySelector('li.new-link');
+    if (label === null || item === null) throw new Error('New Links row is missing');
+    const top = item.getBoundingClientRect().top;
+    return {
+      label: { background: getComputedStyle(label).backgroundColor, radius: getComputedStyle(label).borderRadius },
+      opacity: getComputedStyle(item).opacity,
+      // 札の上端からの位置・高さ・幅と色
+      lines: Array.from(item.querySelectorAll('.card-placeholder > span'), (line) => {
+        const rect = line.getBoundingClientRect();
+        return { offset: Math.round((rect.top - top) * 10) / 10, height: rect.height, width: Math.round(rect.width * 10) / 10, color: getComputedStyle(line).backgroundColor };
+      }),
+    };
+  });
+  // 札の幅 146.7px から左右 12px を除いた 122.7px。5 本目はその 70%。
+  expect(look).toEqual({
+    label: { background: 'rgb(253, 115, 115)', radius: '3px' },
+    opacity: '0.5',
+    lines: [
+      placeholderLine(52, 122.7),
+      placeholderLine(64, 122.7),
+      placeholderLine(76, 122.7),
+      placeholderLine(88, 122.7),
+      placeholderLine(100, 85.9),
+    ],
+  });
+
+  // 絞り込みはタイトルで探し、札はそのページ（まだ無いページ）へのリンク。
+  await page.getByRole('searchbox', { name: '関連ページを絞り込む' }).fill('two');
+  expect(await visibleGroups(page)).toEqual([['New Links', ['rel-nowhere-two']]]);
+  await group.locator('.card', { hasText: 'rel-nowhere-two' }).click();
+  await expect(page).toHaveURL('/e2e-related/rel-nowhere-two');
+  await expect(page.getByRole('heading', { name: '「rel-nowhere-two」はまだありません' })).toBeVisible();
+});
