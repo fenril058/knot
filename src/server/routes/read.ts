@@ -1,14 +1,12 @@
 import type { Context, Hono } from 'hono';
 import { parsePageSyntax } from '../../core/syntax.ts';
-import { parseSearchQuery } from '../../core/searchQuery.ts';
+import { checkSearchQuery } from '../../core/searchQuery.ts';
 import type { ApplicationDeps } from '../application.ts';
 import { jsonError, resolvePage, resolveProject, safeDecode, type ApiEnv } from '../http.ts';
 import { titleLc } from '../../core/title.ts';
 import type { PageSummary, PageSort, RelatedPage } from '../../storage/types.ts';
 
 const SORTS = new Set<string>(['updated', 'created', 'linked', 'title', 'accessed', 'views']);
-const MAX_SEARCH_QUERY_CODE_POINTS = 1_000;
-const MAX_SEARCH_TERMS = 32;
 
 function summaryToJson(p: PageSummary) {
   return {
@@ -129,18 +127,10 @@ export function registerReadRoutes(app: Hono<ApiEnv>, deps: ApplicationDeps): vo
   app.get('/api/pages/:project/search/query', async (c) => {
     const project = await resolveProject(storage, c);
     if (!project) return jsonError(c, 404, 'not_found');
-    const q = c.req.query('q');
-    if (q === undefined || q.trim() === '') {
-      return jsonError(c, 400, 'bad_request', { message: 'q required' });
-    }
-    // oxlint-disable-next-line typescript/no-misused-spread
-    if ([...q].length > MAX_SEARCH_QUERY_CODE_POINTS) {
-      return jsonError(c, 400, 'bad_request', { message: 'q too long' });
-    }
-    const query = parseSearchQuery(q);
-    if (query.words.length + query.excludes.length > MAX_SEARCH_TERMS) {
-      return jsonError(c, 400, 'bad_request', { message: 'too many search terms' });
-    }
+    const q = c.req.query('q') ?? '';
+    const checked = checkSearchQuery(q);
+    if (!checked.ok) return jsonError(c, 400, 'bad_request', { message: checked.message });
+    const { query } = checked;
     const hits = await storage.search(project.id, query);
     const exactTitleQuery = query.excludes.length === 0 && query.words.length === 1 ? query.words[0]! : q;
     return c.json({

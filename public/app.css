@@ -30,11 +30,42 @@ body {
 }
 a { color: #2c6ea3; }
 .empty-link { color: #c0392b; }
-/* 上部のバー。Cosense の navbar と同じ高さと色にする。 */
-.page-nav { align-items: center; background-color: rgb(196 197 202 / 70%); box-sizing: border-box; display: flex; height: 41px; padding-inline: 16px; }
-.page-nav a { color: #363c49; font-weight: 600; padding: 6px 8px; text-decoration: none; }
+/* 上部のバー。Cosense の navbar と同じ高さと色にする。中も Cosense と同じく、左の導線・真ん中の
+   検索欄・右の空きの 3 列（992px 以上は 2 : 3 : 2、それより狭いと 2 : 3 と幅 0）で、列の間隔は 16px（#247）。 */
+.page-nav { align-items: center; background-color: rgb(196 197 202 / 70%); box-sizing: border-box; column-gap: 16px; display: grid; grid-template-columns: 2fr 3fr 2fr; grid-template-rows: 40px; height: 41px; padding-inline: 16px; position: relative; }
+.page-nav-start { display: flex; min-width: 0; }
+.page-nav-start a { color: #363c49; font-weight: 600; padding: 6px 8px; text-decoration: none; }
 @media (max-width: 991px) {
-  .page-nav { padding-inline: 8px; }
+  .page-nav { grid-template-columns: 2fr 3fr auto; padding-inline: 8px; }
+}
+/* 検索欄（Cosense の .search-form）。右端に 32px 四方の検索ボタンを重ねる。focus 中は白くする。 */
+.nav-search { position: relative; }
+.nav-search-input { appearance: none; background-color: rgb(255 255 255 / 50%); border: 1px solid transparent; border-radius: 5px; box-sizing: border-box; color: #555; display: block; font: inherit; height: 32px; margin: 0; padding: 0 32px 0 10px; width: 100%; }
+.nav-search-input:focus { background-color: #fff; outline: none; }
+.nav-search-input::-webkit-search-cancel-button { appearance: none; }
+.nav-search-button, .nav-search-toggle { align-items: center; background: none; border: 0; border-radius: 4px; color: rgb(54 60 73 / 70%); cursor: pointer; display: flex; height: 32px; justify-content: center; padding: 0; width: 32px; }
+.nav-search-button { inset-block-start: 0; inset-inline-end: 0; position: absolute; }
+.nav-search-toggle { display: none; }
+/* タイトルの候補（Cosense の .dropdown-menu）。入力欄の 2px 下に左を揃えて出し、幅は長い候補に
+   合わせて viewport の 55% か入力欄の幅まで広げる。高さを超える候補は中で scroll する。 */
+.nav-search-candidates { background-color: #fff; border-radius: 4px; box-shadow: 0 6px 12px rgb(0 0 0 / 17.6%); box-sizing: border-box; inset-inline-start: 0; list-style: none; margin: 0; max-height: 210px; max-width: max(100%, 55vw); min-width: 160px; overflow: auto; padding: 8px 0; position: absolute; top: calc(100% + 2px); width: max-content; z-index: 3; }
+.nav-search-candidates a { color: #333; display: block; line-height: 28px; overflow: hidden; padding: 0 16px; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+.nav-search-candidates a:focus { box-shadow: 0 0 0 3px rgb(102 175 233 / 60%); outline: none; }
+/* 767px 以下では検索欄を隠し、右の検索ボタンで開く。開いた検索欄は Cosense と同じく、バーの下に
+   重ねて本文を押し下げない（色はバーの色を背景の上に重ねた色）。 */
+@media (max-width: 767px) {
+  /* 下の 1px を除いた 40px の中で上下の中央に置く（992px 以上の grid の行と同じ）。 */
+  .page-nav { display: flex; padding-block-end: 1px; }
+  .page-nav-start { flex: 1; }
+  .nav-search { display: none; }
+  .nav-search-toggle { display: flex; }
+  /* ページの閲覧表示では、ページメニュー（.page-menu）がバーの右端に重なる。その左に置く。 */
+  .page-nav.with-page-menu .nav-search-toggle { margin-inline-end: 46px; }
+  .page-nav.search-open .nav-search { background-color: #cbccd1; display: block; inset-inline: 0; padding: 7px 8px 8px; position: absolute; top: 100%; z-index: 2; }
+  .page-nav.search-open .nav-search-input { background-color: #fff; }
+  .page-nav.search-open .nav-search-button { inset-block-start: 7px; inset-inline-end: 8px; }
+  .page-nav.search-open .nav-search-candidates { inset-inline: 8px; max-width: none; width: auto; }
+  .page-nav.search-open .nav-search-toggle { background-color: rgb(0 0 0 / 10%); }
 }
 /* バーの下端から紙面の上端までを Cosense と同じ 31px にする（15px + .page-column の 16px）。
    padding にするのは、子の margin と相殺させないため。 */
@@ -72,6 +103,26 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
 @media (hover: hover) {
   .card:hover { box-shadow: 0 2px 0 rgb(0 0 0 / 23%); }
   .card:hover:not(:active)::after { background-color: rgb(0 0 0 / 5%); }
+}
+/* 全文検索の結果（Cosense の /search/page の .page-list-item、#247）。1 ページ 1 行で、左の 70px に
+   画像、右にタイトル（16px）と語を含む行の抜粋（12px、2 行まで）。語は太字・黄色の背景。 */
+.search-heading { font-size: 14px; font-weight: 700; line-height: 20px; margin: 0 0 16px; }
+.search-count { font-weight: 400; }
+.search-message { margin: 0; }
+.search-results { list-style: none; margin: 0; padding: 0; }
+.search-result { background-color: #fafafa; border-bottom: 1px solid #dcdcdc; box-shadow: 0 2px 2px rgb(0 0 0 / 35%); }
+.search-result > a { color: #333; display: block; font-family: Roboto, Helvetica, Arial, "Hiragino Sans", sans-serif; padding: 10px 30px 10px 18px; position: relative; text-decoration: none; }
+.search-result-image { inset-inline-start: 18px; max-height: 50px; object-fit: contain; position: absolute; top: 10px; width: 50px; }
+.search-result-title, .search-result-lines { margin-inline-start: 70px; }
+.search-result-title { font-size: 16px; line-height: 20px; overflow-wrap: anywhere; }
+.search-result-lines { -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: #666; display: -webkit-box; font-size: 12px; line-height: 14px; margin-block: 13px 10px; overflow: hidden; overflow-wrap: anywhere; }
+.search-result-lines > span { margin-inline-end: 6px; }
+.search-matched { background-color: #ff0; font-weight: 700; }
+/* 抜粋の行送り（14px）は字の高さより低いので、inline のままだと 3 行目の語の背景が 2 行目の下へはみ出す。 */
+.search-result-lines .search-matched { display: inline-block; line-height: 14px; }
+/* 767px 以下では検索の結果ページでも検索欄をバーの下に開いておくので、そのぶん本文を下げる。 */
+@media (max-width: 767px) {
+  .search-main { padding-top: 62px; }
 }
 /* 分割できる位置を持たない長いラベル（URL など）でページを横にはみ出させない。
    CodeMirror 側は lineWrapping が同じ折り返しを行うので、両方の表示で同じ位置に折り返る。
@@ -283,6 +334,6 @@ dialog form { display: grid; gap: 1rem; }
 .cm-wysiwyg-line table { display: inline-table; vertical-align: top; }
 /* コードブロックの本文の行と引用の行は、閲覧表示と同じく本文の右端まで帯を引く。字下げした行と
    同じく inline-flex にして、CodeMirror の inline の buffer と同じ行に収める。行の幅いっぱいが
-   widget になるので、帯の上の click は行頭への caret になる（行末の余白の click は行末のまま）。 */
+   widget になるが、帯の上の click も押した字の位置への caret になる（#243）。 */
 .cm-wysiwyg-line.cm-wysiwyg-code-line, .cm-wysiwyg-line.cm-wysiwyg-quote-line { display: inline-flex; vertical-align: top; width: 100%; }
 .cm-wysiwyg-code-line > :last-child, .cm-wysiwyg-quote-line > :last-child { flex: 1; min-width: 0; }

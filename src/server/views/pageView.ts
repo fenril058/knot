@@ -6,6 +6,11 @@ import { telomereWidth } from '../../render/telomere.ts';
 import type { PageSnapshot, Project, RelatedPage, RelatedPages, Visit } from '../../storage/types.ts';
 import { layout, type Html } from './layout.ts';
 import { canDisplayCardImage, pageCardListItem } from './pageCard.ts';
+import { pageNav } from './pageNav.ts';
+
+function projectLink(project: Project): Html {
+  return html`<a href="/${encodeURIComponent(project.name)}">${project.displayName}</a>`;
+}
 
 function nestIndentedLine(content: Html, indent: number, mark: IndentMark): Html {
   if (indent === 0) return content;
@@ -76,7 +81,7 @@ export function pageViewPage(
     canDisplayCardImage(relatedPage.image, renderConfig.allowedImageHosts),
   )?.id ?? null;
   return layout(page.title, html`
-<nav class="page-nav"><a href="/${encodeURIComponent(project.name)}">${project.displayName}</a></nav>
+${pageNav(project.name, projectLink(project), { pageMenu: true })}
 <main>
 <div class="page-column">
 <div class="page-menu">
@@ -138,7 +143,8 @@ ${relatedSection('2-hop リンク', related.links2hop, project.name, renderConfi
 </main>
 <script src="/assets/line-ui.js" defer></script>
 <script type="module" src="/assets/build/page-menu.js"></script>
-<script type="module" src="/assets/build/editor.js"></script>`,
+<script type="module" src="/assets/build/editor.js"></script>
+<script type="module" src="/assets/build/search.js"></script>`,
   );
 }
 
@@ -151,7 +157,7 @@ export function pageNotFoundPage(
   knownPages: readonly KnownPage[],
 ): Html {
   return layout('ページが見つかりません', html`
-<nav class="page-nav"><a href="/${encodeURIComponent(project.name)}">${project.displayName}</a></nav>
+${pageNav(project.name, projectLink(project))}
 <main>
 <div class="page-column">
 <div class="page-main">
@@ -177,7 +183,8 @@ ${recoveryDialog()}
 </div>
 </div>
 </main>
-<script type="module" src="/assets/build/editor.js"></script>`,
+<script type="module" src="/assets/build/editor.js"></script>
+<script type="module" src="/assets/build/search.js"></script>`,
   );
 }
 

@@ -104,16 +104,14 @@ test('mobile browser でページを探して編集し、再読み込み後も�
   await page.waitForLoadState();
   await expectMobileLayout(page, expectedWidth);
 
+  // 検索欄は上部のバーにあり、767px 以下では検索ボタンで開く（#247）。
+  await page.locator('.nav-search-toggle').tap();
   const search = page.getByRole('searchbox');
+  await expect(search).toBeFocused();
   await expect(search).toBeInViewport();
-  const fullTextSearch = page.waitForResponse((response) =>
-    response.url().includes(`/api/pages/e2e/search/query?q=${title}`)
-    && response.ok()
-  );
   await search.fill(title);
-  await fullTextSearch;
-  const searchHit = page.locator(`#search-results a.search-hit[href="/e2e/${title}"]`);
-  await expect(searchHit).toHaveText(`${title}: ${title}`);
+  const searchHit = page.locator(`.nav-search-candidates a[href="/e2e/${title}"]`);
+  await expect(searchHit).toHaveText(title);
   await expect(searchHit).toBeVisible();
   await expect(searchHit).toBeInViewport();
   await searchHit.tap();
@@ -722,5 +720,40 @@ test('mobile browser でも本文の行は本文の右端まで字を並べて�
   await page.touchscreen.tap(lastRow.x, lastRow.y);
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
   expect(await look()).toEqual(ssr);
+  await expectMobileLayout(page, expectedWidth);
+});
+
+test('mobile browser では検索ボタンでバーの下に検索欄を開き、本文を押し下げずに候補と結果ページへ移れる', async (
+  { page },
+  testInfo,
+) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'search-mobile-e2e');
+
+  // 候補は語の字を順に含むタイトルに合うので、ほかのテストのページに無い字（q・z・x）で始める。
+  const title = `qzx-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, ['検索ボタンから探すページ']);
+  await page.goto(`/e2e/${title}`);
+  const input = page.locator('.nav-search-input');
+  await expect(input).toBeHidden();
+  const paperBefore = (await page.locator('.page').boundingBox())!;
+
+  // Cosense と同じく、バーの下（y=48）に左右 8px を残して検索欄が開き、入力欄に focus が移る（#247）。
+  await page.locator('.nav-search-toggle').tap();
+  await expect(input).toBeFocused();
+  const box = (await input.boundingBox())!;
+  expect([box.x, box.y, box.width, box.height].map(Math.round)).toEqual([8, 48, expectedWidth - 16, 32]);
+  expect((await page.locator('.page').boundingBox())!.y).toBe(paperBefore.y);
+
+  await input.pressSequentially(title);
+  await expect(page.locator('.nav-search-candidates a')).toHaveText([title]);
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(`/e2e/search/page?q=${title}`);
+  // 結果ページでは検索欄を開いたまま、見出しと結果をその下に並べる。
+  const form = (await page.locator('.nav-search').boundingBox())!;
+  const heading = (await page.locator('.search-heading').boundingBox())!;
+  expect(heading.y).toBeGreaterThanOrEqual(form.y + form.height);
+  await expect(page.locator('.search-result a')).toHaveAttribute('href', `/e2e/${title}`);
   await expectMobileLayout(page, expectedWidth);
 });
