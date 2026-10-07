@@ -771,7 +771,7 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
         },
       }),
       titleAutocompletion(project),
-      syntaxHighlighting,
+      syntaxHighlighting(knownPages),
       telomereGutter({
         confirmedLines: () => engine.confirmedLines,
         userId: userName,

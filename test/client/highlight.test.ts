@@ -32,6 +32,21 @@ void test('装飾には、強調の段階・斜体・打ち消しの見た目を
   notationCase('[[太字]]', 'strong');
 });
 
+// カーソル行でも閲覧表示と同じく、ページの無いリンクとハッシュタグを空リンクの色で描く（#273）。
+const isKnownTitle = (title: string): boolean => title === 'known page';
+
+void test('ページがあるかどうかを渡すと、ページの無いリンクとハッシュタグを empty-link にする', () => {
+  assert.deepEqual(highlightSpans('Title\n[known page] [missing] [known page#anchor] #missing', isKnownTitle), [
+    { from: 0, to: 5, kind: 'title' },
+    { from: 6, to: 18, kind: 'link' },
+    { from: 19, to: 28, kind: 'empty-link' },
+    { from: 29, to: 48, kind: 'link' },
+    { from: 49, to: 57, kind: 'empty-link' },
+  ]);
+  // 渡さなければ、ページの有無で分けない。
+  assert.deepEqual(highlightSpans('Title\n[missing] #missing').map((span) => span.kind), ['title', 'link', 'hashtag']);
+});
+
 void test('装飾の中のリンクにも、装飾の見た目を重ねる', () => {
   assert.deepEqual(highlightSpans('Title\n[** [page] と二段]'), [
     { from: 0, to: 5, kind: 'title' },

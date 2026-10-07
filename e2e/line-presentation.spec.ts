@@ -119,7 +119,11 @@ test('リンクを Cosense と同じ色と下線で描き、hover とカーソ�
   const missing = `line-link-missing-${suffix}`;
   const title = `line-links-${suffix}`;
   await createE2ePage(page, target, ['target body']);
-  const body = [`[${target}] [${missing}] #${target} [https://example.com 外部] https://example.com/bare`, 'last body'];
+  const body = [
+    `[${target}] [${missing}] #${target} [https://example.com 外部] https://example.com/bare`,
+    `アイコン [${target}.icon] の行`,
+    'last body',
+  ];
   await createE2ePage(page, title, body);
 
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -144,15 +148,28 @@ test('リンクを Cosense と同じ色と下線で描き、hover とカーソ�
   await row.locator('a').nth(1).hover();
   await expect(row.locator('a').nth(1)).toHaveCSS('color', 'rgb(252, 65, 65)');
 
-  // カーソル行の原文表示でも、リンクは同じ色のまま記法だけが見える。
+  // カーソル行の原文表示は、Cosense のカーソル行と同じ色で記法の字を見せる（#273）。ページへのリンクと
+  // ハッシュタグは整形表示と同じ色（ページが無ければ空リンクの色）、外部リンクと URL は紫で下線なし。
   const rowBox = (await row.boundingBox())!;
   await page.mouse.click(rowBox.x + rowBox.width - 8, rowBox.y + 8);
   await expect(row.locator('a')).toHaveCount(0);
-  const rawColors = await row.locator('.cm-sb-link, .cm-sb-hashtag, .cm-sb-external-link, .cm-sb-url').evaluateAll(
-    (spans) => spans.map((span) => getComputedStyle(span).color),
-  );
-  expect(rawColors.length).toBeGreaterThanOrEqual(5);
-  for (const color of rawColors) expect(color).toBe(pageLink);
+  const rawLooks = async (rowIndex: number): Promise<Array<[string, string, string]>> => page.locator('#editor-root .cm-line')
+    .nth(rowIndex).locator('[class*="cm-sb-"]').evaluateAll((spans) => spans.map((span) => {
+      const style = getComputedStyle(span);
+      return [span.textContent ?? '', style.color, style.textDecorationLine] as [string, string, string];
+    }));
+  const rawUrl = 'rgb(120, 30, 122)';
+  expect(await rawLooks(1)).toEqual([
+    [`[${target}]`, pageLink, 'none'],
+    [`[${missing}]`, 'rgb(253, 115, 115)', 'none'],
+    [`#${target}`, pageLink, 'none'],
+    ['[https://example.com 外部]', rawUrl, 'none'],
+    ['https://example.com/bare', rawUrl, 'none'],
+  ]);
+  // アイコンは本文の色。
+  const iconRow = (await page.locator('#editor-root .cm-line').nth(2).boundingBox())!;
+  await page.mouse.click(iconRow.x + iconRow.width - 8, iconRow.y + 8);
+  expect(await rawLooks(2)).toEqual([[`[${target}.icon]`, 'rgb(74, 74, 74)', 'none']]);
 });
 
 test('字下げした行でも、リンクの click は遷移し、行末の click は原文の編集に入る', async ({ page }, testInfo) => {

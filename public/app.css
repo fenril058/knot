@@ -395,9 +395,12 @@ dialog form { display: grid; gap: 1rem; }
 /* 閲覧表示のテロメアと同じ幅（4px + 紙面の左 padding の残り）を占め、本文の左端を揃える。 */
 #editor-root .cm-telomere-gutter .telomere { display: block; }
 .cm-sb-indent { color: #aaa; }
-/* カーソル行の原文表示でも、リンクは整形表示と同じ色のまま記法だけを見せる（Cosense と同じ）。 */
-.cm-sb-link, .cm-sb-hashtag, .cm-sb-external-link, .cm-sb-url { color: var(--link-color); }
-.cm-sb-icon { color: #8e44ad; }
+/* カーソル行の原文表示の、記法の字の色（Cosense の既定テーマのカーソル行と同じ、#273）。ページへの
+   リンクとハッシュタグは整形表示と同じ色（ページが無ければ空リンクの色）。外部リンクと URL は、整形表示
+   と違って紫で下線を引かない。アイコンは本文の色。 */
+.cm-sb-link, .cm-sb-hashtag { color: var(--link-color); }
+.cm-sb-empty-link { color: var(--empty-link-color); }
+.cm-sb-external-link, .cm-sb-url { color: #781e7a; }
 .cm-sb-strong { font-weight: 700; }
 .cm-sb-italic { font-style: italic; }
 .cm-sb-strike { text-decoration: line-through; }
