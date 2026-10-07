@@ -583,6 +583,62 @@ test('カーソル行でも、引用の枠とコードブロックの帯・札�
   }
 });
 
+// 表の行ごとの、セルの幅と字の幅。
+async function tableColumns(page: Page): Promise<Array<Array<{ cell: number; text: number }>>> {
+  return page.evaluate(() => Array.from(
+    document.querySelectorAll('#editor-root table'),
+    (table) => Array.from(table.querySelectorAll('td'), (cell) => {
+      const range = document.createRange();
+      range.selectNodeContents(cell);
+      return {
+        cell: Math.round(cell.getBoundingClientRect().width * 2) / 2,
+        text: range.getBoundingClientRect().width,
+      };
+    }),
+  ));
+}
+
+test('表の列の幅を Cosense と同じく行のあいだで揃え、編集を始めても、セルを書き換えても揃える', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'table-e2e');
+  const title = `line-table-columns-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  const body = ['table:sample', ' a\tbb', ' ccccc\td', 'last body'];
+  await createE2ePage(page, title, body);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  // 列ごとに、いちばん長いセルの字の幅にセルの padding（左 8px・右 2px）を足した幅で揃える（#276）。
+  const read = await tableColumns(page);
+  expect(read).toHaveLength(2);
+  for (const column of [0, 1]) {
+    const widest = Math.max(read[0]![column]!.text, read[1]![column]!.text);
+    expect(read.map((row) => row[column]!.cell)).toEqual([0, 1].map(() => Math.round((widest + 10) * 2) / 2));
+  }
+  const widths = read.map((row) => row.map(({ cell }) => cell));
+
+  // 編集を始めても、列の幅は変わらない。
+  await startEditingAtLastRow(page, body.length);
+  expect((await tableColumns(page)).map((row) => row.map(({ cell }) => cell))).toEqual(widths);
+
+  // 表の行に caret を入れても、ほかの行の列の幅は狭くならない。セルを長くすると、caret が
+  // 出た後で、その列は行のあいだで揃ったまま広がる。
+  await page.locator('#editor-root .cm-line').nth(2).click({ position: { x: 60, y: 8 } });
+  await page.keyboard.press('End');
+  await page.keyboard.press('Home');
+  await expect(page.locator('#editor-root .cm-line').nth(2).locator('table')).toHaveCount(0);
+  expect((await tableColumns(page)).map((row) => row.map(({ cell }) => cell))).toEqual([widths[1]]);
+  await page.keyboard.insertText('wide-cell-');
+  await page.locator('#editor-root .cm-line').nth(4).click({ position: { x: 60, y: 8 } });
+  // 編集表示は CodeMirror の計測（次の描画の前）で列の幅を測り直す。
+  await expect.poll(async () => {
+    const [first, second] = await tableColumns(page);
+    return first !== undefined && second !== undefined && first[0]!.cell === second[0]!.cell;
+  }).toBe(true);
+  const edited = await tableColumns(page);
+  expect(edited[0]![0]!.cell).toBe(edited[1]![0]!.cell);
+  expect(edited[0]![0]!.cell).toBe(Math.round((Math.max(edited[0]![0]!.text, edited[1]![0]!.text) + 10) * 2) / 2);
+  expect(edited[0]![0]!.cell).toBeGreaterThan(widths[0]![0]!);
+});
+
 test('表の見出しの click で原文の編集に入り、コードブロックの行末の click で行末に caret が入る', async (
   { page },
   testInfo,

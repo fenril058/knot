@@ -7,6 +7,7 @@ import {
   updatedLabel,
   type TelomereTarget,
 } from '../telomereInfo.ts';
+import { measureTableColumns, writeTableColumns } from '../tableColumns.ts';
 
 // 閲覧表示の行の操作。行へのリンク（#<行の ID>）で開いた行を強調し、テロメアのボタンで更新日時と
 // 行へのリンクのメニューを出す（#173）。
@@ -30,6 +31,20 @@ highlight();
 
 const editorRoot = document.getElementById('editor-root');
 const canHover = window.matchMedia('(hover: hover)');
+
+// 表の列の幅を揃える（#276）。閲覧表示にはすべての行があるので、測った幅をそのまま使う。
+function alignTables(): void {
+  if (editorRoot === null || editorRoot.classList.contains('editor-active')) return;
+  const measured = measureTableColumns(editorRoot);
+  if (measured.size === 0) return;
+  writeTableColumns(new Map(Array.from(measured, ([key, { widths }]) => [key, widths])), editorRoot.dataset.cspNonce);
+}
+
+alignTables();
+// セルの中の画像（アイコンなど）は、読み込むまで幅が決まらない。
+for (const image of editorRoot?.querySelectorAll<HTMLImageElement>('table[data-table] img') ?? []) {
+  if (!image.complete) image.addEventListener('load', alignTables, { once: true });
+}
 
 function targetOf(button: HTMLElement): TelomereTarget {
   const row = button.closest('.line-row');

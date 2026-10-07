@@ -30,7 +30,8 @@ type PresentedLineBase = {
 export type PresentedLine = PresentedLineBase & (
   | { role: 'title' | 'codeHeader' | 'codeLine' | 'tableHeader'; text: string; textSpan: SourceSpan }
   | { role: 'line'; nodes: PresentedNode[] }
-  | { role: 'tableRow'; cells: PresentedNode[][] }
+  // table は表の見出しの行番号。同じ表の行の列の幅を揃えるのに使う（#276）。
+  | { role: 'tableRow'; cells: PresentedNode[][]; table: number }
 );
 
 // 字下げした行の行頭の印。Cosense と同じく、引用行と番号付きの行は横線にし、
@@ -362,6 +363,7 @@ export function presentationLines(
       continue;
     }
 
+    const table = number;
     result.push(withRenderKey({
       ...lineBase(source, firstRange, number, block.indent),
       role: 'tableHeader',
@@ -377,6 +379,7 @@ export function presentationLines(
         ...lineBase(source, range, number, block.indent),
         role: 'tableRow',
         cells: row.map((cell) => presentNodes(cell, knownPages, project, config)),
+        table,
       }));
       number += 1;
     }

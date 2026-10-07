@@ -753,7 +753,7 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
       // white-space: pre のままで、編集を開始した瞬間に長い行が横スクロールへ変わる。
       EditorView.lineWrapping,
       historyExtension(),
-      lineWysiwyg({ project, allowedImageHosts, allowedMediaHosts, knownPages, imageSizes }),
+      lineWysiwyg({ project, allowedImageHosts, allowedMediaHosts, knownPages, imageSizes, cspNonce }),
       doubleClickWordSelection,
       // blur は defaultKeymap より後ろに置く。補完の Escape は Prec.highest で先に処理され、
       // 選択の simplifySelection も先に試されて、どちらも該当しないときだけ抜ける。
