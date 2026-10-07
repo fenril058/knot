@@ -683,3 +683,44 @@ test('mobile browser でも、閲覧表示と整形表示の行を tap した字
     .toEqual([title, 'テキス|トを`[`と`]`で囲む', ' [* |強調] の行', 'last body']);
   await expectMobileLayout(page, expectedWidth);
 });
+
+test('mobile browser でも本文の行は本文の右端まで字を並べて折り返し、インラインコードの行も 28px にする', async (
+  { page },
+  testInfo,
+) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'geometry-mobile-e2e');
+
+  const title = `mr-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, ['あ'.repeat(80), '前 `code` 後', `[${'い'.repeat(80)}]`, 'last body']);
+  await page.goto(`/e2e/${title}`);
+
+  // 本文の右端は、紙面の右端から右の padding を除いた位置（#245）。
+  const { paper } = await pageGeometry(page);
+  const textRight = paper.x + paper.width - paper.padding[1]!;
+  const firstLineRight = async (rowIndex: number): Promise<number> => {
+    const [left, , width] = (await visualLineRects(page))[rowIndex]![0]!;
+    return left! + width!;
+  };
+  const look = async (): Promise<{ wrap: number; link: number; heights: number[] }> => ({
+    wrap: await firstLineRight(1),
+    link: await firstLineRight(3),
+    heights: await rowHeights(page),
+  });
+  const ssr = await look();
+  // 長い行は本文の右端から全角 1 字（15px）以内まで字が並び、リンクだけの行は行末の余白（#186）を残す。
+  expect(ssr.wrap).toBeGreaterThan(textRight - 15);
+  expect(ssr.wrap).toBeLessThanOrEqual(textRight);
+  expect(ssr.link).toBeLessThanOrEqual(textRight - 40);
+  expect(ssr.link).toBeGreaterThan(textRight - 40 - 15);
+  expect(ssr.heights[2]).toBe(28);
+
+  // 最後の行の字を tap して編集を始め、測った行はすべて整形表示のまま比べる。行頭の字を tap すると、
+  // mobile WebKit の touch adjustment がテロメアへ吸い寄せるので、行頭から離れた字を tap する。
+  const lastRow = await charPoint(page.locator('#editor-root .line-row').nth(4), 'y', 0, 0.5);
+  await page.touchscreen.tap(lastRow.x, lastRow.y);
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  expect(await look()).toEqual(ssr);
+  await expectMobileLayout(page, expectedWidth);
+});

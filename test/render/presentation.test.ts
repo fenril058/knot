@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   indentMark,
+  isLinkOnlyLine,
   knownPageMap,
   presentationLines,
   type PresentedNode,
@@ -147,4 +148,25 @@ void test('危険なスキームと許可外メディアをリンク要素へ変
   assert.equal(blocked[0]?.type, 'link');
   const allowed = bodyNodes('https://media.example/a.mp4');
   assert.equal(allowed[0]?.type, 'video');
+});
+
+void test('リンクと埋め込みと空白だけの行を、行末に編集を始める面を残す行として見分ける（#245）', () => {
+  const bodies: [string, boolean][] = [
+    ['[a]', true],
+    ['[a] [b] #tag', true],
+    [' [a]', true],
+    ['[* [a]]', true],
+    ['> [a]', true],
+    ['[name.icon]', true],
+    ['https://media.example/a.mp4', true],
+    ['text [a]', false],
+    ['[a].', false],
+    ['1. [a]', false],
+    ['[https://images.example/a.png]', false],
+    ['plain', false],
+    ['', false],
+  ];
+  const lines = presentationLines(['Title', ...bodies.map(([body]) => body)].join('\n'), new Map(), 'proj', config);
+  assert.deepEqual(lines.slice(1).map(isLinkOnlyLine), bodies.map(([, linkOnly]) => linkOnly));
+  assert.equal(isLinkOnlyLine(lines[0]!), false);
 });

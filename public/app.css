@@ -167,8 +167,11 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
 /* アイコン（Cosense の .line img.icon）。高さを CSS が決め、幅は画像の縦横比から決まる。 */
 #editor-root img.icon-img { height: 1.3em; margin: 0; position: relative; top: -0.3em; vertical-align: middle; width: auto; }
 #editor-root img.icon-img.strong-icon { height: 3.9em; top: 0; vertical-align: bottom; }
-/* インラインコード（Cosense の .line code）。コードブロックの行（.code-line）は別に扱う。 */
-#editor-root code:not(.code-line) { background-color: rgb(0 0 0 / 4%); border-radius: 4px; color: #342d9c; font-family: Menlo, Monaco, Consolas, "Courier New", monospace; font-size: 90%; }
+/* インラインコード（Cosense の .line code）。コードブロックの行（.code-line）は別に扱う。
+   本文と font が違うので、本文の行送り 28px をそのまま継ぐと、font の組み合わせによって行が
+   1px 伸びる（#245）。行送りを字の大きさにして、行の高さを本文の字だけで決める。背景は字の
+   高さに引かれるので見た目は変わらない。カーソル行の .cm-sb-code-inline も同じにする。 */
+#editor-root code:not(.code-line) { background-color: rgb(0 0 0 / 4%); border-radius: 4px; color: #342d9c; font-family: Menlo, Monaco, Consolas, "Courier New", monospace; font-size: 90%; line-height: 1; }
 /* バッククオートは消さずに薄く残す。コマンドラインと数式には付かない。 */
 #editor-root code:not(.code-line, .cli, .formula)::before,
 #editor-root code:not(.code-line, .cli, .formula)::after { content: "`"; opacity: .1; }
@@ -227,11 +230,12 @@ dialog form { display: grid; gap: 1rem; }
    行の高さがこれで決まるので、片方だけ変えると起動前後で行の高さがずれる。値は 1 か所に置く。
    Cosense のタイトル行は 1.73em / 42px の太字でない字で、下に 21px の余白を持つ（行の高さ 63px）。 */
 .line-title, #editor-root .cm-title-line { color: #000; font-size: 1.73em; line-height: 42px; padding-bottom: 21px; }
-/* 行末の余白。ここが無いと、リンクだけの行はラベルの長さ次第で行末までリンクが占め、
-   その行を編集し始める面が残らない。閲覧表示と編集表示で必ず同じ幅にする。
+/* 行末の余白。リンクと埋め込みだけの行（presentation.ts の isLinkOnlyLine）は、ラベルの長さ次第で
+   行末までリンクが占め、その行を編集し始める面が残らないので、その行にだけ置く。ほかの行は
+   Cosense と同じく本文の幅いっぱいで折り返す（#245）。閲覧表示と編集表示で必ず同じ幅にする。
    2.5rem あるのは touch adjustment のため。ブラウザは tap をリンクへ吸い寄せるので、
    リンク寄りの約 14px は tap しても遷移する。実用になる幅はそこを引いた残りになる。 */
-#editor-root .line-row, #editor-root .cm-line { padding-inline-end: 2.5rem; }
+#editor-root .line-row.link-only, #editor-root .cm-line.link-only { padding-inline-end: 2.5rem; }
 /* 編集を始めても紙面に枠を出さない。本文は紙面そのものなので、Cosense と同じく
    caret だけで編集中であることを示す。CodeMirror の base theme が付ける点線も消す。 */
 #editor-root .cm-editor.cm-focused { outline: none; }
@@ -266,7 +270,7 @@ dialog form { display: grid; gap: 1rem; }
 .cm-sb-strike { text-decoration: line-through; }
 .cm-sb-code-block { font-family: monospace; }
 /* カーソル行の原文表示でも、コードは整形表示と同じ見た目のまま記法だけを見せる。 */
-.cm-sb-code-inline, .cm-sb-formula { background-color: rgb(0 0 0 / 4%); border-radius: 4px; color: #342d9c; font-family: Menlo, Monaco, Consolas, "Courier New", monospace; font-size: 90%; }
+.cm-sb-code-inline, .cm-sb-formula { background-color: rgb(0 0 0 / 4%); border-radius: 4px; color: #342d9c; font-family: Menlo, Monaco, Consolas, "Courier New", monospace; font-size: 90%; line-height: 1; }
 .cm-sb-code-block { background: #f5f5f5; }
 .cm-sb-quote { color: #666; }
 .cm-wysiwyg-line { display: inline; }

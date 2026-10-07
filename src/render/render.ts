@@ -2,6 +2,7 @@ import { html } from 'hono/html';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import {
   indentMark,
+  isLinkOnlyLine,
   presentationLines,
   type IndentMark,
   type KnownPage,
@@ -17,6 +18,8 @@ export type RenderedLine = {
   mark: IndentMark;
   // コードブロックの行（見出しと本文）は、行の高さが本文の行と違う。
   codeBlock: boolean;
+  // リンクと埋め込みだけの行は、行末に編集を始める面を残す（presentation.ts の isLinkOnlyLine）。
+  linkOnly: boolean;
   html: HtmlEscapedString | Promise<HtmlEscapedString>;
 };
 type RenderedHtml = HtmlEscapedString | Promise<HtmlEscapedString>;
@@ -100,6 +103,7 @@ export function renderLines(
       indent: line.indent,
       mark: indentMark(line),
       codeBlock: line.role === 'codeHeader' || line.role === 'codeLine',
+      linkOnly: isLinkOnlyLine(line),
       html: rendered,
     };
   });
