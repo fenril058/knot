@@ -263,9 +263,12 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
   font-size: 90%;
   line-height: 25.5px;
 }
-/* 行頭の空白は字のまま、1 字を 1 段（22.5px）の幅にする。等幅の font の空白は 1ch。空白の後ろで
-   折り返さないので、長い 1 語のコードも閲覧表示と同じく 1 行目から始まる。 */
-#editor-root .cm-code-indent { letter-spacing: calc(22.5px - 1ch); white-space: pre; }
+/* 行頭の空白は字のまま、1 字を 1 段（22.5px）の幅にする。等幅の font の空白は 1ch なので、空白だけを
+   広げる word-spacing で 1 段にし、タブは tab-size で 1 段にする。CodeMirror は本文の先頭の caret を
+   この空白の text の末尾に置くので、そこで始めた IME の変換中の字もこの span に入る。letter-spacing
+   だと変換中の字まで広がるが、word-spacing は空白にしか掛からない。空白の後ろでは折り返さないので、
+   長い 1 語のコードも閲覧表示と同じく 1 行目から始まる。 */
+#editor-root .cm-code-indent { tab-size: 22.5px; white-space: pre; word-spacing: calc(22.5px - 1ch); }
 /* コードブロックと表の見出しは、名前だけを淡い赤の札にする（Cosense の .code-block-start / .table-block-start）。
    札の字は本文と font が違い、行送りを本文と同じにすると ascent と descent の比の違いで行が 1px ほど
    伸びる。札の行送りを字の高さにして、行の高さを font によらず保つ（字はベースラインに揃ったまま）。 */

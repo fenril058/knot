@@ -697,6 +697,49 @@ test('字下げした行の左の余白か本文の 1 字目を押すと caret �
   await expect(page.locator('#save-status')).toHaveText('保存済み');
 });
 
+test('カーソル行のコードブロックの本文の先頭でも、IME の変換中の字を確定後と同じ幅で描き、確定して保存できる', async (
+  { page },
+  testInfo,
+) => {
+  await loginE2eAccount(page, 'active-line-e2e');
+  const title = `line-active-code-ime-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, ['code:a.js', ' code()', 'last body']);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  await startEditingAtLastRow(page, 3);
+  const code = page.locator('#editor-root .cm-line').nth(2);
+  await code.click({ position: { x: 300, y: 8 } });
+  await page.keyboard.press('Home');
+  const width = async (text: string): Promise<number> => code.evaluate((line, target) => {
+    const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      if (!(node instanceof Text)) continue;
+      const index = node.data.indexOf(target);
+      if (index === -1) continue;
+      const range = document.createRange();
+      range.setStart(node, index);
+      range.setEnd(node, index + target.length);
+      return Math.round(range.getBoundingClientRect().width);
+    }
+    throw new Error(`${target} is missing`);
+  }, text);
+
+  // 変換中の字は、行頭の空白（1 字を 1 段の幅で描く）と同じ text に入るが、空白のようには広げない（#269）。
+  const cdp = await page.context().newCDPSession(page);
+  for (const text of ['に', 'にほ']) {
+    await cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
+  }
+  const composing = await width('にほ');
+  await cdp.send('Input.insertText', { text: 'にほ' });
+  await expect(code).toHaveText(' にほcode()');
+  expect(composing).toBe(await width('にほ'));
+
+  await expect(page.locator('#save-status')).toHaveText('保存済み');
+  const persisted = await page.request.get(`/api/pages/e2e/${title}`);
+  expect((await persisted.json()).lines.map((line: { text: string }) => line.text)).toEqual([title, 'code:a.js', ' にほcode()', 'last body']);
+});
+
 test('カーソルのある字下げした行でも、IME の変換中の文字列を確定して保存できる', async ({ page }, testInfo) => {
   await loginE2eAccount(page, 'active-line-e2e');
   const title = `line-active-ime-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
