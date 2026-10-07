@@ -4,8 +4,9 @@ import { keymap, EditorView } from '@codemirror/view';
 import { applyOps } from '../../core/apply.ts';
 import type { RebaseConflict, RebaseLineState } from '../../core/rebase.ts';
 import { titleLc, pageHref } from '../../core/title.ts';
-import type { KnownPage } from '../../render/presentation.ts';
+import { knownPageMap, presentationLines, type KnownPage } from '../../render/presentation.ts';
 import { fetchPage, postCommit, uploadFile } from './api.ts';
+import { clickTarget, lineElements, sourcePosition, type ClickTarget, type LineElements } from './caretPosition.ts';
 import { mapSelectionByLineId } from './documentChanges.ts';
 import { titleAutocompletion } from './cm/complete.ts';
 import { syntaxHighlighting } from './cm/decorations.ts';
@@ -610,7 +611,19 @@ function loadedImageSizes(): Map<string, ImageSize> {
   return sizes;
 }
 
-type InitialEditTarget = { lineId: string; lineNumber: number };
+// click は閲覧表示の行を押した位置。編集を始める前（本文を差し替える前）に、取得した本文の
+// 原文の位置へ直す。
+type InitialEditTarget = { lineId: string; lineNumber: number; click?: { elements: LineElements; target: ClickTarget } };
+
+function clickedSourcePosition(doc: string, lineNumber: number, click: NonNullable<InitialEditTarget['click']>): number | undefined {
+  try {
+    const line = presentationLines(doc, knownPageMap(knownPages), project, { allowedImageHosts, allowedMediaHosts })
+      .find((candidate) => candidate.number === lineNumber);
+    return line === undefined ? undefined : sourcePosition(line, click.elements, click.target);
+  } catch {
+    return undefined;
+  }
+}
 
 async function start(initialTarget?: InitialEditTarget): Promise<void> {
   initializeStorage();
@@ -645,6 +658,10 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
   const anchorTop = initialTarget === undefined ? undefined : visibleRowTop(initialTarget.lineId);
   // 閲覧表示で読み込み済みの画像の大きさも、差し替えで img が消える前に覚える。
   const imageSizes = loadedImageSizes();
+  // 押した位置も、閲覧表示の行が消える前に原文の位置へ直す。
+  const clickedPosition = initialTarget?.click === undefined || initialLineNumber === undefined
+    ? undefined
+    : clickedSourcePosition(initialLines.join('\n'), initialLineNumber, initialTarget.click);
 
   editorRoot.replaceChildren();
   if (editButton !== null) editButton.hidden = true;
@@ -697,9 +714,13 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
     const selectedLine = view.state.doc.line(Math.min(initialLineNumber, view.state.doc.lines));
     // 画面に見えていた行から始めたなら同じ位置へ戻す。見えていない行（ショートカットの
     // 最終行など）から始めたときは、caret のほうを画面へ入れる。
-    // 字下げした行では、整形表示の行を押したときと同じく本文の先頭に caret を置く。
+    // caret は押した字の位置に置く。押した位置が分からないとき（ショートカットで始めたとき、
+    // 閲覧表示を描いた後で本文が変わったとき）は本文の先頭に置く。
+    const clickedAnchor = clickedPosition !== undefined && clickedPosition >= selectedLine.from && clickedPosition <= selectedLine.to
+      ? clickedPosition
+      : undefined;
     view.dispatch({
-      selection: { anchor: editStartPosition(view.state, selectedLine.number) },
+      selection: { anchor: clickedAnchor ?? editStartPosition(view.state, selectedLine.number) },
       scrollIntoView: anchorTop === undefined,
     });
     // coordsAtPos は保留中の計測を済ませてから位置を返すので、そのあとの lineBlockAt は
@@ -811,6 +832,12 @@ if (initialPageId !== undefined) {
     const rows = Array.from(editorRoot.querySelectorAll<HTMLElement>('.line-row'));
     const index = rows.indexOf(row);
     if (index < 0) return;
-    beginEditing({ lineId: row.id.slice(1), lineNumber: index + 1 });
+    const elements = lineElements(row);
+    const target = elements === undefined ? undefined : clickTarget(elements, event.clientX, event.clientY);
+    beginEditing({
+      lineId: row.id.slice(1),
+      lineNumber: index + 1,
+      ...(elements === undefined || target === undefined ? {} : { click: { elements, target } }),
+    });
   });
 }

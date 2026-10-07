@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { indentMark, knownPageMap, presentationLines, type PresentedNode } from '../../src/render/presentation.ts';
+import {
+  indentMark,
+  knownPageMap,
+  presentationLines,
+  type PresentedNode,
+  type SourceSpan,
+} from '../../src/render/presentation.ts';
 
 const config = {
   allowedImageHosts: ['images.example'],
@@ -47,7 +53,81 @@ void test('行頭の印は、引用行と番号付きの行が横線、コード
 });
 
 void test('コマンドラインは記号の後の空白を落とさず、原文のままコードとして描く', () => {
-  assert.deepEqual(bodyNodes('$ git reset --hard'), [{ type: 'code', text: '$ git reset --hard', className: 'cli' }]);
+  assert.deepEqual(bodyNodes('$ git reset --hard'), [
+    { type: 'code', text: '$ git reset --hard', className: 'cli', span: { from: 6, to: 24, verbatim: true } },
+  ]);
+});
+
+type TextPiece = { text: string; span: SourceSpan };
+
+function textPieces(nodes: readonly PresentedNode[]): TextPiece[] {
+  return nodes.flatMap((node): TextPiece[] => {
+    if (node.type === 'text' || node.type === 'code') return [{ text: node.text, span: node.span }];
+    if (node.type === 'container' || node.type === 'link') return textPieces(node.children);
+    return [];
+  });
+}
+
+void test('描いた字は原文の位置を持ち、原文と違う字は node の範囲全体に対応する（#243）', () => {
+  const knownPages = knownPageMap([{ title: 'shown', image: 'https://images.example/icon.png' }]);
+  const bodies = [
+    'plain text',
+    'a [ ] b',
+    '? help me',
+    'x `code` y',
+    '$ git reset --hard',
+    '[$ x^2 ] after',
+    '[[strong]] and [* bold] [/ italic] [- strike] [*/ both]',
+    '> quote [link]',
+    '1. numbered [link]',
+    '#tag and #tag2',
+    '[name.icon] [shown.icon] [/proj/name.icon]',
+    '[https://images.example/a.png] [[https://images.example/b.png]] [https://blocked.example/a.png]',
+    'https://example.com/bare',
+    '[https://example.com/label label] [label https://example.com/label]',
+    '[/proj/page] [page#hash]',
+    '[N35.6,E139.7,Z14 東京]',
+    '[javascript:alert(1) click]',
+    '[https://media.example/a.mp4]',
+  ];
+  const source = ['Title', ...bodies, 'table:t', ' a\t[link]\t`code`', 'code:a.js', ' x = 1'].join('\n');
+  const lines = presentationLines(source, knownPages, 'proj', config);
+  const nonVerbatim: string[] = [];
+  for (const line of lines) {
+    const pieces = line.role === 'line'
+      ? textPieces(line.nodes)
+      : line.role === 'tableRow'
+        ? textPieces(line.cells.flat())
+        : [{ text: line.text, span: line.textSpan }];
+    for (const piece of pieces) {
+      assert.ok(piece.span.from >= line.from && piece.span.to <= line.to, `${piece.text} is outside its line`);
+      if (piece.span.verbatim) assert.equal(source.slice(piece.span.from, piece.span.to), piece.text);
+      else nonVerbatim.push(piece.text);
+    }
+  }
+  // 原文と字が違うのは、画像の無いアイコンの代わりに描く [name] だけ。
+  assert.deepEqual(nonVerbatim, ['[name]', '[/proj/name]']);
+});
+
+void test('リンクのラベルは、URL が先なら ] の直前、ラベルが先なら [ の直後の字に対応する', () => {
+  const source = 'Title\n[https://example.com/label label] [label https://example.com/label]';
+  const line = presentationLines(source, new Map(), 'proj', config)[1];
+  assert.equal(line?.role, 'line');
+  if (line?.role !== 'line') return;
+  const labels = textPieces(line.nodes).filter((piece) => piece.text === 'label');
+  assert.deepEqual(labels.map((piece) => source.slice(piece.span.from - 1, piece.span.to + 1)), [' label]', '[label ']);
+});
+
+void test('原文と違う字を描くアイコンと、画像は、node の範囲全体に対応する', () => {
+  const source = 'Title\n[name.icon] [https://images.example/a.png]';
+  const line = presentationLines(source, new Map(), 'proj', config)[1];
+  assert.equal(line?.role, 'line');
+  if (line?.role !== 'line') return;
+  const icon = textPieces(line.nodes)[0];
+  assert.deepEqual(icon, { text: '[name]', span: { from: 6, to: 17, verbatim: false } });
+  const image = line.nodes.at(-1);
+  assert.equal(image?.type, 'image');
+  if (image?.type === 'image') assert.deepEqual(image.span, { from: 18, to: 48, verbatim: false });
 });
 
 void test('同じ本文でも周囲のブロック種別が変われば表示キーが変わる', () => {

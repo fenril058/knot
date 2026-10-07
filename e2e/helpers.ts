@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 
 // login rate limit は ip と name の組で 10 分 10 回なので（src/server/app.ts の loginLimiter）、
 // seed 済みアカウントは題材ごとに分ける。password は名前から決まる（e2e/server.ts）。
@@ -386,6 +386,36 @@ export async function firstRectCenter(target: Page, selector: string): Promise<{
     if (rect === undefined) throw new Error(`${value} has no rect`);
     return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
   }, selector);
+}
+
+// 行の中で描いた字 char の occurrence 番目（0 始まり）の字の箱の、左端から fraction の位置。
+// caret を押した字の位置に置く（#243）規則を、字の左半分・右半分を押して確かめるのに使う。
+export async function charPoint(
+  row: Locator,
+  char: string,
+  occurrence: number,
+  fraction: number,
+): Promise<{ x: number; y: number }> {
+  return row.evaluate((element, [target, nth, ratio]) => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    let seen = 0;
+    while (walker.nextNode() !== null) {
+      const node = walker.currentNode;
+      if (!(node instanceof Text)) continue;
+      for (let index = node.data.indexOf(target); index !== -1; index = node.data.indexOf(target, index + 1)) {
+        if (seen === nth) {
+          const range = document.createRange();
+          range.setStart(node, index);
+          range.setEnd(node, index + target.length);
+          const rect = range.getClientRects()[0];
+          if (rect === undefined) throw new Error(`char ${target} has no box`);
+          return { x: rect.left + rect.width * ratio, y: rect.top + rect.height / 2 };
+        }
+        seen += 1;
+      }
+    }
+    throw new Error(`char ${target} #${nth} is missing`);
+  }, [char, occurrence, fraction] as const);
 }
 
 export type BlockLook = {

@@ -5,13 +5,18 @@ import { pageHref, titleLc } from '../core/title.ts';
 export type KnownPage = { title: string; image: string | null };
 export type RenderConfig = { allowedImageHosts: string[]; allowedMediaHosts: string[] };
 
+// 描いた字や画像が、原文（文書の先頭からの位置）のどこから来たか。押した位置に caret を置くのに使う。
+// verbatim なら字が原文そのままで、i 字目は from + i の字に当たる。そうでない node（画像や、
+// アイコンの代わりに描く [name] のように原文と違う字）は、範囲の両端にだけ対応させる。
+export type SourceSpan = { from: number; to: number; verbatim: boolean };
+
 export type PresentedNode =
-  | { type: 'text'; text: string }
-  | { type: 'code'; text: string; className?: string }
+  | { type: 'text'; text: string; span: SourceSpan }
+  | { type: 'code'; text: string; className?: string; span: SourceSpan }
   | { type: 'container'; kind: 'span' | 'strong' | 'em' | 'del' | 'quote'; className?: string; children: PresentedNode[] }
   | { type: 'link'; href: string; className?: string; external: boolean; children: PresentedNode[] }
-  | { type: 'image'; src: string; alt: string; className?: string; lazy: boolean }
-  | { type: 'video' | 'audio'; src: string };
+  | { type: 'image'; src: string; alt: string; className?: string; lazy: boolean; span: SourceSpan }
+  | { type: 'video' | 'audio'; src: string; span: SourceSpan };
 
 type PresentedLineBase = {
   number: number;
@@ -23,7 +28,7 @@ type PresentedLineBase = {
 };
 
 export type PresentedLine = PresentedLineBase & (
-  | { role: 'title' | 'codeHeader' | 'codeLine' | 'tableHeader'; text: string }
+  | { role: 'title' | 'codeHeader' | 'codeLine' | 'tableHeader'; text: string; textSpan: SourceSpan }
   | { role: 'line'; nodes: PresentedNode[] }
   | { role: 'tableRow'; cells: PresentedNode[][] }
 );
@@ -64,10 +69,35 @@ function hasUriScheme(value: string): boolean {
   return /^[a-z][a-z\d+.-]*:/i.test(value);
 }
 
-const text = (value: string): PresentedNode => ({ type: 'text', text: value });
+const text = (value: string, span: SourceSpan): PresentedNode => ({ type: 'text', text: value, span });
 
-function externalLink(url: string, label: string, external = true): PresentedNode {
-  return { type: 'link', href: url, external, children: [text(label)] };
+function wholeSpan(node: SyntaxNode): SourceSpan {
+  return { from: node.range.from, to: node.range.to, verbatim: false };
+}
+
+// node の原文の offset 字目から value がそのまま続くなら、字ごとに対応させる。
+// 続かないときは node 全体に対応させるので、位置の計算を誤っても caret が node の外へは出ない。
+function spanAt(node: SyntaxNode, value: string, offset: number): SourceSpan {
+  return offset >= 0 && node.raw.startsWith(value, offset)
+    ? { from: node.range.from + offset, to: node.range.from + offset + value.length, verbatim: true }
+    : wholeSpan(node);
+}
+
+// リンクのラベルが原文のどこにあるか。[URL ラベル] ならラベルは ] の直前、[ラベル URL] なら先頭側にある。
+function labelSpan(node: SyntaxNode & { type: 'link' }, label: string): SourceSpan {
+  if (label === node.href || !node.raw.startsWith(`[${node.href}`)) return spanAt(node, label, node.raw.indexOf(label));
+  return spanAt(node, label, node.raw.length - 1 - label.length);
+}
+
+// 原文の行の末尾と一致する字（見出しの名前、コードの行、タイトル）。code: などの接頭辞と字下げは描かない。
+function suffixSpan(source: string, range: SourceRange, value: string): SourceSpan {
+  return source.slice(range.from, range.to).endsWith(value)
+    ? { from: range.to - value.length, to: range.to, verbatim: true }
+    : { from: range.from, to: range.to, verbatim: false };
+}
+
+function externalLink(url: string, label: string, span: SourceSpan, external = true): PresentedNode {
+  return { type: 'link', href: url, external, children: [text(label, span)] };
 }
 
 // [*** x] の強調の段階。parser は *-3 のように表す。強調でなければ undefined。
@@ -80,23 +110,32 @@ function strongLevel(decos: readonly string[]): number | undefined {
 }
 
 // strong は [[画像]]。Cosense と同じく高さの上限を外した大きい画像として描く。
-function presentMedia(url: string, label: string | undefined, config: RenderConfig, strong = false): PresentedNode {
+// label は字で描くときの原文の位置（label が無ければ url の位置）、media は node 全体。
+function presentMedia(
+  url: string,
+  label: string | undefined,
+  config: RenderConfig,
+  spans: { label: SourceSpan; media: SourceSpan },
+  strong = false,
+): PresentedNode {
   const isLocal = isAttachmentUrl(url);
-  if (!isLocal && !isHttpUrl(url)) return text(label === undefined ? url : `${label} (${url})`);
+  if (!isLocal && !isHttpUrl(url)) {
+    return label === undefined ? text(url, spans.label) : text(`${label} (${url})`, spans.media);
+  }
   const hostname = isLocal ? '' : new URL(url).hostname;
   const kind = classifyUrl(url);
   if (kind === 'image' && (isLocal || isHostAllowed(hostname, config.allowedImageHosts))) {
     return strong
-      ? { type: 'image', src: url, alt: '', className: 'strong-image', lazy: true }
-      : { type: 'image', src: url, alt: '', lazy: true };
+      ? { type: 'image', src: url, alt: '', className: 'strong-image', lazy: true, span: spans.media }
+      : { type: 'image', src: url, alt: '', lazy: true, span: spans.media };
   }
   if (kind === 'video' && (isLocal || isHostAllowed(hostname, config.allowedMediaHosts))) {
-    return { type: 'video', src: url };
+    return { type: 'video', src: url, span: spans.media };
   }
   if (kind === 'audio' && (isLocal || isHostAllowed(hostname, config.allowedMediaHosts))) {
-    return { type: 'audio', src: url };
+    return { type: 'audio', src: url, span: spans.media };
   }
-  return externalLink(url, label ?? url, !isLocal);
+  return externalLink(url, label ?? url, spans.label, !isLocal);
 }
 
 function presentNodes(
@@ -118,17 +157,21 @@ function presentNode(
   const children = (nodes: readonly SyntaxNode[]): PresentedNode[] => presentNodes(nodes, knownPages, project, config);
   switch (node.type) {
     case 'plain':
+      return text(node.text, spanAt(node, node.text, 0));
+    // [ ] の中の空白と、? の後ろの字。
     case 'blank':
+      return text(node.text, spanAt(node, node.text, 1));
     case 'helpfeel':
-      return text(node.text);
+      return text(node.text, spanAt(node, node.text, node.raw.length - node.text.length));
     case 'code':
-      return { type: 'code', text: node.text };
+      return { type: 'code', text: node.text, span: spanAt(node, node.text, 1) };
     // コマンドラインと数式もコードの見た目で描く。バッククオートで囲んだコードと区別する。
     // parser は記号の直後の空白を 1 つ落とすので、原文（$ git reset）のまま描く。
     case 'commandLine':
-      return { type: 'code', text: node.raw, className: 'cli' };
+      return { type: 'code', text: node.raw, className: 'cli', span: spanAt(node, node.raw, 0) };
+    // [$ 数式] の数式は 3 字目から。
     case 'formula':
-      return { type: 'code', text: node.formula, className: 'formula' };
+      return { type: 'code', text: node.formula, className: 'formula', span: spanAt(node, node.formula, 3) };
     case 'strong':
       return { type: 'container', kind: 'strong', children: children(node.nodes) };
     case 'quote':
@@ -166,7 +209,7 @@ function presentNode(
         type: 'container',
         kind: 'span',
         className: 'num-list',
-        children: [text(`${node.rawNumber}. `), ...children(node.nodes)],
+        children: [text(`${node.rawNumber}. `, spanAt(node, `${node.rawNumber}. `, 0)), ...children(node.nodes)],
       };
     case 'hashTag': {
       const entry = knownPages.get(titleLc(node.href));
@@ -175,20 +218,25 @@ function presentNode(
         href: pageHref(project, entry?.title ?? node.href),
         className: entry === undefined ? 'empty-link' : 'page-link',
         external: false,
-        children: [text(`#${node.href}`)],
+        children: [text(`#${node.href}`, spanAt(node, `#${node.href}`, 0))],
       };
     }
     case 'icon':
     case 'strongIcon': {
       if (node.pathType !== 'relative') {
-        return { type: 'container', kind: 'span', className: 'icon-link', children: [text(`[${node.path}]`)] };
+        return {
+          type: 'container',
+          kind: 'span',
+          className: 'icon-link',
+          children: [text(`[${node.path}]`, wholeSpan(node))],
+        };
       }
       const entry = knownPages.get(titleLc(node.path));
       // [[name.icon]] は Cosense と同じく大きいアイコンとして描く。
       const className = node.type === 'strongIcon' ? 'icon-img strong-icon' : 'icon-img';
       const linkChildren: PresentedNode[] = entry?.image && isAllowedImageUrl(entry.image, config.allowedImageHosts)
-        ? [{ type: 'image', src: entry.image, alt: node.path, className, lazy: false }]
-        : [text(`[${node.path}]`)];
+        ? [{ type: 'image', src: entry.image, alt: node.path, className, lazy: false, span: wholeSpan(node) }]
+        : [text(`[${node.path}]`, wholeSpan(node))];
       return {
         type: 'link',
         href: pageHref(project, entry?.title ?? node.path),
@@ -198,31 +246,37 @@ function presentNode(
       };
     }
     case 'image':
-      return presentMedia(node.src, undefined, config);
-    case 'strongImage':
-      return presentMedia(node.src, undefined, config, true);
+    case 'strongImage': {
+      const spans = { label: spanAt(node, node.src, node.raw.indexOf(node.src)), media: wholeSpan(node) };
+      return presentMedia(node.src, undefined, config, spans, node.type === 'strongImage');
+    }
     case 'googleMap':
-      return text(node.raw);
+      return text(node.raw, spanAt(node, node.raw, 0));
     case 'link': {
-      if (hasUriScheme(node.href) && !isHttpUrl(node.href)) return text(node.raw);
+      if (hasUriScheme(node.href) && !isHttpUrl(node.href)) return text(node.raw, spanAt(node, node.raw, 0));
       if (node.pathType === 'relative') {
         const target = node.href.split('#')[0]!;
         const entry = knownPages.get(titleLc(target));
+        const label = node.content === '' ? target : node.content;
         return {
           type: 'link',
           href: pageHref(project, entry?.title ?? target),
           className: entry === undefined ? 'empty-link' : 'page-link',
           external: false,
-          children: [text(node.content === '' ? target : node.content)],
+          children: [text(label, spanAt(node, label, node.content === '' ? 1 : node.raw.indexOf(label)))],
         };
       }
+      const label = node.content === '' ? node.href : node.content;
       if (isHttpUrl(node.href)) {
-        return presentMedia(node.href, node.content === '' ? node.href : node.content, config);
+        return presentMedia(node.href, label, config, { label: labelSpan(node, label), media: wholeSpan(node) });
       }
       if (isAttachmentUrl(node.href)) {
-        return presentMedia(node.href, node.content === '' ? undefined : node.content, config);
+        const spans = { label: labelSpan(node, label), media: wholeSpan(node) };
+        return presentMedia(node.href, node.content === '' ? undefined : node.content, config, spans);
       }
-      return text(node.content === '' ? node.href : `${node.content} (${node.href})`);
+      return node.content === ''
+        ? text(node.href, labelSpan(node, node.href))
+        : text(`${node.content} (${node.href})`, wholeSpan(node));
     }
   }
 }
@@ -249,7 +303,12 @@ export function presentationLines(
     const firstRange = block.lineRanges[0];
     if (firstRange === undefined) throw new Error('syntax block line is missing');
     if (block.type === 'title') {
-      result.push(withRenderKey({ ...lineBase(source, firstRange, number, 0), role: 'title', text: block.text }));
+      result.push(withRenderKey({
+        ...lineBase(source, firstRange, number, 0),
+        role: 'title',
+        text: block.text,
+        textSpan: suffixSpan(source, firstRange, block.text),
+      }));
       number += 1;
       continue;
     }
@@ -267,16 +326,19 @@ export function presentationLines(
         ...lineBase(source, firstRange, number, block.indent),
         role: 'codeHeader',
         text: block.fileName,
+        textSpan: suffixSpan(source, firstRange, block.fileName),
       }));
       number += 1;
       const contents = block.content === '' ? [] : block.content.split('\n');
       for (let offset = 1; offset < block.lineRanges.length; offset += 1) {
         const range = block.lineRanges[offset];
         if (range === undefined) throw new Error('syntax block line is missing');
+        const code = contents[offset - 1] ?? '';
         result.push(withRenderKey({
           ...lineBase(source, range, number, block.indent),
           role: 'codeLine',
-          text: contents[offset - 1] ?? '',
+          text: code,
+          textSpan: suffixSpan(source, range, code),
         }));
         number += 1;
       }
@@ -287,6 +349,7 @@ export function presentationLines(
       ...lineBase(source, firstRange, number, block.indent),
       role: 'tableHeader',
       text: block.fileName,
+      textSpan: suffixSpan(source, firstRange, block.fileName),
     }));
     number += 1;
     for (let offset = 1; offset < block.lineRanges.length; offset += 1) {

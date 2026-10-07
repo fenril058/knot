@@ -515,7 +515,7 @@ test('カーソルのある字下げした行でも、字の位置・折り返�
   expect(activeWrapped.lefts.length).toBe(wrapped.length);
 });
 
-test('字下げした行を押すと caret は本文の先頭に入り、字下げを増減するとカーソル行の位置も追従する', async (
+test('字下げした行の左の余白か本文の 1 字目を押すと caret は本文の先頭に入り、字下げを増減するとカーソル行の位置も追従する', async (
   { page },
   testInfo,
 ) => {
@@ -525,7 +525,7 @@ test('字下げした行を押すと caret は本文の先頭に入り、字下�
 
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(`/e2e/${title}`);
-  // 閲覧表示の字下げした行を押して編集を始める。caret は字下げの後ろ（本文の先頭）に入る。
+  // 閲覧表示の字下げした行の左の余白を押して編集を始める。caret は字下げの後ろ（本文の先頭）に入る。
   await page.locator('#editor-root .line-row').nth(1).click({ position: lineRowClickPosition });
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
   await page.keyboard.insertText('X');
@@ -545,8 +545,9 @@ test('字下げした行を押すと caret は本文の先頭に入り、字下�
   await page.keyboard.press('Control+z');
   await expect(row).toHaveText('  X一段目の行');
 
-  // 整形表示の字下げした行を押しても、caret は本文の先頭に入る。
-  await page.locator('#editor-root .cm-line').nth(2).click({ position: { x: 60, y: 8 } });
+  // 整形表示の字下げした行では、本文の 1 字目の左半分を押すと caret は本文の先頭に入る（#243）。
+  const nextRow = (await page.locator('#editor-root .cm-line').nth(2).boundingBox())!;
+  await page.mouse.click(TEXT_LEFT + INDENT * 2 + 3, nextRow.y + 14);
   await page.keyboard.insertText('Y');
   await expect(page.locator('#editor-root .cm-line').nth(2)).toHaveText(`  Y${ACTIVE_INDENT_BODY[1]!.trimStart()}`);
   await expect(page.locator('#save-status')).toHaveText('保存済み');

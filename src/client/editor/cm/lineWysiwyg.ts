@@ -20,6 +20,7 @@ import {
   type PresentedLine,
   type PresentedNode,
 } from '../../../render/presentation.ts';
+import { clickTarget, lineElements, sourcePosition } from '../caretPosition.ts';
 
 export type LineWysiwygConfig = {
   project: string;
@@ -302,7 +303,11 @@ class FormattedLineWidget extends WidgetType {
       const target = event.target;
       if (target instanceof Element && target.closest('a') !== null) return;
       event.preventDefault();
-      view.dispatch({ selection: { anchor: textStart(this.line) }, scrollIntoView: true });
+      // 押した字の位置に caret を置く。DOM と行の対応が取れないときは本文の先頭に置く。
+      const elements = lineElements(root);
+      const click = elements === undefined ? undefined : clickTarget(elements, event.clientX, event.clientY);
+      const anchor = elements === undefined || click === undefined ? undefined : sourcePosition(this.line, elements, click);
+      view.dispatch({ selection: { anchor: anchor ?? textStart(this.line) }, scrollIntoView: true });
       view.focus();
     });
     return root;

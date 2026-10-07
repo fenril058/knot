@@ -975,12 +975,15 @@ test('選択行だけ原文にし、それ以外の行を整形表示する', as
   await expect(page.locator('#editor-root .cm-line').nth(1)).toContainText('[linked] [* bold]');
   await expect(page).toHaveURL(/\/e2e\/line-wysiwyg$/);
 
+  // caret は押した bold の中に入る（#243）。行頭のリンクへ移ってから開く。
+  await page.keyboard.press('Home');
   await page.keyboard.press('Control+Enter');
   await expect(page).toHaveURL(/\/e2e\/linked$/);
 
   await page.goBack();
   await activateEditor(page, 0);
   await page.locator('.cm-wysiwyg-line[data-line-number="2"] strong').click();
+  await page.keyboard.press('Home');
   await page.keyboard.press('Shift+ArrowDown');
   await expect(page.locator('.cm-wysiwyg-line[data-line-number="3"]')).toHaveCount(0);
   await page.keyboard.press('Control+C');
