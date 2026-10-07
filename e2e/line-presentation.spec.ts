@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import {
   blockLooks,
+  charPoint,
   createE2ePage,
   indentMarks,
   lineRowClickPosition,
@@ -494,6 +495,90 @@ test('引用・コードブロック・表を Cosense と同じ帯・札・セ�
   expect(await visualLineRects(page)).toEqual(rects);
 });
 
+// 矩形 [左端, 上端, 幅] の、上端と右端。
+function topAndRight(rect: number[] | undefined): number[] {
+  const [left = 0, top = 0, width = 0] = rect ?? [];
+  return [top, left + width];
+}
+
+// 行（row 番目）の text の first 字目の左端。
+async function charLeft(page: Page, selector: string, row: number, text: string): Promise<number> {
+  return page.locator(selector).nth(row).evaluate((line, target) => {
+    const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      if (!(node instanceof Text)) continue;
+      const index = node.data.indexOf(target);
+      if (index === -1) continue;
+      const range = document.createRange();
+      range.setStart(node, index);
+      range.setEnd(node, index + 1);
+      return Math.round(range.getBoundingClientRect().left * 2) / 2;
+    }
+    throw new Error(`${target} is missing`);
+  }, text);
+}
+
+test('カーソル行でも、引用の枠とコードブロックの帯・札を閲覧表示と同じに描き、字の位置と行の高さを変えない', async (
+  { page },
+  testInfo,
+) => {
+  await loginE2eAccount(page, 'active-line-e2e');
+  const title = `line-cursor-blocks-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, BLOCK_BODY);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  const heights = await rowHeights(page);
+  const rects = await visualLineRects(page);
+  const looks = await blockLooks(page);
+  // 行と、その行の字の位置を見る字。
+  const textRows: Array<[number, string]> = [[2, 'top()'], [5, 'nested()'], [6, 'long_code'], [7, 'quoted'], [8, 'indented']];
+  const lefts = new Map<number, number>();
+  for (const [row, text] of textRows) lefts.set(row, await charLeft(page, '#editor-root .line-row', row, text));
+
+  await startEditingAtLastRow(page, BLOCK_BODY.length);
+  const putCursorOn = async (row: number, text: string): Promise<void> => {
+    const point = await charPoint(page.locator('#editor-root .cm-line').nth(row), text, 0, 0.5);
+    await page.mouse.click(point.x, point.y);
+    await expect(page.locator('#editor-root .cm-line').nth(row)).not.toHaveClass(/cm-wysiwyg/);
+  };
+  const background = async (row: number): Promise<string> => page.locator('#editor-root .cm-line').nth(row)
+    .evaluate((line) => getComputedStyle(line).backgroundImage);
+
+  // コードブロックの見出しは、code: も閲覧表示と同じ札の中に見せる（#269）。
+  for (const row of [1, 4]) {
+    await putCursorOn(row, '.js');
+    expect((await blockLooks(page))[row]!.label).toEqual(looks[row]!.label);
+    expect(await rowHeights(page)).toEqual(heights);
+  }
+  // コードブロックの本文は、見出しの段から帯を引き、字は帯の中の同じ位置に置く。
+  for (const [row, depth] of [[2, 0], [5, 1]] as const) {
+    await putCursorOn(row, row === 2 ? 'top' : 'nested');
+    expect(await background(row)).toBe(`linear-gradient(to right, rgba(0, 0, 0, 0) ${INDENT * depth}px, rgba(0, 0, 0, 0.04) ${INDENT * depth}px)`);
+    expect(await charLeft(page, '#editor-root .cm-line', row, row === 2 ? 'top()' : 'nested()')).toBe(lefts.get(row));
+    expect(await rowHeights(page)).toEqual(heights);
+  }
+  // 折り返した長いコードの行も、字は閲覧表示と同じ 1 行目の位置から始まり、同じ位置で折り返す。
+  // 閲覧表示の字下げは本文と別の字（1 つ目の矩形）だが、カーソル行の字下げはコードと同じ行の空白の字。
+  await putCursorOn(6, 'long_code');
+  expect(await charLeft(page, '#editor-root .cm-line', 6, 'long_code')).toBe(lefts.get(6));
+  const [, readFirst, ...readRest] = rects[6]!;
+  const [cursorFirst, ...cursorRest] = (await visualLineRects(page))[6]!;
+  expect(cursorRest).toEqual(readRest);
+  expect(topAndRight(cursorFirst)).toEqual(topAndRight(readFirst));
+  expect(await rowHeights(page)).toEqual(heights);
+  // 引用は字下げの位置から枠を引き、> は閲覧表示で見えない > と同じ位置に置く。
+  for (const [row, depth] of [[7, 0], [8, 1]] as const) {
+    await putCursorOn(row, row === 7 ? 'quoted' : 'indented');
+    const left = INDENT * depth;
+    expect(await background(row)).toBe(
+      `linear-gradient(to right, rgba(0, 0, 0, 0) ${left}px, rgb(160, 160, 160) ${left}px, rgb(160, 160, 160) ${left + 1}px, rgba(0, 0, 0, 0.05) ${left + 1}px)`,
+    );
+    expect(await charLeft(page, '#editor-root .cm-line', row, row === 7 ? 'quoted' : 'indented')).toBe(lefts.get(row));
+    expect(await rowHeights(page)).toEqual(heights);
+  }
+});
+
 test('表の見出しの click で原文の編集に入り、コードブロックの行末の click で行末に caret が入る', async (
   { page },
   testInfo,
@@ -610,6 +695,49 @@ test('字下げした行の左の余白か本文の 1 字目を押すと caret �
   await page.keyboard.insertText('Y');
   await expect(page.locator('#editor-root .cm-line').nth(2)).toHaveText(`  Y${ACTIVE_INDENT_BODY[1]!.trimStart()}`);
   await expect(page.locator('#save-status')).toHaveText('保存済み');
+});
+
+test('カーソル行のコードブロックの本文の先頭でも、IME の変換中の字を確定後と同じ幅で描き、確定して保存できる', async (
+  { page },
+  testInfo,
+) => {
+  await loginE2eAccount(page, 'active-line-e2e');
+  const title = `line-active-code-ime-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, ['code:a.js', ' code()', 'last body']);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  await startEditingAtLastRow(page, 3);
+  const code = page.locator('#editor-root .cm-line').nth(2);
+  await code.click({ position: { x: 300, y: 8 } });
+  await page.keyboard.press('Home');
+  const width = async (text: string): Promise<number> => code.evaluate((line, target) => {
+    const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      if (!(node instanceof Text)) continue;
+      const index = node.data.indexOf(target);
+      if (index === -1) continue;
+      const range = document.createRange();
+      range.setStart(node, index);
+      range.setEnd(node, index + target.length);
+      return Math.round(range.getBoundingClientRect().width);
+    }
+    throw new Error(`${target} is missing`);
+  }, text);
+
+  // 変換中の字は、行頭の空白（1 字を 1 段の幅で描く）と同じ text に入るが、空白のようには広げない（#269）。
+  const cdp = await page.context().newCDPSession(page);
+  for (const text of ['に', 'にほ']) {
+    await cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
+  }
+  const composing = await width('にほ');
+  await cdp.send('Input.insertText', { text: 'にほ' });
+  await expect(code).toHaveText(' にほcode()');
+  expect(composing).toBe(await width('にほ'));
+
+  await expect(page.locator('#save-status')).toHaveText('保存済み');
+  const persisted = await page.request.get(`/api/pages/e2e/${title}`);
+  expect((await persisted.json()).lines.map((line: { text: string }) => line.text)).toEqual([title, 'code:a.js', ' にほcode()', 'last body']);
 });
 
 test('カーソルのある字下げした行でも、IME の変換中の文字列を確定して保存できる', async ({ page }, testInfo) => {

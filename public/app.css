@@ -191,6 +191,16 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
    段数は lineWysiwyg.ts が行の --indent-level に入れる。 */
 #editor-root .cm-line.cm-active-indent { padding-inline-start: calc(var(--indent-level) * 22.5px); text-indent: calc(var(--indent-level) * -22.5px); }
 .cm-indent-space { display: inline-block; height: var(--line-height); position: relative; text-indent: 0; vertical-align: top; width: 22.5px; }
+/* カーソル行の引用（#269）。閲覧表示の blockquote と同じく、字下げの位置（--block-indent 段）から
+   本文の右端まで枠を引く。> は、閲覧表示で見えない > が占める位置（左線 1px と余白 3px の後ろ）に
+   置き、折り返した行も同じ位置から始める。 */
+#editor-root .cm-line.cm-active-quote {
+  --quote-left: calc(var(--block-indent) * 22.5px);
+  background: linear-gradient(to right, transparent var(--quote-left), #a0a0a0 var(--quote-left) calc(var(--quote-left) + 1px), rgb(0 0 0 / 5%) calc(var(--quote-left) + 1px));
+  padding-inline-start: calc(var(--quote-left) + 4px);
+  text-indent: calc(-1 * var(--quote-left) - 4px);
+}
+#editor-root .cm-quote-mark { margin-inline-start: 4px; }
 /* 行頭の印は、整形表示の .line-indent-content::before と同じ位置（本文の開始位置から 15px 左、上から 10px）。 */
 .cm-indent-space.mark-dot::after, .cm-indent-space.mark-dash::after { background-color: var(--dot-color); border-radius: 50%; content: ""; height: 6px; inset-inline-start: 7.5px; position: absolute; top: 10px; width: 6px; }
 .cm-indent-space.mark-dash::after { border-radius: 0; height: 2px; top: 12.5px; }
@@ -237,10 +247,28 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
 /* コードブロックの行（見出しと本文）の行送りは Cosense と同じ 1.7em（25.5px）。行に掛けるので、
    カーソルが入って原文表示になっても行の高さは変わらない。 */
 #editor-root .line-row.code-block-line, #editor-root .cm-line.code-block-line { line-height: 1.7em; }
+/* カーソル行の字下げの widget（.cm-indent-space）の高さも、コードブロックの行送りに合わせる（#269）。 */
+#editor-root .cm-line.code-block-line { --line-height: 25.5px; }
 #editor-root:not(.editor-active) > .line-row.code-block-line { min-height: 1.7em; }
 /* コードブロックの本文の行は、見出しの段から右へ帯を引き、字は 1 段（22.5px）深い位置から始める。
    Cosense と同じく長い行は折り返す。 */
 .code-line { background-color: rgb(0 0 0 / 4%); color: #342d9c; display: block; font-family: Menlo, Monaco, Consolas, "Courier New", monospace; font-size: 90%; padding-inline-start: 22.5px; white-space: pre-wrap; }
+/* カーソル行のコードブロックの本文（#269）。帯は .code-line と同じく見出しの段から引き、字は帯の中の
+   1 段深い位置から始める（行頭の空白がブロックの字下げより 1 字多い）。
+   字の大きさを 90% にしても、行送りは閲覧表示と同じ 25.5px に保つ。 */
+#editor-root .cm-line.cm-active-code-line {
+  background: linear-gradient(to right, transparent calc(var(--block-indent) * 22.5px), rgb(0 0 0 / 4%) calc(var(--block-indent) * 22.5px));
+  color: #342d9c;
+  font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+  font-size: 90%;
+  line-height: 25.5px;
+}
+/* 行頭の空白は字のまま、1 字を 1 段（22.5px）の幅にする。等幅の font の空白は 1ch なので、空白だけを
+   広げる word-spacing で 1 段にし、タブは tab-size で 1 段にする。CodeMirror は本文の先頭の caret を
+   この空白の text の末尾に置くので、そこで始めた IME の変換中の字もこの span に入る。letter-spacing
+   だと変換中の字まで広がるが、word-spacing は空白にしか掛からない。空白の後ろでは折り返さないので、
+   長い 1 語のコードも閲覧表示と同じく 1 行目から始まる。 */
+#editor-root .cm-code-indent { tab-size: 22.5px; white-space: pre; word-spacing: calc(22.5px - 1ch); }
 /* コードブロックと表の見出しは、名前だけを淡い赤の札にする（Cosense の .code-block-start / .table-block-start）。
    札の字は本文と font が違い、行送りを本文と同じにすると ascent と descent の比の違いで行が 1px ほど
    伸びる。札の行送りを字の高さにして、行の高さを font によらず保つ（字はベースラインに揃ったまま）。 */
@@ -376,11 +404,8 @@ dialog form { display: grid; gap: 1rem; }
 .cm-sb-strong { font-weight: 700; }
 .cm-sb-italic { font-style: italic; }
 .cm-sb-strike { text-decoration: line-through; }
-.cm-sb-code-block { font-family: monospace; }
 /* カーソル行の原文表示でも、コードは整形表示と同じ見た目のまま記法だけを見せる。 */
 .cm-sb-code-inline, .cm-sb-formula { background-color: rgb(0 0 0 / 4%); border-radius: 4px; color: #342d9c; font-family: Menlo, Monaco, Consolas, "Courier New", monospace; font-size: 90%; line-height: 1; }
-.cm-sb-code-block { background: #f5f5f5; }
-.cm-sb-quote { color: #666; }
 .cm-wysiwyg-line { display: inline; }
 /* 引用行は blockquote。整形表示の widget は inline で、CodeMirror が widget の前後へ
    置く buffer も inline なので、block のままだと匿名の行が 1 本増えて閲覧表示より
