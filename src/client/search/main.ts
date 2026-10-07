@@ -1,91 +1,134 @@
 import { rankTitles } from '../../core/match.ts';
 import { pageHref } from '../../core/title.ts';
 
-const DEBOUNCE_MS = 200;
+// 上部のバーの検索欄（#247）。入力中はタイトルの候補を入力欄の下に出す。候補を選ばずに Enter を
+// 押したときは form のまま送り、全文検索の結果ページへ移る（JavaScript が無いときと同じ）。
+// Cosense と同じく、↓ で候補へ focus を移し、Escape で候補を閉じて検索欄から抜ける。
+
+// 候補の数の上限。Cosense は上限 100 件を、高さ 210px の中で scroll させる。
+const CANDIDATE_LIMIT = 100;
 
 type TitleEntry = { title: string };
-type PageHit = { title: string; lines: string[] };
 
-const root = document.querySelector<HTMLElement>('#search-root');
-const searchBox = document.querySelector<HTMLInputElement>('#search-box');
-const resultsElement = document.querySelector<HTMLElement>('#search-results');
-if (root === null || searchBox === null || resultsElement === null) throw new Error('search root is missing');
-const results = resultsElement;
-
-const data = root.dataset;
-if (data.project === undefined) throw new Error('search data attributes are missing');
-const project = data.project;
-
-const createButton = document.querySelector<HTMLButtonElement>('#create-page-button');
-const createDialog = document.querySelector<HTMLDialogElement>('#create-page-dialog');
-const createForm = document.querySelector<HTMLFormElement>('#create-page-form');
-const createTitle = document.querySelector<HTMLInputElement>('#create-page-title');
-if (createButton === null || createDialog === null || createForm === null || createTitle === null) {
-  throw new Error('create page controls are missing');
+const navElement = document.querySelector<HTMLElement>('.page-nav');
+const formElement = document.querySelector<HTMLFormElement>('.nav-search');
+const inputElement = formElement?.querySelector<HTMLInputElement>('.nav-search-input');
+const listElement = formElement?.querySelector<HTMLUListElement>('.nav-search-candidates');
+if (navElement === null || formElement === null || inputElement == null || listElement == null) {
+  throw new Error('search controls are missing');
 }
-createButton.addEventListener('click', () => createDialog.showModal());
-createForm.addEventListener('submit', (event) => {
-  event.preventDefault();
-  window.location.assign(pageHref(project, createTitle.value.trim()));
-});
-for (const button of document.querySelectorAll<HTMLButtonElement>('[data-dialog-close]')) {
-  button.addEventListener('click', () => button.closest('dialog')?.close());
+const nav = navElement;
+const form = formElement;
+const input = inputElement;
+const list = listElement;
+const toggle = nav.querySelector<HTMLAnchorElement>('.nav-search-toggle');
+const projectName = form.dataset.project;
+if (projectName === undefined) throw new Error('search data attributes are missing');
+const project = projectName;
+
+let titles: Promise<TitleEntry[]> | undefined;
+let latestInput = 0;
+
+async function fetchTitles(): Promise<TitleEntry[]> {
+  const response = await fetch(`/api/pages/${encodeURIComponent(project)}/search/titles`);
+  if (!response.ok) throw new Error(`title list request failed: ${response.status}`);
+  const body: unknown = await response.json();
+  if (!Array.isArray(body)) throw new Error('title list must be an array');
+  return body.filter((entry: unknown): entry is TitleEntry =>
+    typeof entry === 'object' && entry !== null && 'title' in entry && typeof entry.title === 'string');
 }
 
-let titles: TitleEntry[] | null = null;
-let debounceTimer: number | undefined;
-let latestSeq = 0;
-
-async function loadTitles(): Promise<TitleEntry[]> {
-  if (titles !== null) return titles;
-  const res = await fetch(`/api/pages/${encodeURIComponent(project)}/search/titles`);
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  titles = await res.json() as TitleEntry[];
+// タイトルの一覧は最初の入力で 1 度だけ取る。失敗したら次の入力で取り直す。
+function loadTitles(): Promise<TitleEntry[]> {
+  titles ??= fetchTitles().catch((error: unknown) => {
+    titles = undefined;
+    throw error;
+  });
   return titles;
 }
 
-function renderHits<T extends { title: string }>(items: readonly T[], formatLabel: (item: T) => string): void {
-  results.replaceChildren();
-  if (items.length === 0) {
-    results.hidden = true;
-    return;
-  }
-  results.hidden = false;
-  for (const item of items) {
-    const a = document.createElement('a');
-    a.href = pageHref(project, item.title);
-    a.className = 'search-hit';
-    a.textContent = formatLabel(item);
-    results.appendChild(a);
-  }
+function candidateLinks(): HTMLAnchorElement[] {
+  return Array.from(list.querySelectorAll<HTMLAnchorElement>('a'));
 }
 
-async function runFullTextSearch(query: string, seq: number): Promise<void> {
-  const res = await fetch(`/api/pages/${encodeURIComponent(project)}/search/query?q=${encodeURIComponent(query)}`);
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  const body = await res.json() as { pages: PageHit[] };
-  if (seq !== latestSeq) return;
-  renderHits(body.pages, (p) => `${p.title}: ${p.lines[0] ?? ''}`);
+function closeCandidates(): void {
+  list.hidden = true;
+  list.replaceChildren();
 }
 
-searchBox.addEventListener('input', (event) => {
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  const query = (event.target as HTMLInputElement).value.trim();
-  const seq = ++latestSeq;
-  if (debounceTimer !== undefined) window.clearTimeout(debounceTimer);
+function showCandidates(entries: readonly TitleEntry[]): void {
+  list.replaceChildren(...entries.map((entry) => {
+    const item = document.createElement('li');
+    const link = document.createElement('a');
+    link.href = pageHref(project, entry.title);
+    link.textContent = entry.title;
+    item.append(link);
+    return item;
+  }));
+  list.hidden = entries.length === 0;
+}
+
+input.addEventListener('input', () => {
+  const query = input.value.trim();
+  latestInput += 1;
+  const current = latestInput;
   if (query === '') {
-    results.replaceChildren();
-    results.hidden = true;
+    closeCandidates();
     return;
   }
+  loadTitles().then((all) => {
+    // 一覧を待つ間に入力が進んだら、古い入力の候補は出さない。
+    if (current !== latestInput) return;
+    showCandidates(rankTitles(query, all, (entry) => entry.title, CANDIDATE_LIMIT));
+  }).catch((error: unknown) => {
+    console.error(error);
+    if (current === latestInput) closeCandidates();
+  });
+});
 
-  void (async () => {
-    const all = await loadTitles();
-    if (seq !== latestSeq) return;
-    renderHits(rankTitles(query, all, (t) => t.title), (t) => t.title);
-  })();
+function leaveSearch(): void {
+  closeCandidates();
+  if (document.activeElement instanceof HTMLElement && form.contains(document.activeElement)) {
+    document.activeElement.blur();
+  }
+}
 
-  debounceTimer = window.setTimeout(() => {
-    void runFullTextSearch(query, seq);
-  }, DEBOUNCE_MS);
+form.addEventListener('keydown', (event) => {
+  if (event.isComposing) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    leaveSearch();
+    return;
+  }
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+  const links = candidateLinks();
+  if (list.hidden || links.length === 0) return;
+  event.preventDefault();
+  const index = event.target instanceof HTMLAnchorElement ? links.indexOf(event.target) : -1;
+  const next = event.key === 'ArrowDown' ? Math.min(index + 1, links.length - 1) : index - 1;
+  if (next < 0) input.focus();
+  else links[next]?.focus();
+});
+
+// 検索欄の外を押すか、Tab などで focus が外の要素へ移ったら候補を閉じる。移った先が無い blur では
+// 閉じない。Safari は押したリンクに focus を移さないので、候補を tap した瞬間に閉じると click が
+// 候補ではなくその下の本文に届いてしまう。外を押したときは pointerdown で閉じる。
+document.addEventListener('pointerdown', (event) => {
+  if (event.target instanceof Node && !form.contains(event.target)) closeCandidates();
+});
+form.addEventListener('focusout', (event) => {
+  if (event.relatedTarget instanceof Node && !form.contains(event.relatedTarget)) closeCandidates();
+});
+
+// 767px 以下の検索ボタン。バーの下に検索欄を開いて入力欄に focus を移す。開いているときは閉じる。
+// JavaScript が無いときは検索の結果ページへのリンクなので、ここで button として振る舞わせる。
+toggle?.setAttribute('role', 'button');
+toggle?.setAttribute('aria-expanded', String(nav.classList.contains('search-open')));
+toggle?.addEventListener('click', (event) => {
+  event.preventDefault();
+  const open = !nav.classList.contains('search-open');
+  nav.classList.toggle('search-open', open);
+  toggle.setAttribute('aria-expanded', String(open));
+  if (open) input.focus();
+  else leaveSearch();
 });

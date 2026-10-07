@@ -33,7 +33,7 @@ void test('既存ページの正規 URL は SSR 本文と直接編集用の要�
   const nonce = dataAttribute(body, 'csp-nonce');
   assert.match(nonce, /^[A-Za-z0-9+/]{22}==$/);
   assert.equal(res.headers.get('content-security-policy'), `${BASE_CSP}; style-src 'self' 'nonce-${nonce}'`);
-  assert.match(body, /<nav class="page-nav"><a href="\/proj">proj<\/a><\/nav>/);
+  assert.match(body, /<nav class="page-nav with-page-menu">\n<div class="page-nav-start"><a href="\/proj">proj<\/a><\/div>/);
   assert.match(body, /<div id="save-status"/);
   assert.match(body, /<section id="edit-conflict"[^>]*hidden>/);
   assert.match(body, /id="edit-conflict-list"/);

@@ -44,6 +44,8 @@ const accountNames = [
   'active-line-e2e',
   'caret-e2e',
   'caret-mobile-e2e',
+  'search-e2e',
+  'search-mobile-e2e',
 ];
 for (const name of accountNames) {
   await storage.addAccount(

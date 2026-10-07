@@ -1,10 +1,12 @@
 import type { Hono } from 'hono';
+import { checkSearchQuery } from '../../core/searchQuery.ts';
 import { renderLines } from '../../render/render.ts';
 import type { ApplicationDeps } from '../application.ts';
 import { resolvePage, resolveProject, safeDecode, type ApiEnv } from '../http.ts';
 import { pageListPage } from '../views/pageList.ts';
 import { pageNotFoundPage, pageViewPage, projectNotFoundPage } from '../views/pageView.ts';
 import { projectIndexPage } from '../views/projectIndex.ts';
+import { searchResultsPage } from '../views/searchPage.ts';
 
 function nonce(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -35,6 +37,21 @@ export function registerPageRoutes(app: Hono<ApiEnv>, deps: ApplicationDeps): vo
       pinnedFirst: true,
     });
     return c.html(pageListPage(project, result, skip, limit, deps.config.allowedImageHosts));
+  });
+
+  // 全文検索の結果ページ（#247）。ページの URL（/:project/:title）とは段の数が違うので重ならない。
+  app.get('/:project/search/page', async (c) => {
+    const project = await resolveProject(deps.storage, c);
+    if (project === null) return c.html(projectNotFoundPage(c.req.param('project')), 404);
+    const query = c.req.query('q') ?? '';
+    const checked = checkSearchQuery(query);
+    if (!checked.ok) {
+      const result = { kind: 'problem', problem: checked.problem } as const;
+      return c.html(searchResultsPage(project, query, result, deps.config.allowedImageHosts), checked.problem === 'required' ? 200 : 400);
+    }
+    const hits = await deps.storage.search(project.id, checked.query);
+    const result = { kind: 'hits', words: checked.query.words, hits } as const;
+    return c.html(searchResultsPage(project, query, result, deps.config.allowedImageHosts));
   });
 
   app.get('/:project/:title/edit', (c) => {

@@ -30,7 +30,7 @@ void test('プロジェクトトップにプロジェクト一覧へ戻る導線
 
   const body = await (await s.request('/proj', {}, cookie)).text();
 
-  assert.match(body, /<nav class="page-nav"><a href="\/">プロジェクト一覧<\/a><\/nav>/);
+  assert.match(body, /<nav class="page-nav">\n<div class="page-nav-start"><a href="\/">プロジェクト一覧<\/a><\/div>/);
 });
 
 void test('アップロード画像(/files/)はカードのサムネイルになる', async () => {
@@ -97,16 +97,18 @@ void test('GET /:project: 存在しないプロジェクトは layout を使っ�
   assert.match(body, /missing/);
 });
 
-void test('検索ボックスと script タグが一覧ページに含まれる', async () => {
+void test('一覧ページの検索欄は上部のバーにあり、全文検索の結果ページへ GET で送る（#247）', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
   await seedPage(s.storage, project.id, 'A', ['x'], s.clock.t);
   const res = await s.request('/proj', {}, cookie);
   const body = await res.text();
-  assert.match(body, /id="search-box"/);
-  assert.match(body, /id="search-root"[^>]*data-project="proj"/);
+  assert.match(body, /<nav class="page-nav">[\s\S]*<form class="nav-search" role="search" action="\/proj\/search\/page" method="get"/);
+  assert.match(body, /<input class="nav-search-input" type="search" name="q" value=""/);
+  assert.doesNotMatch(body, /id="search-box"/);
   assert.match(body, /<script type="module" src="\/assets\/build\/search\.js"><\/script>/);
+  assert.match(body, /<script type="module" src="\/assets\/build\/page-list\.js"><\/script>/);
   assert.doesNotMatch(body, /<script>/);
 });
 

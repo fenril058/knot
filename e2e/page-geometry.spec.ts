@@ -169,7 +169,7 @@ test('上部のバーにプロジェクト名を Cosense と同じ字で置き�
 
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(`/e2e/${title}`);
-  const projectLink = page.locator('.page-nav a');
+  const projectLink = page.locator('.page-nav-start a');
   await expect(projectLink).toHaveText('e2e');
   expect(await projectLink.evaluate((element) => {
     const style = getComputedStyle(element);
