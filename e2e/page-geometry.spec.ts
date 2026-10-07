@@ -178,12 +178,16 @@ test('上部のバーにプロジェクト名を Cosense と同じ字で置き�
 
   // Cosense のページメニュー列は紙面の右 10px から始まり、上端は紙面と揃う。46px 四方のボタンが
   // ページ情報、ページの操作の順に縦に並び、印は #848484（#251）。
-  const menuButtons = await page.locator('.page-actions > summary').evaluateAll((summaries) => summaries.map((summary) => {
+  const menuButtons = await page.locator('.page-actions > summary, .page-menu-link').evaluateAll((summaries) => summaries.map((summary) => {
     const box = summary.getBoundingClientRect();
     return { label: summary.getAttribute('aria-label'), x: box.x, y: box.y, width: box.width, height: box.height, color: getComputedStyle(summary).color };
   }));
   const menuButton = { x: 132 + 960 + 10, width: 46, height: 46, color: 'rgb(132, 132, 132)' };
-  expect(menuButtons).toEqual([{ label: 'ページ情報', y: 72, ...menuButton }, { label: 'ページの操作', y: 118, ...menuButton }]);
+  expect(menuButtons).toEqual([
+    { label: 'ページ情報', y: 72, ...menuButton },
+    { label: 'ページの操作', y: 118, ...menuButton },
+    { label: 'ランダムなページへ移る', y: 164, ...menuButton },
+  ]);
   const actions = page.locator('#page-actions > summary');
   await actions.click();
   await expect(page.locator('#rename-button')).toBeInViewport();
@@ -217,4 +221,17 @@ test('ページ情報のボタンで、作成と更新の日時を相対の日�
   await expect(page.locator('#page-info .page-info-row')).toHaveText([/^作成 \d+ (秒|分)前$/, /^更新 \d+ (秒|分)前$/]);
   const titles = await times.evaluateAll((elements) => elements.map((element) => element.getAttribute('title')));
   for (const exact of titles) expect(exact).toMatch(/^\d{4}\/\d{2}\/\d{2} \d{1,2}:\d{2}:\d{2}$/);
+});
+
+test('ランダムなページへ移るボタンで、同じプロジェクトのページへ移る', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'geometry-e2e');
+  const title = `geometry-random-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, BODY);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  await page.locator('.page-menu-link').click();
+  // 移った先は e2e プロジェクトのページ（#258）。
+  await expect(page).toHaveURL(/^http:\/\/[^/]+\/e2e\/[^/]+$/);
+  await expect(page.locator('#editor-root .line-title')).toHaveCount(1);
 });

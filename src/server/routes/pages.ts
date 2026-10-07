@@ -1,5 +1,6 @@
 import type { Hono } from 'hono';
 import { checkSearchQuery } from '../../core/searchQuery.ts';
+import { pageHref } from '../../core/title.ts';
 import { renderLines } from '../../render/render.ts';
 import type { ApplicationDeps } from '../application.ts';
 import { resolvePage, resolveProject, safeDecode, type ApiEnv } from '../http.ts';
@@ -52,6 +53,15 @@ export function registerPageRoutes(app: Hono<ApiEnv>, deps: ApplicationDeps): vo
     const hits = await deps.storage.search(project.id, checked.query);
     const result = { kind: 'hits', words: checked.query.words, hits } as const;
     return c.html(searchResultsPage(project, query, result, deps.config.allowedImageHosts));
+  });
+
+  // ランダムなページへ移る（#258）。押したときだけ全ページのタイトルを読み、無作為に 1 つ選ぶ。
+  app.get('/:project/random/page', async (c) => {
+    const project = await resolveProject(deps.storage, c);
+    if (project === null) return c.html(projectNotFoundPage(c.req.param('project')), 404);
+    const titles = await deps.storage.listPageTitles(project.id);
+    const chosen = titles[Math.floor(Math.random() * titles.length)];
+    return c.redirect(chosen === undefined ? `/${encodeURIComponent(project.name)}` : pageHref(project.name, chosen.title), 302);
   });
 
   app.get('/:project/:title/edit', (c) => {

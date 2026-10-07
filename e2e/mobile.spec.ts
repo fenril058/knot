@@ -458,11 +458,17 @@ test('mobile browser でも紙面と本文を Cosense と同じ位置と字で�
   expect(normalizedTextStyle(await textStyleOf(page, GEOMETRY_BODY[0]!))).toEqual(bodyStyle);
   expect(await rowHeights(page)).toEqual([63, 28, 28, 28]);
 
-  // Cosense は 767px 以下でページメニューを上部のバーへ移す。ページ操作がバーの中にあり、画面内で押せる。
-  const menu = (await page.locator('#page-actions > summary').boundingBox())!;
-  expect(menu.y).toBeGreaterThanOrEqual(0);
-  expect(menu.y + menu.height).toBeLessThanOrEqual(41);
-  expect(menu.x + menu.width).toBeLessThanOrEqual(expectedWidth);
+  // Cosense は 767px 以下でページメニューを上部のバーへ移す。ページメニューのボタンがバーの中に
+  // 横に並び、検索ボタンと重ならず、画面内で押せる（#251 / #258）。
+  const boxes = await page.locator('.nav-search-toggle, .page-actions > summary, .page-menu-link').evaluateAll((elements) =>
+    elements.map((element) => element.getBoundingClientRect().toJSON()));
+  expect(boxes).toHaveLength(4);
+  for (const [index, box] of boxes.entries()) {
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height).toBeLessThanOrEqual(41);
+    expect(box.x + box.width).toBeLessThanOrEqual(expectedWidth);
+    if (index > 0) expect(box.x).toBeGreaterThanOrEqual(boxes[index - 1]!.x + boxes[index - 1]!.width);
+  }
 
   await page.locator('#editor-root .line-row').nth(GEOMETRY_BODY.length).tap();
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
