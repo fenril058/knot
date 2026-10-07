@@ -167,6 +167,11 @@ export class SyncEngine {
     return this.#confirmed.lines;
   }
 
+  // サーバが確定した版。ページ操作（複製・リネーム・削除）の baseVersion に使う。
+  get confirmedVersion(): number {
+    return this.#confirmed.version;
+  }
+
   bufferChanged(texts: string[]): SyncEffect[] {
     this.#buffer = [...texts];
     this.#hasBufferChanged = true;

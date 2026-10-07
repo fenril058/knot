@@ -1,5 +1,6 @@
 import { ulid } from '../../core/id.ts';
 import { encodeTitleForUrl, pageHref } from '../../core/title.ts';
+import { requestSettledPage, type SettledPage } from '../editSession.ts';
 import { duplicateOps } from './ops.ts';
 
 type DialogElements = { dialog: HTMLDialogElement; form: HTMLFormElement; error: HTMLElement };
@@ -67,10 +68,11 @@ async function showConflict(
 }
 
 const root = requireElement('#page-menu-root', HTMLElement);
-const { project, title, pageId, version: versionText } = root.dataset;
-if (project === undefined || title === undefined || pageId === undefined || pageId === '' || versionText === undefined) {
+const { project, title: titleText, pageId, version: versionText } = root.dataset;
+if (project === undefined || titleText === undefined || pageId === undefined || pageId === '' || versionText === undefined) {
   throw new Error('page menu data attributes are missing');
 }
+const pageTitle = titleText;
 const version = Number(versionText);
 if (!Number.isInteger(version)) throw new Error('page version is invalid');
 
@@ -99,6 +101,21 @@ for (const time of root.querySelectorAll<HTMLTimeElement>('.page-info-menu time'
   time.title = exactFormat.format(date);
 }
 
+// 操作するページの版とタイトル。編集中なら、手元の編集を保存し終えるのを待ち、その版とタイトルを
+// 使う（#192）。保存できない状態なら、理由の文で reject する。編集していなければ閲覧表示の値を使う。
+async function currentPage(): Promise<SettledPage> {
+  return requestSettledPage() ?? { version, title: pageTitle };
+}
+
+async function settledOrShowError(elements: DialogElements): Promise<SettledPage | undefined> {
+  try {
+    return await currentPage();
+  } catch (error) {
+    showError(elements, error instanceof Error ? error.message : String(error));
+    return undefined;
+  }
+}
+
 const duplicate = dialogElements('duplicate');
 const rename = dialogElements('rename');
 const remove = dialogElements('delete');
@@ -118,8 +135,10 @@ duplicate.form.addEventListener('submit', (event) => {
   duplicate.error.hidden = true;
   const newTitle = duplicateTitle.value.trim();
   void (async () => {
+    const current = await settledOrShowError(duplicate);
+    if (current === undefined) return;
     try {
-      const sourceResponse = await fetch(`/api/pages/${encodeURIComponent(project)}/${encodeTitleForUrl(title)}`, {
+      const sourceResponse = await fetch(`/api/pages/${encodeURIComponent(project)}/${encodeTitleForUrl(current.title)}`, {
         headers: { 'X-Knot-Client': 'page-menu' },
       });
       if (!sourceResponse.ok) return showError(duplicate, await errorMessage(sourceResponse));
@@ -143,14 +162,16 @@ rename.form.addEventListener('submit', (event) => {
   rename.error.hidden = true;
   const newTitle = renameTitle.value.trim();
   void (async () => {
+    const current = await settledOrShowError(rename);
+    if (current === undefined) return;
     try {
-      const response = await fetch(`/api/knot/pages/${encodeURIComponent(project)}/${encodeTitleForUrl(title)}/rename`, {
+      const response = await fetch(`/api/knot/pages/${encodeURIComponent(project)}/${encodeTitleForUrl(current.title)}/rename`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Knot-Client': 'page-menu' },
-        body: JSON.stringify({ pageId, newTitle, baseVersion: version, rewriteLinks: rewriteLinks.checked }),
+        body: JSON.stringify({ pageId, newTitle, baseVersion: current.version, rewriteLinks: rewriteLinks.checked }),
       });
       if (!response.ok) {
-        if (response.status === 409) return showConflict(rename, response, project, pageId, title);
+        if (response.status === 409) return showConflict(rename, response, project, pageId, current.title);
         return showError(rename, await errorMessage(response));
       }
       window.location.assign(pageHref(project, newTitle));
@@ -164,14 +185,16 @@ remove.form.addEventListener('submit', (event) => {
   event.preventDefault();
   remove.error.hidden = true;
   void (async () => {
+    const current = await settledOrShowError(remove);
+    if (current === undefined) return;
     try {
-      const response = await fetch(`/api/knot/pages/${encodeURIComponent(project)}/${encodeTitleForUrl(title)}`, {
+      const response = await fetch(`/api/knot/pages/${encodeURIComponent(project)}/${encodeTitleForUrl(current.title)}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json', 'X-Knot-Client': 'page-menu' },
-        body: JSON.stringify({ pageId, baseVersion: version }),
+        body: JSON.stringify({ pageId, baseVersion: current.version }),
       });
       if (!response.ok) {
-        if (response.status === 409) return showConflict(remove, response, project, pageId, title);
+        if (response.status === 409) return showConflict(remove, response, project, pageId, current.title);
         return showError(remove, await errorMessage(response));
       }
       window.location.assign(`/${encodeURIComponent(project)}`);
