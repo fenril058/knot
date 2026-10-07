@@ -98,6 +98,19 @@ void test('2-hop の札は共有するリンク先ごとの行に分け、行は
   assert.deepEqual([...group('Eta').matchAll(/<h3>([^<]+)<\/h3>/g)].map((match) => match[1]), ['Viae', 'Both']);
 });
 
+void test('関連ページの札の説明文のアイコンは、画像の分かるページなら字の高さの画像で描く（#256）', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'Gamma', ['[https://i.gyazo.com/gamma.png]'], s.clock.t);
+  await seedPage(s.storage, project.id, 'Beta', ['[Gamma.icon] の説明'], s.clock.t + 1);
+  await seedPage(s.storage, project.id, 'Alpha', ['[Beta]'], s.clock.t + 2);
+
+  const body = await (await s.request('/proj/Alpha', {}, cookie)).text();
+
+  assert.match(body, /href="\/proj\/Beta">[\s\S]*?<p><span class="card-link"><img class="inline-icon" src="https:\/\/i\.gyazo\.com\/gamma\.png" alt=""><\/span> の説明<\/p>/);
+});
+
 void test('関連ページの外部画像は allowedImageHosts で許可したホストだけ表示する', async () => {
   const s = await makeServer({ allowedImageHosts: ['allowed.example'] });
   const cookie = await loginAs(s);

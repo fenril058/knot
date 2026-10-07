@@ -2,7 +2,7 @@ import { html } from 'hono/html';
 import { extractRefs } from '../../core/links.ts';
 import type { Line } from '../../core/ops.ts';
 import { pageHref, titleLc } from '../../core/title.ts';
-import type { IndentMark } from '../../render/presentation.ts';
+import { knownPageMap, type IndentMark } from '../../render/presentation.ts';
 import type { KnownPage, RenderConfig, RenderedLine } from '../../render/render.ts';
 import { telomereWidth } from '../../render/telomere.ts';
 import type { PageSnapshot, Project, RelatedPage, RelatedPages, Visit } from '../../storage/types.ts';
@@ -79,6 +79,7 @@ function relatedGroupList(
   group: RelatedGroup,
   projectName: string,
   allowedImageHosts: string[],
+  knownPages: ReadonlyMap<string, KnownPage>,
   eagerImagePageId: string | null,
 ): Html {
   const labelClass = group.href === null ? 'relation-label links' : 'relation-label headword';
@@ -89,6 +90,7 @@ function relatedGroupList(
     pageCardListItem(projectName, related, allowedImageHosts, {
       headingLevel: 3,
       imageLoading: related.id === eagerImagePageId ? 'eager' : 'lazy',
+      knownPages,
     }),
   )}</ul>`;
 }
@@ -100,16 +102,17 @@ function relatedSection(
   related: RelatedPages,
   projectName: string,
   allowedImageHosts: string[],
-  knownTitles: ReadonlyMap<string, string>,
+  knownPages: readonly KnownPage[],
   eagerImagePageId: string | null,
 ): Html {
   const groups: RelatedGroup[] = [
     ...(related.links1hop.length === 0 ? [] : [{ label: 'Links', href: null, pages: related.links1hop }]),
-    ...twoHopGroups(page, related.links2hop, projectName, knownTitles),
+    ...twoHopGroups(page, related.links2hop, projectName, knownTitleMap(knownPages)),
   ];
   if (groups.length === 0) return html``;
+  const cardPages = knownPageMap(knownPages);
   return html`<section class="related-pages" aria-labelledby="related-pages-title"><h2 id="related-pages-title" class="visually-hidden">関連ページ</h2>${groups.map((group) =>
-    relatedGroupList(group, projectName, allowedImageHosts, eagerImagePageId),
+    relatedGroupList(group, projectName, allowedImageHosts, cardPages, eagerImagePageId),
   )}</section>`;
 }
 
@@ -208,7 +211,7 @@ ${recoveryDialog()}
   data-rendered-at="${now}"
 >${rendered.map((line, index) => lineRow(page.lines[index]!, line, previousVisit, now))}</div>
 </div>
-${relatedSection(page, related, project.name, renderConfig.allowedImageHosts, knownTitleMap(knownPages), eagerImagePageId)}
+${relatedSection(page, related, project.name, renderConfig.allowedImageHosts, knownPages, eagerImagePageId)}
 </div>
 </div>
 </main>
