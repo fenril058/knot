@@ -95,6 +95,51 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
 @media (max-width: 767px) {
   .related-group { margin-bottom: 32px; }
 }
+/* 絞り込みで札の残らない行と、残らない札（#281）。.card-grid > li の display より強くする。 */
+.related-group[hidden], .related-group > li[hidden] { display: none; }
+/* 関連ページの絞り込み欄と並び替え（#281）。Cosense の関連ページの toolbar と同じく、行の上に高さ 42px で
+   置き、最初の行はその 16px 下から始める。992px 以上は並び替えをタブと menu に分け、991px 以下は menu だけに
+   し、767px 以下は並び替えの下に絞り込み欄を横幅いっぱいに置く。 */
+.related-toolbar { align-items: flex-start; display: flex; justify-content: space-between; margin-bottom: 16px; }
+.related-filter { align-items: center; background-color: rgb(255 255 255 / 50%); border-radius: 5px; color: #363c49; display: flex; flex: 0 1 400px; height: 32px; min-width: 0; }
+.related-filter:focus-within { background-color: #fff; box-shadow: inset 0 0 0 3px rgb(102 175 233 / 60%); }
+.related-filter-icon { flex-shrink: 0; margin: 0 3px 0 7px; }
+.related-filter-input { appearance: none; background: none; border: 0; color: inherit; flex: 1; font: inherit; font-size: 16px; line-height: 1.42857; margin: 0; min-width: 0; outline: none; padding: 1px 2px; }
+.related-filter-input:focus { color: #000; }
+.related-filter-input::-webkit-search-cancel-button { appearance: none; }
+.related-sort { align-items: center; display: flex; flex-shrink: 0; gap: 4px; height: 42px; white-space: nowrap; }
+.related-sort .tool-button { border: 1px solid transparent; }
+.related-sort-tabs { display: flex; gap: 2px; }
+.related-sort-tab[aria-pressed="true"] { background-color: #fff; border-radius: 4px; color: #444; }
+/* 展開ボタンの上端は、Cosense では高さ 42px の行の上から 4.8px（Open Sans の字の行に vertical-align: middle で
+   置いた位置）。knot は web font を読まず字の形が違うので、同じ位置を margin で与える。 */
+.related-sort-menu { height: 42px; position: relative; }
+.related-sort-toggle { align-items: center; display: flex; list-style: none; margin-top: 4.8px; }
+.related-sort-toggle::-webkit-details-marker { display: none; }
+.related-sort-menu[open] > .related-sort-toggle { background-color: rgb(0 0 0 / 8%); }
+@media (hover: hover) {
+  .related-sort-tab[aria-pressed="false"]:hover, .related-sort-toggle:hover { background-color: rgb(0 0 0 / 8%); }
+}
+.related-sort-options { background-color: #fff; border: 1px solid rgb(0 0 0 / 15%); border-radius: 4px; box-shadow: 0 6px 12px rgb(0 0 0 / 17.6%); box-sizing: border-box; display: flex; flex-direction: column; inset-inline-end: 0; min-width: 160px; padding: 8px 0; position: absolute; top: calc(100% + 2px); z-index: 3; }
+.related-sort-heading { color: #777; font-size: 12px; line-height: 17px; margin: 0; padding: 3px 16px; }
+.related-sort-options button { background: none; border: 0; color: #333; cursor: pointer; font: inherit; font-size: 14px; line-height: 28px; padding: 0 16px; text-align: start; }
+.related-sort-options button[aria-pressed="true"] { color: #3d72f5; }
+.related-sort-options button:focus-visible { background-color: #f5f5f5; color: #262626; outline: none; }
+@media (hover: hover) {
+  .related-sort-options button:hover { background-color: #f5f5f5; color: #262626; }
+}
+@media (min-width: 992px) {
+  .related-sort-options [data-tab-sort] { display: none; }
+  .related-sort[data-tab-selected="true"] .related-sort-current { clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
+  .related-sort[data-tab-selected="false"] .related-sort-toggle { background-color: #fff; border-radius: 4px; color: #444; }
+}
+@media (max-width: 991px) {
+  .related-sort-tabs { display: none; }
+}
+@media (max-width: 767px) {
+  .related-toolbar { align-items: flex-end; flex-direction: column-reverse; }
+  .related-filter { align-self: stretch; flex-basis: auto; }
+}
 /* 行の先頭の見出しの札。1-hop は青い「Links」、2-hop は共有するリンク先の名前で、右端の中央に札の色の
    右向きの三角を付ける（Cosense の .relation-label）。 */
 .relation-label { position: relative; }

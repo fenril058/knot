@@ -50,6 +50,8 @@ const accountNames = [
   'page-menu-e2e',
   'selection-e2e',
   'table-e2e',
+  'related-e2e',
+  'related-mobile-e2e',
 ];
 for (const name of accountNames) {
   await storage.addAccount(
@@ -65,28 +67,42 @@ for (const name of accountNames) {
 }
 await storage.ensureProject('e2e', now);
 
-// ピン留めは HTTP API から設定できないので、カードの e2e（e2e/cards.spec.ts）が使う
-// ピン留めのページをここで用意する。
-const pinnedProject = await storage.ensureProject('e2e-pinned', now);
-for (const [title, pinned] of [['pinned card', true], ['plain card', false]] as const) {
+// タイトルと本文の行を 1 コミットで書き、ページを作る。at がページの作成・更新の日時になる。
+async function seedPage(projectId: string, lines: string[], at: number): Promise<string> {
   const pageId = ulid();
   let after = '_head';
-  const ops = [title, `${title} の説明`].map((text) => {
+  const ops = lines.map((text) => {
     const id = ulid();
     const op = { type: 'insert' as const, id, after, text };
     after = id;
     return op;
   });
-  await storage.commit({
-    projectId: pinnedProject.id,
-    pageId,
-    commitId: ulid(),
-    baseVersion: 0,
-    ops,
-    actorId: 'e2e',
-    now,
-  });
+  await storage.commit({ projectId, pageId, commitId: ulid(), baseVersion: 0, ops, actorId: 'e2e', now: at });
+  return pageId;
+}
+
+// ピン留めは HTTP API から設定できないので、カードの e2e（e2e/cards.spec.ts）が使う
+// ピン留めのページをここで用意する。
+const pinnedProject = await storage.ensureProject('e2e-pinned', now);
+for (const [title, pinned] of [['pinned card', true], ['plain card', false]] as const) {
+  const pageId = await seedPage(pinnedProject.id, [title, `${title} の説明`], now);
   if (pinned) await storage.setPinned(pageId, true);
+}
+
+// 関連ページの並び替えと絞り込みの e2e（e2e/related.spec.ts と e2e/mobile.spec.ts）が使うページ。
+// 札の更新日時を決めておくため、HTTP API ではなくここで作る。rel-base から見た関連度の順は
+// bravo（rel-base にリンクする）・alpha・charlie、更新日時の順は alpha・charlie・bravo。
+// 2-hop の rel-alpha の行は、関連度と更新日時の順が zulu・yankee、タイトルの順が yankee・zulu。
+const relatedProject = await storage.ensureProject('e2e-related', now);
+for (const [lines, at] of [
+  [['rel-alpha', 'alpha の説明'], now - 100],
+  [['rel-bravo', '[rel-base] へ戻る', 'bravo の説明'], now - 300],
+  [['rel-charlie', 'needle を含む説明'], now - 200],
+  [['rel-two-zulu', '[rel-alpha] を共有する'], now - 50],
+  [['rel-two-yankee', '[rel-alpha] を共有する'], now - 400],
+  [['rel-base', '[rel-alpha] [rel-bravo] [rel-charlie]'], now],
+] as const) {
+  await seedPage(relatedProject.id, [...lines], at);
 }
 
 const port = Number(process.env.E2E_PORT ?? 4173);

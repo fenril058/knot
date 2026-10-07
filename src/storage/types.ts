@@ -81,6 +81,7 @@ export type RelatedPage = {
   descriptions: string[];
   linksLc: string[];
   linked: number;
+  created: number;
   updated: number;
   accessed: number;
 };
