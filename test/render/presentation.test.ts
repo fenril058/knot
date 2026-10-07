@@ -131,6 +131,14 @@ void test('原文と違う字を描くアイコンと、画像は、node の範�
   if (image?.type === 'image') assert.deepEqual(image.span, { from: 18, to: 48, verbatim: false });
 });
 
+void test('表の行は、見出しの行番号を表の区別に持つ', () => {
+  const lines = presentationLines('Title\ntable:a\n x\ty\n z\tw\ntable:b\n p\tq', new Map(), 'proj', config);
+  assert.deepEqual(
+    lines.flatMap((line) => (line.role === 'tableRow' ? [[line.number, line.table]] : [])),
+    [[3, 2], [4, 2], [6, 5]],
+  );
+});
+
 void test('同じ本文でも周囲のブロック種別が変われば表示キーが変わる', () => {
   const tableLine = presentationLines('Title\ntable:t\n a\tb', new Map(), 'proj', config)[2];
   const plainLine = presentationLines('Title\nplainxx\n a\tb', new Map(), 'proj', config)[2];

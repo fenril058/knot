@@ -166,7 +166,9 @@ void test('テーブルも複数物理行を 1 ブロックとして消費する
   ];
   const out = renderLines(lines, new Map(), 'proj', cfg);
   assert.equal(out.length, 4);
-  assert.match(htmlOf(out[2]!), /<table>/);
+  // 同じ表の行は、見出しの行番号を data-table に持つ（列の幅を揃える、#276）。
+  assert.match(htmlOf(out[2]!), /<table data-table="2">/);
+  assert.match(htmlOf(out[3]!), /<table data-table="2">/);
   assert.deepEqual(out.slice(1).map((line) => line.indent), [0, 0, 0]);
 });
 

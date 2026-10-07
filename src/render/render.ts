@@ -94,7 +94,7 @@ export function renderLines(
     else if (line.role === 'codeLine') rendered = html`<div class="code-line">${line.text}</div>`;
     else if (line.role === 'tableHeader') rendered = html`<div class="table-header">${blockLabel('table', line.text)}</div>`;
     else if (line.role === 'tableRow') {
-      rendered = html`<div class="table-row"><table><tr>${line.cells.map(
+      rendered = html`<div class="table-row"><table data-table="${line.table}"><tr>${line.cells.map(
         (cell) => html`<td>${cell.map(renderNode)}</td>`,
       )}</tr></table></div>`;
     } else throw new Error('unknown presented line role');

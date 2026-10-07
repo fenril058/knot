@@ -21,9 +21,12 @@ import {
   type PresentedNode,
 } from '../../../render/presentation.ts';
 import { clickTarget, lineElements, sourcePosition } from '../caretPosition.ts';
+import { currentTableColumns, measureTableColumns, writeTableColumns, type MeasuredTables, type TableColumns } from '../../tableColumns.ts';
 
 export type LineWysiwygConfig = {
   project: string;
+  // 表の列の幅を書く style に付ける CSP の nonce（#276）。
+  cspNonce?: string;
   allowedImageHosts: string[];
   allowedMediaHosts: string[];
   knownPages: KnownPage[];
@@ -264,6 +267,8 @@ class FormattedLineWidget extends WidgetType {
       content.append(code);
     } else if (this.line.role === 'tableRow') {
       const table = document.createElement('table');
+      // 閲覧表示と同じく、同じ表の行の列の幅を揃える（#276）。
+      table.dataset.table = String(this.line.table);
       const tr = document.createElement('tr');
       for (const cell of this.line.cells) {
         const td = document.createElement('td');
@@ -387,6 +392,32 @@ function measureSpaceWidth(view: EditorView): void {
   if (width > 0) view.dom.style.setProperty('--indent-space-width', `${width}px`);
 }
 
+// 表ごとの行の数（表の見出しの行番号ごと）。
+function tableRowCounts(view: EditorView, config: LineWysiwygConfig): Map<string, number> {
+  const counts = new Map<string, number>();
+  try {
+    for (const line of displayLines(view.state, config)) {
+      if (line.role === 'tableRow') counts.set(String(line.table), (counts.get(String(line.table)) ?? 0) + 1);
+    }
+  } catch {
+    return counts;
+  }
+  return counts;
+}
+
+// 編集表示の表の列の幅（#276）。整形表示の行のセルを測り、閲覧表示と同じ style に書く。CodeMirror は
+// 画面から遠い行やカーソル行のセルを描かないので、表の行をすべて測れたときだけ測った幅をそのまま使い、
+// そうでなければ今の幅より狭くしない（閲覧表示で、描かれていない行の長いセルが決めた幅を保つ）。
+function mergeTableColumns(current: TableColumns, measured: MeasuredTables, rowCounts: ReadonlyMap<string, number>): TableColumns {
+  const merged = new Map(current);
+  for (const [key, { widths, rows }] of measured) {
+    const previous = rows === rowCounts.get(key) ? [] : current.get(key) ?? [];
+    const length = Math.max(widths.length, previous.length);
+    merged.set(key, Array.from({ length }, (_, index) => Math.max(widths[index] ?? 0, previous[index] ?? 0)));
+  }
+  return merged;
+}
+
 export function lineWysiwyg(config: LineWysiwygConfig): Extension {
   const plugin = ViewPlugin.fromClass(class {
     decorations: DecorationSet;
@@ -394,10 +425,23 @@ export function lineWysiwyg(config: LineWysiwygConfig): Extension {
     constructor(view: EditorView) {
       measureSpaceWidth(view);
       this.decorations = buildDecorations(view, config);
+      this.alignTables(view);
     }
 
     update(update: ViewUpdate): void {
       if (update.docChanged || update.selectionSet) this.decorations = buildDecorations(update.view, config);
+      if (update.docChanged || update.selectionSet || update.viewportChanged) this.alignTables(update.view);
+    }
+
+    alignTables(view: EditorView): void {
+      view.requestMeasure({
+        key: 'knot-table-columns',
+        read: (current) => measureTableColumns(current.contentDOM),
+        write: (measured, current) => {
+          if (measured.size === 0) return;
+          writeTableColumns(mergeTableColumns(currentTableColumns(), measured, tableRowCounts(current, config)), config.cspNonce);
+        },
+      });
     }
   }, {
     decorations: (value) => value.decorations,
