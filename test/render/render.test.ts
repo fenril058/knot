@@ -292,3 +292,14 @@ void test('[Name.icon] は image が許可ホスト外ならブラケット表�
   assert.doesNotMatch(result, /<img/);
   assert.match(result, /<a href="\/proj\/Foo" class="icon-link">\[Foo\]<\/a>/);
 });
+
+void test('[Name.icon*N] は Cosense と同じくアイコンを N 個並べて表示する', () => {
+  const lines = [
+    { id: 'title', text: 'Title' },
+    { id: 'l1', text: '[Foo.icon*3] 後' },
+  ];
+  const map = new Map([['foo', { title: 'Foo', image: 'https://i.gyazo.com/icon.png' }]]);
+  const html = htmlOf(renderLines(lines, map, 'proj', cfg)[1]!);
+  const icon = '<a href="/proj/Foo" class="icon-link"><img src="https://i.gyazo.com/icon.png" alt="Foo" class="icon-img"></a>';
+  assert.ok(html.includes(`${icon}${icon}${icon} 後`), html);
+});

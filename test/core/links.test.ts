@@ -83,3 +83,8 @@ void test('linkTargets は原文タイトルと lc 形の組を返す', () => {
     { title: 'TagName', titleLc: 'tagname' },
   ]);
 });
+
+void test('アイコンの繰り返し記法は、そのページへのリンク 1 つになる', () => {
+  const { linkTargets } = extractRefs('タイトル\n[alice.icon*3]');
+  assert.deepEqual(linkTargets.map((t) => t.titleLc), ['alice']);
+});

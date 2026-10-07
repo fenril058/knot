@@ -208,3 +208,22 @@ void test('新規作成の制約: baseVersion != 0 は 404、URL とタイトル
   });
   assert.equal(mismatch.status, 400);
 });
+
+// 以前は parsePageSyntax が [name.icon*N] の 2 個目のアイコンの位置を見つけられず、500 になっていた（#227）。
+void test('アイコンの繰り返し記法を含む本文を保存できる', async () => {
+  const { s, post } = await setup();
+  const titleId = ulid();
+  const bodyId = ulid();
+  const response = await post('Icons', {
+    commitId: ulid(),
+    baseVersion: 0,
+    ops: [
+      { type: 'insert', id: titleId, after: '_head', text: 'Icons' },
+      { type: 'insert', id: bodyId, after: titleId, text: '[alice.icon*3] と [[bob.icon*2]]' },
+    ],
+  });
+  assert.equal(response.status, 200);
+  const project = await s.storage.getProject('proj');
+  const page = await s.storage.getPageByTitle(project!.id, 'icons');
+  assert.deepEqual(page!.lines.map((line) => line.text), ['Icons', '[alice.icon*3] と [[bob.icon*2]]']);
+});

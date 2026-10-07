@@ -177,6 +177,13 @@ function mapNode(node: ParserNode, source: string, range: SourceRange): SyntaxNo
   }
 }
 
+// アイコンの繰り返し記法 [name.icon*N] の N。parser はこの記法を、同じ raw のアイコン N 個に展開する。
+function iconRepeatCount(node: ParserNode): number {
+  if (node.type !== 'icon' && node.type !== 'strongIcon') return 1;
+  const match = /\*(\d+)\]+$/.exec(node.raw);
+  return match === null ? 1 : Number(match[1]);
+}
+
 function locateNodes(
   parserNodes: ParserNode[],
   source: string,
@@ -185,7 +192,14 @@ function locateNodes(
 ): { nodes: SyntaxNode[]; cursor: number } {
   const nodes: SyntaxNode[] = [];
   let cursor = from;
+  // 繰り返し記法から展開された 2 個目以降のアイコンは、同じ記法の範囲を共有する（#227）。
+  let repeat: { raw: string; range: SourceRange; remaining: number } | undefined;
   for (const node of parserNodes) {
+    if (repeat !== undefined && repeat.remaining > 0 && node.raw === repeat.raw) {
+      nodes.push(mapNode(node, source, repeat.range));
+      repeat.remaining -= 1;
+      continue;
+    }
     const nodeFrom = source.indexOf(node.raw, cursor);
     const nodeTo = nodeFrom + node.raw.length;
     if (nodeFrom < cursor || nodeTo > to) {
@@ -194,6 +208,8 @@ function locateNodes(
     const range = { from: nodeFrom, to: nodeTo };
     nodes.push(mapNode(node, source, range));
     cursor = nodeTo;
+    const count = iconRepeatCount(node);
+    repeat = count > 1 ? { raw: node.raw, range, remaining: count - 1 } : undefined;
   }
   return { nodes, cursor };
 }
