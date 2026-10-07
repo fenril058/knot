@@ -17,7 +17,10 @@ function nestIndentedLine(content: Html, indent: number, mark: IndentMark): Html
 function lineRow(line: Line, rendered: RenderedLine, previousVisit: Visit | null, now: number): Html {
   const unread = previousVisit === null || line.updatedVersion > previousVisit.lastSeenVersion;
   const width = telomereWidth(now - line.updated);
-  return html`<div class="${rendered.codeBlock ? 'line-row code-block-line' : 'line-row'}" id="L${line.id}">
+  const classes = ['line-row'];
+  if (rendered.codeBlock) classes.push('code-block-line');
+  if (rendered.linkOnly) classes.push('link-only');
+  return html`<div class="${classes.join(' ')}" id="L${line.id}">
 <span class="telomere${unread ? ' unread' : ''} w-${width}" data-updated="${line.updated}" data-user="${line.userId}"></span>
 ${nestIndentedLine(rendered.html, rendered.indent, rendered.mark)}
 </div>`;

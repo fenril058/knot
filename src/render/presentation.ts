@@ -52,6 +52,22 @@ export function isQuoteLine(line: PresentedLine): boolean {
   return first?.type === 'container' && first.kind === 'quote';
 }
 
+// 行の中身がリンクと埋め込み（動画・音声）と空白だけの行。リンクが行末まで届くと、行を押して
+// 編集を始める面が残らない（#186）。閲覧表示と編集表示は、この行にだけ行末の余白を置く（#245）。
+export function isLinkOnlyLine(line: PresentedLine): boolean {
+  if (line.role !== 'line') return false;
+  let links = 0;
+  const onlyLinks = (nodes: readonly PresentedNode[]): boolean => nodes.every((node) => {
+    if (node.type === 'link' || node.type === 'video' || node.type === 'audio') {
+      links += 1;
+      return true;
+    }
+    if (node.type === 'text') return node.text.trim() === '';
+    return node.type === 'container' && onlyLinks(node.children);
+  });
+  return onlyLinks(line.nodes) && links > 0;
+}
+
 export function knownPageMap(pages: readonly KnownPage[]): Map<string, KnownPage> {
   return new Map(pages.map((page) => [titleLc(page.title), page]));
 }

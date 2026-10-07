@@ -330,9 +330,9 @@ test('本文の画像とアイコンを Cosense と同じ大きさの規則で�
       return [Math.round(box.width * 10) / 10, Math.round(box.height * 10) / 10];
     }));
   };
-  // 本文の画像は高さ 300px まで、[[画像]] は高さの上限が無く幅は本文の 95% まで。
-  // 本文の幅は 862px から行末の余白 2.5rem を除いた 822px。アイコンは 1.3em、大きいアイコンは 3.9em。
-  const expected = [[450, 300], [66.7, 300], [780.9, 195.2], [19.5, 19.5], [58.5, 58.5]];
+  // 本文の画像は高さ 300px まで、[[画像]] は高さの上限が無く幅は本文（862px）の 95% まで。
+  // アイコンは 1.3em、大きいアイコンは 3.9em。
+  const expected = [[450, 300], [66.7, 300], [818.9, 204.7], [19.5, 19.5], [58.5, 58.5]];
   expect(await images()).toEqual(expected);
   const iconOffset = await page.locator('#editor-root img.icon-img').first().evaluate((image) => getComputedStyle(image).top);
   expect(iconOffset).toBe('-4.5px');
@@ -356,8 +356,8 @@ function codeLabel(depth: number): BlockLook['label'] {
   return { x: levelLeft(depth), background: 'rgb(255, 207, 198)', fontSize: '12.825px', color: 'rgb(52, 45, 156)' };
 }
 
-// 帯は本文の右端まで引く。1280px の本文の右端は 1043px で、行末の余白 2.5rem（40px）の手前まで。
-const BAND_RIGHT = 1043 - 40;
+// 帯は本文の右端まで引く。1280px の本文の右端は 1043px（#245）。
+const BAND_RIGHT = 1043;
 
 function codeBand(depth: number): BlockLook['band'] {
   return {

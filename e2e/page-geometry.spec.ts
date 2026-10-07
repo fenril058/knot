@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import {
+  charPoint,
   createE2ePage,
   lineRowClickPosition,
   lineTextBoxes,
@@ -7,6 +8,7 @@ import {
   pageGeometry,
   rowHeights,
   textStyleOf,
+  visualLineRects,
 } from './helpers.ts';
 
 // Cosense の既定テーマのページを Playwright で開いて測った値（#229）。
@@ -76,6 +78,62 @@ test('本文とタイトルを Cosense と同じ字と行送りで描き、編�
   expect(await textStyleOf(page, title)).toEqual(titleStyle);
   expect(await textStyleOf(page, BODY[0]!)).toEqual(bodyStyle);
   expect(await rowHeights(page)).toEqual([63, 28, 28, 28]);
+});
+
+// 本文の行の幅と高さ（#245）。1280px の本文は x=181 から幅 862px で、右端は 1043px。
+const TEXT_RIGHT = 181 + 862;
+const ROW_BOX_BODY = [
+  'あ'.repeat(80),
+  '前 `code` 後',
+  `[${'い'.repeat(80)}]`,
+  'last body',
+];
+
+// 行の 1 本目の視覚行の右端（最後の字の右端）。
+async function firstLineRight(page: Page, rowIndex: number): Promise<number> {
+  const [left, , width] = (await visualLineRects(page))[rowIndex]![0]!;
+  return left! + width!;
+}
+
+test('本文の行は本文の右端まで字を並べて折り返し、インラインコードの行も 28px で、編集を始めてもカーソル行でも変えない', async (
+  { page },
+  testInfo,
+) => {
+  await loginE2eAccount(page, 'geometry-e2e');
+  const title = `geometry-rows-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, ROW_BOX_BODY);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  const look = async (): Promise<{ wrap: number; link: number; heights: number[] }> => ({
+    wrap: await firstLineRight(page, 1),
+    link: await firstLineRight(page, 3),
+    heights: await rowHeights(page),
+  });
+  const ssr = await look();
+  // 長い行は、本文の右端から全角 1 字（15px）以内まで字が並ぶ。
+  expect(ssr.wrap).toBeGreaterThan(TEXT_RIGHT - 15);
+  expect(ssr.wrap).toBeLessThanOrEqual(TEXT_RIGHT);
+  // リンクだけの行は、行末に編集を始める面（#186）を残して折り返す。
+  expect(ssr.link).toBeLessThanOrEqual(TEXT_RIGHT - 40);
+  expect(ssr.link).toBeGreaterThan(TEXT_RIGHT - 40 - 15);
+  expect(ssr.heights).toEqual([63, 56, 28, 56, 28]);
+
+  await page.locator('#editor-root .line-row').nth(ROW_BOX_BODY.length).click({ position: lineRowClickPosition });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  expect(await look()).toEqual(ssr);
+
+  // カーソル行（原文表示）にしても、長い行の折り返しとインラインコードの行の高さは変わらない。
+  const longRow = page.locator('#editor-root .cm-line').nth(1);
+  const start = await charPoint(longRow, 'あ', 0, 0.25);
+  await page.mouse.click(start.x, start.y);
+  await expect(longRow.locator('.cm-wysiwyg-line')).toHaveCount(0);
+  expect(await firstLineRight(page, 1)).toBe(ssr.wrap);
+  const codeRow = page.locator('#editor-root .cm-line').nth(2);
+  const code = await charPoint(codeRow, '前', 0, 0.25);
+  await page.mouse.click(code.x, code.y);
+  await expect(codeRow.locator('.cm-wysiwyg-line')).toHaveCount(0);
+  expect(await rowHeights(page)).toEqual(ssr.heights);
 });
 
 // 触った行の画面上の上端。閲覧表示の .line-row と CodeMirror の .cm-line を同じ数え方で測る。

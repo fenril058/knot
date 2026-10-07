@@ -12,6 +12,7 @@ import { parsePageSyntax, type SyntaxNode } from '../../../core/syntax.ts';
 import { pageHref, titleLc } from '../../../core/title.ts';
 import {
   indentMark,
+  isLinkOnlyLine,
   isQuoteLine,
   knownPageMap,
   presentationLines,
@@ -333,6 +334,8 @@ function buildDecorations(view: EditorView, config: LineWysiwygConfig): Decorati
       if (line.role === 'codeHeader' || line.role === 'codeLine') {
         builder.add(line.from, line.from, Decoration.line({ class: 'code-block-line' }));
       }
+      // 行末の余白も、閲覧表示と同じ行にだけ置く。カーソルが入っても折り返しの幅を変えない。
+      if (isLinkOnlyLine(line)) builder.add(line.from, line.from, Decoration.line({ class: 'link-only' }));
       if (editing.has(line.number)) {
         if (line.role === 'line' && line.indent > 0) {
           // 段数は custom property で渡す。CodeMirror は line decoration の style を
