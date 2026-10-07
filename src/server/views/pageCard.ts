@@ -17,6 +17,8 @@ type PageCardOptions = {
   imageLoading: 'eager' | 'lazy';
   // アイコンを画像で描くための、ページのタイトルと代表画像（title_lc ごと）。無ければアイコンは名前の字。
   knownPages?: ReadonlyMap<string, KnownPage>;
+  // li に付ける属性（関連ページの並び替えと絞り込みに使う値など）。
+  itemAttributes?: Html;
 };
 
 export function canDisplayCardImage(image: string | null, allowedImageHosts: string[]): image is string {
@@ -75,7 +77,7 @@ export function pageCardListItem(
   const heading = options.headingLevel === 2 ? html`<h2>${page.title}</h2>` : html`<h3>${page.title}</h3>`;
   const knownPages = options.knownPages ?? new Map<string, KnownPage>();
   // Cosense と同じく、タイトルの下には画像のあるページなら画像だけ、無いページなら説明文を置く。
-  return html`<li><a class="${className}" href="${href}">
+  return html`<li${options.itemAttributes ?? ''}><a class="${className}" href="${href}">
 ${heading}
 ${canDisplayCardImage(page.image, allowedImageHosts)
     ? html`<img class="card-image" src="${page.image}" alt="" width="320" height="100" loading="${options.imageLoading}">`

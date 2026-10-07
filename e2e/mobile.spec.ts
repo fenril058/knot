@@ -805,6 +805,38 @@ test('mobile browser でも関連ページを、Links の札と共有するリ�
   await expectMobileLayout(page, expectedWidth);
 });
 
+test('mobile browser では関連ページの並び替えを上の行に、絞り込み欄をその下に置き、tap で並び替えられる', async (
+  { page },
+  testInfo,
+) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'related-mobile-e2e');
+
+  // ページは e2e/server.ts が e2e-related に用意する（#281）。
+  await page.goto('/e2e-related/rel-base');
+  const paper = (await page.locator('.page').boundingBox())!;
+  const toolbar = (await page.locator('.related-toolbar').boundingBox())!;
+  const sort = (await page.locator('.related-sort').boundingBox())!;
+  const filter = (await page.locator('.related-filter').boundingBox())!;
+  // Cosense と同じく、並び替えは右端の 42px の行、絞り込み欄はその下で紙面の幅いっぱい。
+  expect({ x: toolbar.x, width: toolbar.width, height: toolbar.height }).toEqual({ x: paper.x, width: paper.width, height: 74 });
+  expect({ right: sort.x + sort.width, y: sort.y, height: sort.height })
+    .toEqual({ right: paper.x + paper.width, y: toolbar.y, height: 42 });
+  expect(filter).toEqual({ x: paper.x, y: toolbar.y + 42, width: paper.width, height: 32 });
+  await expect(page.locator('.related-sort-tab:visible')).toHaveCount(0);
+  await expect(page.locator('.related-sort-current')).toHaveText('関連度');
+
+  await page.locator('.related-sort-toggle').tap();
+  await expect(page.locator('.related-sort-options button:visible'))
+    .toHaveText(['関連度', '更新日時', '作成日時', '最終アクセス', '被リンク数', 'タイトル']);
+  await page.locator('.related-sort-options button', { hasText: 'タイトル' }).tap();
+  await expect(page.locator('.related-sort-menu')).not.toHaveAttribute('open');
+  await expect(page.locator('.related-sort-current')).toHaveText('タイトル');
+  await expect(page.locator('.related-group[aria-label="Links"] h3')).toHaveText(['rel-alpha', 'rel-bravo', 'rel-charlie']);
+  await expectMobileLayout(page, expectedWidth);
+});
+
 test('mobile browser でもプロジェクトのトップの新規作成とページ数を画面の中で使える', async ({ page }, testInfo) => {
   const expectedWidth = expectedViewportWidths[testInfo.project.name];
   if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);

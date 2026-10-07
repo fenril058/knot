@@ -3,6 +3,7 @@ import { extractRefs } from '../../core/links.ts';
 import type { Line } from '../../core/ops.ts';
 import { pageHref, titleLc } from '../../core/title.ts';
 import { knownPageMap, type IndentMark } from '../../render/presentation.ts';
+import { relatedSorts, relatedSortTabs } from '../../render/relatedSort.ts';
 import type { KnownPage, RenderConfig, RenderedLine } from '../../render/render.ts';
 import { telomereWidth } from '../../render/telomere.ts';
 import type { PageSnapshot, Project, RelatedPage, RelatedPages, Visit } from '../../storage/types.ts';
@@ -100,6 +101,12 @@ function twoHopGroups(
   });
 }
 
+// 札の並び替えと絞り込みに使う値（#281）。絞り込みは、Cosense と同じく札のタイトル・説明文・リンク先で探す。
+function relatedCardData(related: RelatedPage): Html {
+  const search = [related.title, ...related.descriptions, ...related.linksLc].join('\n');
+  return html` data-title="${related.title}" data-created="${related.created}" data-updated="${related.updated}" data-accessed="${related.accessed}" data-linked="${related.linked}" data-search="${search}"`;
+}
+
 function relatedGroupList(
   group: RelatedGroup,
   projectName: string,
@@ -116,8 +123,38 @@ function relatedGroupList(
       headingLevel: 3,
       imageLoading: related.id === eagerImagePageId ? 'eager' : 'lazy',
       knownPages,
+      itemAttributes: relatedCardData(related),
     }),
   )}</ul>`;
+}
+
+// 絞り込み欄の検索の印と、並び替えの menu を開くボタンの下向きの印。色は文字色に従う。
+const filterIcon = html`<svg class="related-filter-icon" viewBox="0 0 14 14" width="14" height="14" aria-hidden="true" focusable="false"><circle cx="5.75" cy="5.75" r="4.25" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="m9 9 3.5 3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2.75"/></svg>`;
+const caretIcon = html`<svg class="related-sort-caret" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="m7.5 9.5 4.5 4.5 4.5-4.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"/></svg>`;
+
+// 関連ページの絞り込み欄と並び替え（#281）。Cosense の関連ページの toolbar と同じ並びで、動きは
+// related-pages.js が付ける。広い画面では関連度と更新日時をタブに、残りを menu に置き、狭い画面では
+// すべてを menu に置く（CSS で切り替える）。閲覧表示は関連度の順で描く。
+function relatedToolbar(): Html {
+  const [initial] = relatedSorts;
+  const pressed = (key: string): string => (key === initial.key ? 'true' : 'false');
+  const tabs = relatedSorts.filter(({ key }) => relatedSortTabs.includes(key));
+  return html`<div class="related-toolbar">
+<div class="related-filter">${filterIcon}<input class="related-filter-input" type="search" autocomplete="off" spellcheck="false" aria-label="関連ページを絞り込む"></div>
+<div class="related-sort" data-tab-selected="${String(relatedSortTabs.includes(initial.key))}">
+<div class="related-sort-tabs" role="group" aria-label="並び替え">${tabs.map(({ key, label }) =>
+    html`<button type="button" class="tool-button related-sort-tab" data-sort="${key}" aria-pressed="${pressed(key)}">${label}</button>`)}</div>
+<details class="related-sort-menu">
+<summary class="tool-button related-sort-toggle"><span class="visually-hidden">並び替え: </span><span class="related-sort-current">${initial.label}</span>${caretIcon}</summary>
+<div class="related-sort-options">
+<p class="related-sort-heading">ソート</p>
+${relatedSorts.map(({ key, label }) => (relatedSortTabs.includes(key)
+    ? html`<button type="button" data-sort="${key}" data-tab-sort aria-pressed="${pressed(key)}">${label}</button>`
+    : html`<button type="button" data-sort="${key}" aria-pressed="${pressed(key)}">${label}</button>`))}
+</div>
+</details>
+</div>
+</div>`;
 }
 
 // 関連ページ（#249）。Cosense と同じく見出しを置かず、行の先頭に札と同じ大きさの見出しの札を置く。
@@ -141,7 +178,7 @@ function relatedSection(
   const eagerImagePageId = groups.flatMap((group) => group.pages)
     .find((relatedPage) => canDisplayCardImage(relatedPage.image, allowedImageHosts))?.id ?? null;
   const cardPages = knownPageMap(knownPages);
-  return html`<section class="related-pages" aria-labelledby="related-pages-title"><h2 id="related-pages-title" class="visually-hidden">関連ページ</h2>${groups.map((group) =>
+  return html`<section class="related-pages" aria-labelledby="related-pages-title"><h2 id="related-pages-title" class="visually-hidden">関連ページ</h2>${relatedToolbar()}${groups.map((group) =>
     relatedGroupList(group, projectName, allowedImageHosts, cardPages, eagerImagePageId),
   )}</section>`;
 }
@@ -244,6 +281,7 @@ ${relatedSection(page, related, project.name, renderConfig.allowedImageHosts, kn
 </div>
 </main>
 <script type="module" src="/assets/build/line-ui.js"></script>
+<script type="module" src="/assets/build/related-pages.js"></script>
 <script type="module" src="/assets/build/page-menu.js"></script>
 <script type="module" src="/assets/build/editor.js"></script>
 <script type="module" src="/assets/build/search.js"></script>`,

@@ -66,24 +66,29 @@ void test('1-hop と 2-hop の関連ページを一覧と同じカードで表�
   // 見出しは画面に出さず、1-hop の行は「Links」の札で始まる（#249）。
   assert.match(body, /<section class="related-pages" aria-labelledby="related-pages-title"><h2 id="related-pages-title" class="visually-hidden">関連ページ<\/h2>/);
   assert.match(body, /<ul class="card-grid related-group" role="list" aria-label="Links"><li class="relation-label links"><span class="relation-label-card"><span class="relation-label-title">Links<\/span>/);
-  assert.match(body, /<li><a class="card" href="\/proj\/Beta">/);
+  assert.match(body, /<li[^>]*><a class="card" href="\/proj\/Beta">/);
   assert.match(body, /href="\/proj\/Beta">[\s\S]*?<h3>Beta<\/h3>/);
   assert.match(
     body,
     /<img class="card-image" src="\/files\/01ABC\/beta\.png" alt="" width="320" height="100" loading="eager">/,
   );
   // Cosense と同じく、画像のあるページの札は画像だけを置き、無いページの札は説明文を置く。
-  assert.doesNotMatch(body, /Beta Link の説明/);
+  // 札の li の data-search には、絞り込みのために説明文も入る（#281）ので、札の中だけを見る。
+  const card = (title: string): string => {
+    const start = body.indexOf(`<a class="card" href="/proj/${title}">`);
+    return body.slice(start, body.indexOf('</a>', start));
+  };
+  assert.doesNotMatch(card('Beta'), /Beta Link の説明/);
   assert.match(body, /href="\/proj\/Delta">[\s\S]*?<h3>Delta<\/h3>\s*<p>Delta の説明<\/p>/);
   // 2-hop の行は共有するリンク先（ページの無い Ghost）の名前の札で始まる。
   assert.match(body, /<ul class="card-grid related-group" role="list" aria-label="Ghost"><li class="relation-label headword"><a class="relation-label-card" href="\/proj\/Ghost"><span class="relation-label-title">Ghost<\/span>/);
-  assert.match(body, /<li><a class="card" href="\/proj\/Gamma">/);
+  assert.match(body, /<li[^>]*><a class="card" href="\/proj\/Gamma">/);
   assert.doesNotMatch(body, /逆リンクまたはアイコン参照あり/);
   assert.match(
     body,
     /<img class="card-image" src="\/files\/01ABC\/gamma\.png" alt="" width="320" height="100" loading="lazy">/,
   );
-  assert.doesNotMatch(body, /Gamma の説明/);
+  assert.doesNotMatch(card('Gamma'), /Gamma の説明/);
 });
 
 void test('2-hop の札は共有するリンク先ごとの行に分け、行はページの中でリンクが現れた順に並べる（#249）', async () => {
@@ -164,6 +169,35 @@ void test('Links の行は、前方リンクの札を先に、関連度の大き
   assert.deepEqual([...relatedGroups(body)], [
     ['Links', ['Sharing', 'Mutual', 'Plain', 'Back Sharing', 'Back']],
   ]);
+});
+
+void test('関連ページの行の上に絞り込み欄と並び替えを置き、札に並び替えと絞り込みに使う値を付ける（#281）', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'Beta', ['[Gamma] の説明'], s.clock.t + 1);
+  await seedPage(s.storage, project.id, 'Alpha', ['[Beta]'], s.clock.t + 2);
+  await seedPage(s.storage, project.id, 'Lonely', ['no links'], s.clock.t + 3);
+
+  const body = await (await s.request('/proj/Alpha', {}, cookie)).text();
+
+  assert.match(body, /<input class="related-filter-input" type="search" autocomplete="off" spellcheck="false" aria-label="関連ページを絞り込む">/);
+  const tabs = [...body.matchAll(/class="tool-button related-sort-tab" data-sort="(\w+)" aria-pressed="(\w+)">([^<]+)</g)];
+  assert.deepEqual(tabs.map((match) => [match[1], match[2], match[3]]), [['related', 'true', '関連度'], ['updated', 'false', '更新日時']]);
+  // menu には、タブにある並び替えも含めてすべて置く（タブにある分は広い画面で CSS が隠す）。ページランクは置かない。
+  const optionsStart = body.indexOf('<div class="related-sort-options">');
+  const options = body.slice(optionsStart, body.indexOf('</details>', optionsStart));
+  assert.deepEqual([...options.matchAll(/<button type="button" data-sort="(\w+)"/g)].map((match) => match[1]),
+    ['related', 'updated', 'created', 'accessed', 'linked', 'title']);
+  assert.doesNotMatch(body, /ページランク/);
+  // 札の値: 作成・更新日時、最終アクセス、被リンク数と、絞り込みで探す字（タイトル・説明文・リンク先）。
+  assert.match(body, new RegExp(
+    `<li data-title="Beta" data-created="${s.clock.t + 1}" data-updated="${s.clock.t + 1}" data-accessed="0" data-linked="1" data-search="Beta\\n\\[Gamma\\] の説明\\ngamma"><a class="card"`,
+  ));
+
+  // 関連ページの無いページには置かない。
+  const lonely = await (await s.request('/proj/Lonely', {}, cookie)).text();
+  assert.doesNotMatch(lonely, /related-toolbar/);
 });
 
 void test('関連ページの札の説明文のアイコンは、画像の分かるページなら字の高さの画像で描く（#256）', async () => {
