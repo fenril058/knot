@@ -117,7 +117,8 @@ function externalLink(url: string, label: string, span: SourceSpan, external = t
 }
 
 // [*** x] の強調の段階。parser は *-3 のように表す。強調でなければ undefined。
-function strongLevel(decos: readonly string[]): number | undefined {
+// 編集表示のカーソル行（client/editor/highlight.ts）も同じ段階で描く。
+export function strongLevel(decos: readonly string[]): number | undefined {
   for (const deco of decos) {
     const match = /^\*-(\d+)$/.exec(deco);
     if (match !== null) return Number(match[1]);

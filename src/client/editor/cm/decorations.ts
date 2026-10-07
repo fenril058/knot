@@ -5,7 +5,9 @@ import { highlightSpans } from '../highlight.ts';
 function buildDecorations(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
   for (const span of highlightSpans(view.state.doc.toString())) {
-    builder.add(span.from, span.to, Decoration.mark({ class: `cm-sb-${span.kind}` }));
+    // 装飾の見た目（太字・斜体・打ち消し・強調の段階）は、記法の種類の見た目に重ねる。
+    const names = new Set<string>([span.kind, ...(span.styles ?? [])]);
+    builder.add(span.from, span.to, Decoration.mark({ class: Array.from(names, (name) => `cm-sb-${name}`).join(' ') }));
   }
   return builder.finish();
 }

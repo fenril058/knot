@@ -5,6 +5,7 @@ import {
   indentMarks,
   lineRowClickPosition,
   loginE2eAccount,
+  rowHeights,
   visualLineRects,
   type BlockLook,
   type IndentMark,
@@ -286,6 +287,64 @@ test('強調の段階ごとに Cosense と同じ大きさと行送りで描き�
   await startEditingAtLastRow(page, body.length);
   expect(await strongs()).toEqual(expected);
   expect(await visualLineRects(page)).toEqual(before);
+});
+
+type CursorLook = { text: string; fontSize: string; fontWeight: string; fontStyle: string; textDecoration: string };
+
+// カーソル行の原文表示で、text を含む字の並びの見た目。
+async function cursorLook(page: Page, row: number, text: string): Promise<CursorLook> {
+  return page.locator('#editor-root .cm-line').nth(row).evaluate((line, target) => {
+    const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      if (!(node instanceof Text) || !node.data.includes(target) || node.parentElement === null) continue;
+      const style = getComputedStyle(node.parentElement);
+      return {
+        text: node.data,
+        fontSize: style.fontSize,
+        fontWeight: style.fontWeight,
+        fontStyle: style.fontStyle,
+        textDecoration: style.textDecorationLine,
+      };
+    }
+    throw new Error(`${target} is missing`);
+  }, text);
+}
+
+test('カーソル行でも、強調の段階・重ねた装飾を記法の字ごと閲覧表示と同じ形で描き、行の高さを変えない', async (
+  { page },
+  testInfo,
+) => {
+  await loginE2eAccount(page, 'active-line-e2e');
+  const title = `line-cursor-strong-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  const body = ['[**** 四段の見出し]', '[-/*** 打ち消し斜体]', '[** [linked page] と二段]', 'last body'];
+  await createE2ePage(page, title, body);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  // 四段と三段の行の高さは、Cosense のカーソル行で測った高さと同じ。
+  const heights = await rowHeights(page);
+  expect(heights.slice(1, 3)).toEqual([42, 35]);
+
+  // Cosense のカーソル行と同じく、[ と記号も装飾の大きさと形で描く（#267）。
+  await page.locator('#editor-root .line-row').nth(1).click({ position: lineRowClickPosition });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  expect(await cursorLook(page, 1, '[****')).toEqual({
+    text: '[**** 四段の見出し]', fontSize: '25.95px', fontWeight: '700', fontStyle: 'normal', textDecoration: 'none',
+  });
+  expect(await rowHeights(page)).toEqual(heights);
+
+  await page.keyboard.press('ArrowDown');
+  expect(await cursorLook(page, 2, '[-/***')).toEqual({
+    text: '[-/*** 打ち消し斜体]', fontSize: '21.6px', fontWeight: '700', fontStyle: 'italic', textDecoration: 'line-through',
+  });
+  expect(await rowHeights(page)).toEqual(heights);
+
+  // 装飾の中のリンクも、装飾の大きさと太さで描く。
+  await page.keyboard.press('ArrowDown');
+  expect(await cursorLook(page, 3, '[linked page]')).toEqual({
+    text: '[linked page]', fontSize: '18px', fontWeight: '700', fontStyle: 'normal', textDecoration: 'none',
+  });
+  expect(await rowHeights(page)).toEqual(heights);
 });
 
 function svg(width: number, height: number): string {

@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { highlightSpans, type Span, type SpanKind } from '../../src/client/editor/highlight.ts';
+import { highlightSpans, type Span, type SpanKind, type SpanStyle } from '../../src/client/editor/highlight.ts';
 
-const notationCase = (source: string, kind: SpanKind): void => {
+const notationCase = (source: string, kind: SpanKind, styles?: SpanStyle[]): void => {
   const docText = `Title\n${source}`;
   assert.deepEqual(highlightSpans(docText), [
     { from: 0, to: 5, kind: 'title' },
-    { from: 6, to: 6 + source.length, kind },
+    styles === undefined ? { from: 6, to: 6 + source.length, kind } : { from: 6, to: 6 + source.length, kind, styles },
   ]);
 };
 
@@ -14,14 +14,31 @@ void test('各 Scrapbox 記法に固定オフセットのスパンを付ける',
   notationCase('[page]', 'link');
   notationCase('[https://x タイトル]', 'external-link');
   notationCase('#tag', 'hashtag');
-  notationCase('[* 強調]', 'strong');
+  notationCase('[* 強調]', 'strong', ['strong']);
   notationCase('`code`', 'code-inline');
   notationCase('> quote', 'quote');
   notationCase('https://x', 'url');
   notationCase('[name.icon]', 'icon');
   notationCase('[$ x+y]', 'formula');
-  notationCase('[/ italic]', 'italic');
-  notationCase('[- strike]', 'strike');
+  notationCase('[/ italic]', 'italic', ['italic']);
+  notationCase('[- strike]', 'strike', ['strike']);
+});
+
+// カーソル行でも閲覧表示と同じ字の形で描くため、装飾の見た目をすべて重ねる（#267）。
+void test('装飾には、強調の段階・斜体・打ち消しの見た目を重ねて付ける', () => {
+  notationCase('[**** 四段]', 'strong', ['strong', 'level-4']);
+  notationCase('[-/*** 打ち消し斜体]', 'italic', ['strong', 'level-3', 'italic', 'strike']);
+  // [[x]] は強調の段階を持たない太字。
+  notationCase('[[太字]]', 'strong');
+});
+
+void test('装飾の中のリンクにも、装飾の見た目を重ねる', () => {
+  assert.deepEqual(highlightSpans('Title\n[** [page] と二段]'), [
+    { from: 0, to: 5, kind: 'title' },
+    { from: 6, to: 10, kind: 'strong', styles: ['strong', 'level-2'] },
+    { from: 10, to: 16, kind: 'link', styles: ['strong', 'level-2'] },
+    { from: 16, to: 21, kind: 'strong', styles: ['strong', 'level-2'] },
+  ]);
 });
 
 void test('複数行コードブロックを行単位で装飾し、後続行の位置を保つ', () => {
