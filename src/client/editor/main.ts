@@ -699,6 +699,7 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
         confirmedLines: () => engine.confirmedLines,
         userId: userName,
         lastSeenVersion,
+        title: () => engine.currentTitle,
         now: telomereTime,
       }),
       EditorView.updateListener.of((update) => {

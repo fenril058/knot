@@ -817,3 +817,47 @@ test('mobile browser でもプロジェクトのトップの新規作成とペ�
   await expect(page.locator('#create-page-dialog')).toBeVisible();
   await expectMobileLayout(page, expectedWidth);
 });
+
+test('mobile browser でもテロメアの tap で更新日時と行へのリンクのメニューに届き、編集中も gutter から届く', async (
+  { page },
+  testInfo,
+) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'telomere-mobile-e2e');
+  const title = `telomere-mobile-${testInfo.project.name}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, ['first body', 'second body', 'third body', 'fourth body']);
+  await page.goto(`/e2e/${title}`);
+
+  // touch では本文の先頭を tap したときにテロメアへ吸い寄せられないよう、押せる幅は線の最大の太さの
+  // 10px に留め、高さは行と同じにする（#173）。
+  const row = page.locator('#editor-root .line-row').nth(1);
+  const telomere = row.locator('.telomere');
+  const telomereBox = (await telomere.boundingBox())!;
+  expect([telomereBox.width, telomereBox.height].map(Math.round))
+    .toEqual([10, Math.round((await row.boundingBox())!.height)]);
+
+  // touch には hover が無いので、tap で帯とメニューを一度に出す。編集は始めない。
+  const updated = /^\d{4}\/\d{1,2}\/\d{1,2} \d{1,2}:\d{2}:\d{2}に更新$/;
+  const menu = page.locator('.telomere-info');
+  await telomere.tap();
+  await expect(menu.locator('> *')).toHaveText([updated, 'リンクをコピー', 'リーダブルリンクをコピー']);
+  await expect(row).toHaveClass(/\bhighlight\b/);
+  await expect(page.locator('#editor-root .cm-editor')).toHaveCount(0);
+  const menuBox = (await menu.boundingBox())!;
+  expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(expectedWidth);
+
+  // メニューの外を tap すると閉じ、その tap で編集が始まる。メニューは下の 2 行の先頭に重なるので、
+  // その下の行を tap する。
+  const point = await charPoint(page.locator('#editor-root .line-row').nth(4), 'u', 0, 0.5);
+  await page.touchscreen.tap(point.x, point.y);
+  await expect(menu).toBeHidden();
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expect(page.locator('#editor-root .cm-line.highlight')).toHaveText('first body');
+
+  // 編集中の gutter のテロメアも tap で届く（#195）。
+  await page.locator('#editor-root .cm-telomere-gutter .telomere').nth(2).tap();
+  await expect(menu.locator('> *')).toHaveText([updated, 'リンクをコピー', 'リーダブルリンクをコピー']);
+  await expect(page.locator('#editor-root .cm-line.highlight')).toHaveText('second body');
+  await expectMobileLayout(page, expectedWidth);
+});

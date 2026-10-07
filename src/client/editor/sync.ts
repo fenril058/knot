@@ -547,21 +547,27 @@ function alignedIdentities(lines: Line[], texts: string[]): Array<Line | undefin
   return identities;
 }
 
+// 行ごとのテロメアの情報。id は行へのリンクに使う行の ID で、サーバにまだ無い行には無い。
+type LineMeta = { id: string | undefined; updated: number; userId: string; updatedVersion: number };
+
 export function lineMeta(
   confirmed: readonly Line[],
   bufferTexts: readonly string[],
   self: { userId: string; now: number },
-): { updated: number; userId: string; updatedVersion: number }[] {
-  return alignLines([...confirmed], [...bufferTexts]).flatMap((step) => {
+): LineMeta[] {
+  return alignLines([...confirmed], [...bufferTexts]).flatMap((step): LineMeta[] => {
     if (step.kind === 'del') return [];
     if (step.kind === 'keep') {
       return [{
+        id: step.line.id,
         updated: step.line.updated,
         userId: step.line.userId,
         updatedVersion: step.line.updatedVersion,
       }];
     }
+    // まだサーバに無い行。行へのリンクはまだ作れない。
     return [{
+      id: undefined,
       updated: self.now,
       userId: self.userId,
       updatedVersion: Number.MAX_SAFE_INTEGER,

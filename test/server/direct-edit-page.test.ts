@@ -52,7 +52,7 @@ void test('既存ページの見出しはタイトル行そのもので、本文
   assert.equal(body.match(/<h1[\s>]/g)?.length, 1);
   assert.match(
     body,
-    /<div class="line-row" id="L[^"]+">\s*<span class="telomere[^"]*"[^>]*><\/span>\s*<h1 class="line-title">Alpha<\/h1>/,
+    /<div class="line-row" id="L[^"]+">\s*<button type="button" class="telomere[^"]*"[^>]*><\/button>\s*<h1 class="line-title">Alpha<\/h1>/,
   );
 });
 
