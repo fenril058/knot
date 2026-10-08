@@ -324,12 +324,20 @@ ${relatedSection(page, related, project.name, renderConfig.allowedImageHosts, kn
 </div>
 </div>
 </main>
+${statusBar(page.title)}
 <script type="module" src="/assets/build/line-ui.js"></script>
 <script type="module" src="/assets/build/related-pages.js"></script>
 <script type="module" src="/assets/build/page-menu.js"></script>
 <script type="module" src="/assets/build/editor.js"></script>
-<script type="module" src="/assets/build/search.js"></script>`,
+<script type="module" src="/assets/build/search.js"></script>
+<script type="module" src="/assets/build/status-bar.js"></script>`,
   );
+}
+
+// 画面の下端の帯（Cosense の .footer .status-bar、#307）。200px を超えて scroll したら、左端にページのタイトルを
+// 出す（status-bar.js）。ページの見出しと同じタイトルなので、読み上げでは繰り返さない。
+function statusBar(title: string): Html {
+  return html`<div class="status-bar" aria-hidden="true"><div class="status-page-title" hidden>${title}</div></div>`;
 }
 
 // ページの無いタイトルの画面（#289）。Cosense と同じく、タイトルの行だけの紙面を不透明度を下げて描き、その下に、
@@ -373,9 +381,11 @@ ${relatedSection({ title, lines: [] }, related, project.name, renderConfig.allow
 </div>
 </div>
 </main>
+${statusBar(title)}
 <script type="module" src="/assets/build/related-pages.js"></script>
 <script type="module" src="/assets/build/editor.js"></script>
-<script type="module" src="/assets/build/search.js"></script>`,
+<script type="module" src="/assets/build/search.js"></script>
+<script type="module" src="/assets/build/status-bar.js"></script>`,
   );
 }
 

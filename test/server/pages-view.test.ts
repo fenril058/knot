@@ -354,6 +354,26 @@ void test('存在しないページは 404 で、Cosense と同じくタイト�
   assert.match(body, /<script type="module" src="\/assets\/build\/related-pages\.js"><\/script>/);
 });
 
+// scroll したら左下に出すページのタイトル（#307）の HTML。
+function statusBar(title: string): RegExp {
+  return new RegExp(`<div class="status-bar" aria-hidden="true"><div class="status-page-title" hidden>${title}</div></div>`);
+}
+
+void test('ページとページの無いタイトルの画面に、scroll したら左下に出すページのタイトルを置く（#307）', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'A & B', ['x'], s.clock.t);
+  const script = /<script type="module" src="\/assets\/build\/status-bar\.js"><\/script>/;
+
+  const page = await (await s.request('/proj/A%20%26%20B', {}, cookie)).text();
+  assert.match(page, statusBar('A &amp; B'));
+  assert.match(page, script);
+  const empty = await (await s.request('/proj/Nope_Topic', {}, cookie)).text();
+  assert.match(empty, statusBar('Nope Topic'));
+  assert.match(empty, script);
+});
+
 void test('GET /:project/:title: 存在しないプロジェクトは layout を使った HTML 404', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
