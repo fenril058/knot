@@ -47,22 +47,22 @@ test('関連ページの行の上に、Cosense と同じ位置と大きさの絞
     { text: '関連度', offset: 5.5, height: 31 },
     { text: '更新日時', offset: 5.5, height: 31 },
   ]);
-  const toggle = await box(page, '.related-sort-toggle');
+  const toggle = await box(page, '.related-sort-menu .sort-menu-toggle');
   expect(toggle.x + toggle.width).toBeCloseTo(paper.x + paper.width, 1);
   expect(toggle.y).toBeCloseTo(toolbar.y + 4.8, 1);
   expect({ width: toggle.width, height: toggle.height }).toEqual({ width: 46, height: 35 });
-  await expect(page.locator('.related-sort-current')).toHaveText('関連度');
-  expect((await box(page, '.related-sort-current')).width).toBe(1);
+  await expect(page.locator('.related-sort-menu .sort-menu-current')).toHaveText('関連度');
+  expect((await box(page, '.related-sort-menu .sort-menu-current')).width).toBe(1);
 
   // menu は展開ボタンの右端に揃え、行の 2px 下に出す。タブにある並び替えは menu に置かない。
-  await page.locator('.related-sort-toggle').click();
-  const menu = await box(page, '.related-sort-options');
+  await page.locator('.related-sort-menu .sort-menu-toggle').click();
+  const menu = await box(page, '.related-sort-menu .sort-menu-options');
   // click で scroll した場合に備え、toolbar を測り直す。
   const toolbarAfterClick = await box(page, '.related-toolbar');
   expect(menu.x + menu.width).toBeCloseTo(paper.x + paper.width, 1);
   expect(menu.y).toBeCloseTo(toolbarAfterClick.y + 44, 1);
   expect(menu.width).toBe(160);
-  await expect(page.locator('.related-sort-options button:visible')).toHaveText(['作成日時', '最終アクセス', '被リンク数', 'タイトル']);
+  await expect(page.locator('.related-sort-menu .sort-menu-options button:visible')).toHaveText(['作成日時', '最終アクセス', '被リンク数', 'タイトル']);
 });
 
 test('991px 以下ではタブを置かず、展開ボタンにいまの並び替えの名前を出す', async ({ page }) => {
@@ -71,12 +71,12 @@ test('991px 以下ではタブを置かず、展開ボタンにいまの並び�
   const toolbar = await box(page, '.related-toolbar');
   await expect(page.locator('.related-sort-tab')).toHaveCount(2);
   await expect(page.locator('.related-sort-tab:visible')).toHaveCount(0);
-  const toggle = await box(page, '.related-sort-toggle');
+  const toggle = await box(page, '.related-sort-menu .sort-menu-toggle');
   expect(toggle.x + toggle.width).toBeCloseTo(paper.x + paper.width, 1);
   expect(toggle.y).toBeCloseTo(toolbar.y + 4.8, 1);
-  expect((await box(page, '.related-sort-current')).width).toBeGreaterThan(1);
-  await page.locator('.related-sort-toggle').click();
-  await expect(page.locator('.related-sort-options button:visible'))
+  expect((await box(page, '.related-sort-menu .sort-menu-current')).width).toBeGreaterThan(1);
+  await page.locator('.related-sort-menu .sort-menu-toggle').click();
+  await expect(page.locator('.related-sort-menu .sort-menu-options button:visible'))
     .toHaveText(['関連度', '更新日時', '作成日時', '最終アクセス', '被リンク数', 'タイトル']);
 });
 
@@ -96,8 +96,8 @@ test('並び替えは行の並びを変えずに各行の中の札を並べ替�
     .toEqual(['false', 'true']);
 
   // menu の並び替えを選ぶと menu を閉じ、どちらのタブも選んでいない見た目にして、展開ボタンに名前を出す。
-  await page.locator('.related-sort-toggle').click();
-  await page.locator('.related-sort-options button', { hasText: 'タイトル' }).click();
+  await page.locator('.related-sort-menu .sort-menu-toggle').click();
+  await page.locator('.related-sort-menu .sort-menu-options button', { hasText: 'タイトル' }).click();
   await expect(page.locator('.related-sort-menu')).not.toHaveAttribute('open');
   const byTitle = [
     ['Links', ['rel-alpha', 'rel-bravo', 'rel-charlie']],
@@ -106,12 +106,12 @@ test('並び替えは行の並びを変えずに各行の中の札を並べ替�
   expect(await visibleGroups(page)).toEqual(byTitle);
   expect(await page.locator('.related-sort-tab').evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-pressed'))))
     .toEqual(['false', 'false']);
-  await expect(page.locator('.related-sort-current')).toHaveText('タイトル');
-  expect((await box(page, '.related-sort-current')).width).toBeGreaterThan(1);
+  await expect(page.locator('.related-sort-menu .sort-menu-current')).toHaveText('タイトル');
+  expect((await box(page, '.related-sort-menu .sort-menu-current')).width).toBeGreaterThan(1);
 
   await page.reload();
   expect(await visibleGroups(page)).toEqual(byTitle);
-  await expect(page.locator('.related-sort-current')).toHaveText('タイトル');
+  await expect(page.locator('.related-sort-menu .sort-menu-current')).toHaveText('タイトル');
 
   await page.locator('.related-sort-tab', { hasText: '関連度' }).click();
   expect(await visibleGroups(page)).toEqual([
@@ -154,7 +154,7 @@ test('絞り込みは語をすべて含む札だけを残し、札の残らな�
 test('並び替えの menu はキーボードで開いて選べ、Escape と menu の外を押すと閉じる', async ({ page }) => {
   await openRelatedBase(page, 1280);
   const menu = page.locator('.related-sort-menu');
-  const toggle = page.locator('.related-sort-toggle');
+  const toggle = page.locator('.related-sort-menu .sort-menu-toggle');
 
   await toggle.focus();
   await page.keyboard.press('Enter');
@@ -165,8 +165,8 @@ test('並び替えの menu はキーボードで開いて選べ、Escape と men
 
   await page.keyboard.press('Enter');
   await page.keyboard.press('Tab');
-  await expect(page.locator('.related-sort-options button', { hasText: '作成日時' })).toBeFocused();
-  await page.locator('.related-sort-options button', { hasText: 'タイトル' }).focus();
+  await expect(page.locator('.related-sort-menu .sort-menu-options button', { hasText: '作成日時' })).toBeFocused();
+  await page.locator('.related-sort-menu .sort-menu-options button', { hasText: 'タイトル' }).focus();
   await page.keyboard.press('Enter');
   await expect(menu).not.toHaveAttribute('open');
   await expect(toggle).toBeFocused();

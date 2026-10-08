@@ -270,10 +270,12 @@ test('プロジェクトのトップは見出しを出さず、札の上の tool
   await page.goto(`/${project}`);
   // 見出しは支援技術にだけ伝える（#253）。
   await expect(page.getByRole('heading', { level: 1, name: project })).toHaveClass('visually-hidden');
-  // 新規作成は Cosense の toolbar のボタンと同じ見た目で、札の並びの右端に揃える。札は y=110 から。
+  // 新規作成は Cosense の toolbar のボタンと同じ見た目で、右端の並び替えの展開ボタン（#291）の左に置く。札は y=110 から。
   const button = page.locator('#create-page-button');
   const buttonBox = (await button.boundingBox())!;
-  expect(Math.round(buttonBox.x + buttonBox.width)).toBe(48 + 1184);
+  const sortToggleBox = (await page.locator('.page-sort-menu .sort-menu-toggle').boundingBox())!;
+  expect(Math.round(sortToggleBox.x + sortToggleBox.width)).toBe(48 + 1184);
+  expect(Math.round(buttonBox.x + buttonBox.width)).toBe(Math.round(sortToggleBox.x));
   expect(await button.evaluate((element) => {
     const style = getComputedStyle(element);
     return { color: style.color, fontSize: style.fontSize, padding: style.padding, background: style.backgroundColor, radius: style.borderRadius };
@@ -291,6 +293,42 @@ test('プロジェクトのトップは見出しを出さず、札の上の tool
   await page.locator('#create-page-title').fill('third card');
   await page.locator('#create-page-form button[type="submit"]').click();
   await expect(page).toHaveURL(`/${project}/third_card`);
+});
+
+test('プロジェクトのトップの並び替えの menu で、ページを選んだ順に並べ、選んだ並び替えを残す', async ({ page }) => {
+  await loginE2eAccount(page, 'cards-e2e');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  // e2e-related のページは e2e/server.ts が用意する。
+  await page.goto('/e2e-related');
+  const toolbar = (await page.locator('.page-list-toolbar').boundingBox())!;
+  const toggle = page.locator('.page-sort-menu .sort-menu-toggle');
+  const toggleBox = (await toggle.boundingBox())!;
+  // Cosense と同じく、展開ボタンは toolbar の右端で、42px の行の上から 4.8px（#291）。
+  expect(toggleBox.x + toggleBox.width).toBeCloseTo(toolbar.x + toolbar.width, 1);
+  expect(toggleBox.y).toBeCloseTo(toolbar.y + 4.8, 1);
+  expect(toggleBox.height).toBe(35);
+  await expect(page.locator('.page-sort-menu .sort-menu-current')).toHaveText('更新日時');
+
+  await toggle.click();
+  const options = page.locator('.page-sort-menu .sort-menu-options');
+  const menu = (await options.boundingBox())!;
+  expect({ right: menu.x + menu.width, width: menu.width }).toEqual({ right: toggleBox.x + toggleBox.width, width: 160 });
+  expect(menu.y).toBeCloseTo(toolbar.y + 44, 1);
+  await expect(options.locator('a')).toHaveText(['更新日時', '作成日時', '最終アクセス', '被リンク数', '閲覧数', 'タイトル']);
+  // Escape で閉じ、展開ボタンへ focus を戻す。
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.page-sort-menu')).not.toHaveAttribute('open');
+  await expect(toggle).toBeFocused();
+
+  await toggle.click();
+  await options.locator('a', { hasText: 'タイトル' }).click();
+  await expect(page).toHaveURL('/e2e-related?sort=title');
+  const byTitle = ['rel-alpha', 'rel-base', 'rel-bravo', 'rel-charlie', 'rel-new', 'rel-solo', 'rel-two-yankee', 'rel-two-zulu'];
+  await expect(page.locator('main > .card-grid .card h2')).toHaveText(byTitle);
+  // 並び替えを指定せずに開き直しても、選んだ並び替えのまま。
+  await page.goto('/e2e-related');
+  await expect(page.locator('.page-sort-menu .sort-menu-current')).toHaveText('タイトル');
+  await expect(page.locator('main > .card-grid .card h2')).toHaveText(byTitle);
 });
 
 test('札の説明文の中のリンク・URL・コードを Cosense と同じ色と形で描き、押すと札のページへ移る', async ({ page }, testInfo) => {

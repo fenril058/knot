@@ -72,8 +72,48 @@ void test('もっと見るリンク: count が limit を超えたら次ページ
   const res = await s.request('/proj?limit=2', {}, cookie);
   const body = await res.text();
 
-  assert.match(body, /href="\/proj\?skip=2&limit=2"/);
+  assert.match(body, /href="\/proj\?skip=2&limit=2&sort=updated"/);
   assert.match(body, /もっと見る/);
+});
+
+function cardTitles(body: string): (string | undefined)[] {
+  return [...body.matchAll(/<a class="card[^"]*" href="\/proj\/[^"]+">\s*<h2>([^<]+)<\/h2>/g)].map((match) => match[1]);
+}
+
+void test('並び替えを選ぶと、すべてのページをその順に並べ、選んだ並び替えをそのプロジェクトの cookie に残す（#291）', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'Bravo', ['x'], s.clock.t + 1);
+  await seedPage(s.storage, project.id, 'alpha', ['x'], s.clock.t + 2);
+  await seedPage(s.storage, project.id, 'Charlie', ['x'], s.clock.t + 3);
+
+  const byDefault = await (await s.request('/proj', {}, cookie)).text();
+  assert.deepEqual(cardTitles(byDefault), ['Charlie', 'alpha', 'Bravo']);
+  // 展開ボタンには、いまの並び替えの名前を出す。項目は、その並び替えで描き直すリンク。
+  assert.match(byDefault, /<span class="sort-menu-current">更新日時<\/span>/);
+  const items = byDefault.slice(byDefault.indexOf('<div class="sort-menu-options">'), byDefault.indexOf('</details>'));
+  assert.deepEqual([...items.matchAll(/<a href="\?sort=(\w+)"( aria-current="true")?>([^<]+)<\/a>/g)].map((match) => [match[1], match[2] !== undefined, match[3]]), [
+    ['updated', true, '更新日時'],
+    ['created', false, '作成日時'],
+    ['accessed', false, '最終アクセス'],
+    ['linked', false, '被リンク数'],
+    ['views', false, '閲覧数'],
+    ['title', false, 'タイトル'],
+  ]);
+
+  const chosen = await s.request('/proj?sort=title', {}, cookie);
+  assert.deepEqual(cardTitles(await chosen.text()), ['alpha', 'Bravo', 'Charlie']);
+  assert.match(chosen.headers.get('set-cookie') ?? '', /^knot_page_sort=title; Max-Age=31536000; Path=\/proj; HttpOnly; SameSite=Lax$/);
+
+  // 並び替えを指定せずに開いても、cookie に残した並び替えで描く。知らない並び替えは無視する。
+  for (const path of ['/proj', '/proj?sort=bogus']) {
+    const res = await s.request(path, {}, `${cookie}; knot_page_sort=title`);
+    const body = await res.text();
+    assert.deepEqual(cardTitles(body), ['alpha', 'Bravo', 'Charlie'], path);
+    assert.match(body, /<span class="sort-menu-current">タイトル<\/span>/);
+    assert.equal(res.headers.get('set-cookie'), null);
+  }
 });
 
 void test('未ログインは /login へリダイレクト', async () => {
