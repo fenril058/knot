@@ -1,3 +1,4 @@
+import { splitLineId } from '../../core/links.ts';
 import { isAttachmentUrl } from '../../core/media.ts';
 import { parsePageSyntax, type SyntaxNode } from '../../core/syntax.ts';
 import { strongLevel } from '../../render/presentation.ts';
@@ -35,7 +36,7 @@ function nodeKind(node: SyntaxNode, isKnownTitle: IsKnownTitle | undefined): Spa
   switch (node.type) {
     case 'link':
       if (node.pathType === 'relative') {
-        return isKnownTitle === undefined || isKnownTitle(node.href.split('#')[0]!) ? 'link' : 'empty-link';
+        return isKnownTitle === undefined || isKnownTitle(splitLineId(node.href).target) ? 'link' : 'empty-link';
       }
       // 別のプロジェクトへのリンクは、閲覧表示と同じくページへのリンクの色（#287）。
       if (node.pathType === 'root' && !isAttachmentUrl(node.href)) return 'link';

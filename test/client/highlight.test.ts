@@ -36,12 +36,15 @@ void test('装飾には、強調の段階・斜体・打ち消しの見た目を
 const isKnownTitle = (title: string): boolean => title === 'known page';
 
 void test('ページがあるかどうかを渡すと、ページの無いリンクとハッシュタグを empty-link にする', () => {
-  assert.deepEqual(highlightSpans('Title\n[known page] [missing] [known page#anchor] #missing', isKnownTitle), [
+  // 行へのリンク（行 ID の付いたリンク）はリンク先のページで決め、行 ID でない # はタイトルの一部（#297）。
+  const lineLink = '[known page#5b630aae9dc7d80000931bc3]';
+  assert.deepEqual(highlightSpans(`Title\n[known page] [missing] ${lineLink} [known page#anchor] #missing`, isKnownTitle), [
     { from: 0, to: 5, kind: 'title' },
     { from: 6, to: 18, kind: 'link' },
     { from: 19, to: 28, kind: 'empty-link' },
-    { from: 29, to: 48, kind: 'link' },
-    { from: 49, to: 57, kind: 'empty-link' },
+    { from: 29, to: 29 + lineLink.length, kind: 'link' },
+    { from: 30 + lineLink.length, to: 49 + lineLink.length, kind: 'empty-link' },
+    { from: 50 + lineLink.length, to: 58 + lineLink.length, kind: 'empty-link' },
   ]);
   // 渡さなければ、ページの有無で分けない。
   assert.deepEqual(highlightSpans('Title\n[missing] #missing').map((span) => span.kind), ['title', 'link', 'hashtag']);

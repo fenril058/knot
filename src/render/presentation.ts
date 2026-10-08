@@ -1,3 +1,4 @@
+import { splitLineId } from '../core/links.ts';
 import { classifyUrl, isAllowedImageUrl, isAttachmentUrl, isHostAllowed } from '../core/media.ts';
 import { parsePageSyntax, type SourceRange, type SyntaxNode } from '../core/syntax.ts';
 import { pageHref, titleLc } from '../core/title.ts';
@@ -121,9 +122,9 @@ function externalLink(url: string, label: string, span: SourceSpan, external = t
 // 別のプロジェクトへのリンク（[/project/title#行 ID]）の行き先。同じ knot のそのプロジェクトのページを指す。
 // プロジェクトだけなら、そのプロジェクトのトップ。プロジェクトが空なら null。
 export function projectPathHref(path: string): string | null {
-  const hashAt = path.indexOf('#');
-  const location = hashAt === -1 ? path.slice(1) : path.slice(1, hashAt);
-  const hash = hashAt === -1 ? '' : path.slice(hashAt);
+  const { target, lineId } = splitLineId(path);
+  const location = target.slice(1);
+  const hash = lineId === null ? '' : `#${lineId}`;
   const slashAt = location.indexOf('/');
   const project = slashAt === -1 ? location : location.slice(0, slashAt);
   const title = slashAt === -1 ? '' : location.slice(slashAt + 1);
@@ -143,6 +144,14 @@ export function strongLevel(decos: readonly string[]): number | undefined {
 
 // strong は [[画像]]。Cosense と同じく高さの上限を外した大きい画像として描く。
 // label は字で描くときの原文の位置（label が無ければ url の位置）、media は node 全体。
+// 行へのリンクの字（#297）。Cosense と同じく、リンク先と行 ID の末尾 6 字を見せる。字は、原文のリンク先（# まで）と
+// 行 ID の末尾にそれぞれ対応させ、押した位置に caret を置けるようにする。
+function lineLinkLabel(node: SyntaxNode & { type: 'link' }, target: string, lineId: string): PresentedNode[] {
+  const head = `${target}#`;
+  const tail = lineId.slice(-6);
+  return [text(head, spanAt(node, head, 1)), text(tail, spanAt(node, tail, node.raw.length - 1 - tail.length))];
+}
+
 function presentMedia(
   url: string,
   label: string | undefined,
@@ -289,16 +298,19 @@ function presentNode(
     case 'link': {
       if (hasUriScheme(node.href) && !isHttpUrl(node.href)) return text(node.raw, spanAt(node, node.raw, 0));
       if (node.pathType === 'relative') {
-        const target = node.href.split('#')[0]!;
+        const { target, lineId } = splitLineId(node.href);
         const entry = knownPages.get(titleLc(target));
         const label = node.content === '' ? target : node.content;
+        // 行へのリンクは、href に行 ID を残す（#297）。
         return {
           type: 'link',
-          href: pageHref(project, entry?.title ?? target),
+          href: `${pageHref(project, entry?.title ?? target)}${lineId === null ? '' : `#${lineId}`}`,
           className: entry === undefined ? 'empty-link' : 'page-link',
           external: false,
           newTab: false,
-          children: [text(label, spanAt(node, label, node.content === '' ? 1 : node.raw.indexOf(label)))],
+          children: node.content === '' && lineId !== null
+            ? lineLinkLabel(node, target, lineId)
+            : [text(label, spanAt(node, label, node.content === '' ? 1 : node.raw.indexOf(label)))],
         };
       }
       const label = node.content === '' ? node.href : node.content;
@@ -312,7 +324,9 @@ function presentNode(
       // 別のプロジェクトへのリンク（#287）。Cosense と同じく、ページへのリンクと同じ見た目で、新しいタブで開く。
       const href = node.pathType === 'root' ? projectPathHref(node.href) : null;
       if (href !== null) {
-        return { type: 'link', href, className: 'page-link', external: false, newTab: true, children: [text(label, labelSpan(node, label))] };
+        const { target, lineId } = splitLineId(node.href);
+        const labelNodes = node.content === '' && lineId !== null ? lineLinkLabel(node, target, lineId) : [text(label, labelSpan(node, label))];
+        return { type: 'link', href, className: 'page-link', external: false, newTab: true, children: labelNodes };
       }
       return node.content === ''
         ? text(node.href, labelSpan(node, node.href))

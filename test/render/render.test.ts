@@ -46,6 +46,19 @@ void test('ブラケットリンク: 既存ページは通常リンク、存在�
   assert.match(red, /href="\/proj\/Bar"/);
 });
 
+void test('行へのリンクは、Cosense と同じく字を「リンク先#行 ID の末尾 6 字」にし、href に行 ID を残す（#297）', () => {
+  assert.match(renderOne('[Foo#5b630aae9dc7d80000931bc3]', [['foo', 'Foo']]), /<a href="\/proj\/Foo#5b630aae9dc7d80000931bc3" class="page-link">Foo#931bc3<\/a>/);
+  // knot の行 ID（ULID）も同じ。ページの無いリンク先は空リンク。
+  assert.match(renderOne('[Bar#01M4CS1XG8662KTX9GW7P4DZDD]'), /<a href="\/proj\/Bar#01M4CS1XG8662KTX9GW7P4DZDD" class="empty-link">Bar#P4DZDD<\/a>/);
+  // 行 ID でない # は、リンクの表（core/links.ts）と同じくタイトルの一部。
+  assert.match(renderOne('[C#]', [['c#', 'C#']]), /<a href="\/proj\/C%23" class="page-link">C#<\/a>/);
+  // 別のプロジェクトの行へのリンクも同じ。
+  assert.match(
+    renderOne('[/villagepump/2023/02/04#63dd8578b8bbfc0000d3b61d]'),
+    /<a href="\/villagepump\/2023%2F02%2F04#63dd8578b8bbfc0000d3b61d" class="page-link" target="_blank" rel="noopener noreferrer">\/villagepump\/2023\/02\/04#d3b61d<\/a>/,
+  );
+});
+
 void test('ハッシュタグは title_lc で解決しブラケットリンクと同じ扱い', () => {
   assert.match(renderOne('#Foo', [['foo', 'Foo']]), /<a href="\/proj\/Foo"/);
 });
@@ -203,8 +216,13 @@ void test('/files/ 以外のルートパスは、Cosense と同じく別のプ�
     renderOne('[/villagepump/被リンク]'),
     '<div><a href="/villagepump/%E8%A2%AB%E3%83%AA%E3%83%B3%E3%82%AF" class="page-link" target="_blank" rel="noopener noreferrer">/villagepump/被リンク</a></div>',
   );
-  // 行 ID の # を保ち、プロジェクトだけのリンクはプロジェクトのトップへ。タイトルの空白は _ にする。
-  assert.match(renderOne('[/customize/vlzs#abc]'), /<a href="\/customize\/vlzs#abc" class="page-link" target="_blank"/);
+  // 行 ID の # を保ち（字は Cosense と同じく行 ID の末尾 6 字、#297）、プロジェクトだけのリンクはプロジェクトのトップへ。
+  // タイトルの空白は _ にする。行 ID でない # はタイトルの一部。
+  assert.match(
+    renderOne('[/customize/vlzs#696cf84a0000000000b2b9e4]'),
+    /<a href="\/customize\/vlzs#696cf84a0000000000b2b9e4" class="page-link" target="_blank" rel="noopener noreferrer">\/customize\/vlzs#b2b9e4<\/a>/,
+  );
+  assert.match(renderOne('[/lang/C#]'), /<a href="\/lang\/C%23" class="page-link" target="_blank"/);
   assert.match(renderOne('[/help]'), /<a href="\/help" class="page-link" target="_blank"/);
   assert.match(renderOne('[/help/Link ラベル]'), /<a href="\/help\/Link_%E3%83%A9%E3%83%99%E3%83%AB" class="page-link"/);
   // 画像の拡張子があっても、/files/ 以外は画像にしない。
