@@ -241,7 +241,7 @@ test('ページの無いタイトルは、タイトルの行だけの空のペ�
   const telomere = page.locator('#editor-root .telomere');
   await expect(telomere).toHaveCSS('border-left-width', '10px');
   await expect(telomere).toHaveCSS('border-left-color', 'rgb(137, 163, 255)');
-  await expect(page).toHaveTitle('rel-nowhere-one');
+  await expect(page).toHaveTitle('rel-nowhere-one - e2e-related');
   // このタイトルへリンクしているページを、関連ページとして描く。
   expect(await visibleGroups(page)).toEqual([['Links', ['rel-new']]]);
 });

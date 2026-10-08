@@ -19,6 +19,8 @@ void test('GET /:project/:title: レンダリング結果・空リンク・テ�
   assert.doesNotMatch(body, /id="edit-page-button"/);
   assert.match(body, /<div class="page-nav-start"><a href="\/proj">proj<\/a><\/div>/);
   assert.match(body, /data-known-pages="[^"]*Beta[^"]*"/);
+  // 文書のタイトルは、Cosense と同じく「ページのタイトル - プロジェクトの表示名」（#295）。
+  assert.match(body, /<title>Alpha - proj<\/title>/);
   void alphaId;
 });
 
@@ -340,7 +342,7 @@ void test('存在しないページは 404 で、Cosense と同じくタイト�
   const res = await s.request('/proj/Nope_Topic', {}, cookie);
   assert.equal(res.status, 404);
   const body = await res.text();
-  assert.match(body, /<title>Nope Topic<\/title>/);
+  assert.match(body, /<title>Nope Topic - proj<\/title>/);
   // 紙面はタイトルの行だけ。テロメアは未読の太さで、押せない。作成ボタンは置かない。
   assert.match(body, /<div class="page not-persistent">\s*<div\s+id="editor-root"[^>]*>\s*<div class="line-row" id="Lnew-title">\s*<span class="telomere unread w-10" aria-hidden="true"><\/span>\s*<h1 class="line-title">Nope Topic<\/h1>\s*<\/div>\s*<\/div>/);
   assert.doesNotMatch(body, /edit-page-button|まだありません|まだ作成されていません/);
