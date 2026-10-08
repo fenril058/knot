@@ -162,3 +162,27 @@ test('閲覧表示の double click も、編集表示と同じ区切りの語を
   await page.keyboard.type('X');
   expect(await persistedLines(page, title)).toEqual([title, MIXED_ROW.replace('取り込み', '取りXみ'), 'last body']);
 });
+
+test('本文の選択範囲は、閲覧表示でも編集表示でも、Cosense と同じ緑で字の色を変えずに描く', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'selection-e2e');
+  const title = `selection-color-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, ['選んで色を見る行', 'last body']);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+
+  // 字の箱の ::selection の色（#301）。背景だけを Cosense の緑にし、字の色は変えない。
+  const selectionLook = async (selector: string): Promise<{ background: string; color: string; text: string }> =>
+    page.locator(selector).first().evaluate((element) => {
+      const selection = getComputedStyle(element, '::selection');
+      return { background: selection.backgroundColor, color: selection.color, text: getComputedStyle(element).color };
+    });
+  const read = await selectionLook('#editor-root .line-row:nth-child(2) > div');
+  expect(read.background).toBe('rgba(0, 128, 0, 0.4)');
+  expect(read.color).toBe(read.text);
+
+  await page.locator('#editor-root .line-row').nth(2).click({ position: { x: 30, y: 8 } });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  const edit = await selectionLook('#editor-root .cm-line:nth-child(2)');
+  expect(edit.background).toBe('rgba(0, 128, 0, 0.4)');
+  expect(edit.color).toBe(edit.text);
+});
