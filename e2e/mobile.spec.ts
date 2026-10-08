@@ -458,17 +458,31 @@ test('mobile browser でも紙面と本文を Cosense と同じ位置と字で�
   expect(normalizedTextStyle(await textStyleOf(page, GEOMETRY_BODY[0]!))).toEqual(bodyStyle);
   expect(await rowHeights(page)).toEqual([63, 28, 28, 28]);
 
-  // Cosense は 767px 以下でページメニューを上部のバーへ移す。ページメニューのボタンがバーの中に
-  // 横に並び、検索ボタンと重ならず、画面内で押せる（#251 / #258）。
-  const boxes = await page.locator('.nav-search-toggle, .page-actions > summary, .page-menu-link').evaluateAll((elements) =>
-    elements.map((element) => element.getBoundingClientRect().toJSON()));
-  expect(boxes).toHaveLength(4);
-  for (const [index, box] of boxes.entries()) {
-    expect(box.y).toBeGreaterThanOrEqual(0);
-    expect(box.y + box.height).toBeLessThanOrEqual(41);
-    expect(box.x + box.width).toBeLessThanOrEqual(expectedWidth);
-    if (index > 0) expect(box.x).toBeGreaterThanOrEqual(boxes[index - 1]!.x + boxes[index - 1]!.width);
-  }
+  // Cosense は 767px 以下でページメニューを上部のバーの右端のつまみにたたむ（#299）。つまみは幅 24px・高さ 40px で、
+  // 検索ボタンはその 16px 左。つまみを押すと、3 つのボタン（46 × 40px）が並ぶ帯に広がる。
+  const boxOf = async (selector: string): Promise<{ x: number; y: number; width: number; height: number }> =>
+    (await page.locator(selector).boundingBox())!;
+  const toggle = page.locator('.page-menu-toggle');
+  expect(await boxOf('.nav-search-toggle')).toEqual({ x: expectedWidth - 72, y: 4, width: 32, height: 32 });
+  expect(await boxOf('.page-menu')).toEqual({ x: expectedWidth - 24, y: 0, width: 24, height: 40 });
+  await expect(page.locator('.page-actions > summary, .page-menu-link')).toHaveCount(3);
+  await expect(page.locator('.page-actions > summary:visible, .page-menu-link:visible')).toHaveCount(0);
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await toggle.tap();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  expect(await boxOf('.page-menu')).toEqual({ x: expectedWidth - 162, y: 0, width: 162, height: 40 });
+  const buttons = await page.locator('.page-actions > summary, .page-menu-link').evaluateAll((elements) =>
+    elements.map((element) => { const { x, y, width, height } = element.getBoundingClientRect(); return { x, y, width, height }; }));
+  expect(buttons).toEqual([0, 1, 2].map((index) => ({ x: expectedWidth - 162 + 46 * index, y: 0, width: 46, height: 40 })));
+  await expect(page.locator('.page-menu-link')).toHaveCSS('color', 'rgb(255, 255, 255)');
+  // ボタンの menu は、Cosense と同じく帯の 2px 下に、画面の右端から 10px のところに右を揃えて開く。
+  await page.locator('#page-info > summary').tap();
+  const infoMenu = await boxOf('#page-info .page-actions-menu');
+  expect({ right: infoMenu.x + infoMenu.width, y: infoMenu.y }).toEqual({ right: expectedWidth - 10, y: 42 });
+  await page.locator('#page-info > summary').tap();
+  await toggle.tap();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('.page-actions > summary:visible, .page-menu-link:visible')).toHaveCount(0);
 
   await page.locator('#editor-root .line-row').nth(GEOMETRY_BODY.length).tap();
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
