@@ -59,8 +59,9 @@ a { color: #2c6ea3; }
   .page-nav-start { flex: 1; }
   .nav-search { display: none; }
   .nav-search-toggle { display: flex; }
-  /* ページの閲覧表示では、ページメニューの 3 つのボタン（.page-menu）がバーの右端に重なる。その左に置く。 */
-  .page-nav.with-page-menu .nav-search-toggle { margin-inline-end: 138px; }
+  /* ページの閲覧表示では、バーの右端にページメニューのつまみ（.page-menu、幅 24px）が重なる。Cosense と同じく、
+     その 16px 左に置く（右端の padding 8px の内側から 32px）。 */
+  .page-nav.with-page-menu .nav-search-toggle { margin-inline-end: 32px; }
   .page-nav.search-open .nav-search { background-color: #cbccd1; display: block; inset-inline: 0; padding: 7px 8px 8px; position: absolute; top: 100%; z-index: 2; }
   .page-nav.search-open .nav-search-input { background-color: #fff; }
   .page-nav.search-open .nav-search-button { inset-block-start: 7px; inset-inline-end: 8px; }
@@ -76,10 +77,14 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
 .page-main { grid-area: page; min-width: 0; position: relative; }
 /* メニューは左へ開いて紙面に重なる。後に描かれる紙面の下へ潜らないよう、列ごと上に重ねる。 */
 .page-menu { grid-area: menu; position: sticky; top: 4px; z-index: 1; }
-/* Cosense は 767px 以下でページメニューを上部のバーへ移す。 */
+/* Cosense は 767px 以下でページメニューを上部のバーの右端のつまみにたたみ、押すと 3 つのボタンの帯に広げる（#299）。 */
+.page-menu-toggle { display: none; }
 @media (max-width: 767px) {
   .page-column { display: block; }
-  .page-menu { inset-inline-end: 8px; position: absolute; top: 0; }
+  .page-menu { background-color: rgb(53 59 72 / 60%); border-radius: 4px 0 0 4px; display: flex; height: 40px; inset-inline-end: 0; position: absolute; top: 0; z-index: 3; }
+  .page-menu-toggle { align-items: center; background: none; border: 0; color: #fff; cursor: pointer; display: flex; justify-content: center; order: 1; padding: 0; width: 24px; }
+  .page-menu.open .page-menu-toggle svg { transform: scaleX(-1); }
+  .page-menu:not(.open) #page-menu-root { display: none; }
 }
 .page { background-color: var(--page-bg); border-radius: 4px 4px 3px 3px; box-shadow: 0 4px 0 rgb(0 0 0 / 16%); padding: var(--page-padding-top) var(--page-padding-inline) var(--page-padding-bottom); }
 /* ページの無いタイトルの紙面（#289）。Cosense の .page.not-persistent と同じく、不透明度を下げて描く。 */
@@ -380,10 +385,11 @@ span.telomere { cursor: auto; }
 @media (hover: hover) {
   .page-actions > summary:hover, .page-menu-link:hover { background-color: #ccc; }
 }
-/* 767px 以下では、ボタンを上部のバーの右端に横に並べる（.page-menu）。 */
+/* 767px 以下では、広げた帯の中にボタンを横に並べ、印を白にする（#299）。 */
 @media (max-width: 767px) {
   #page-menu-root { display: flex; }
-  .page-actions > summary, .page-menu-link { border-radius: 4px; height: 41px; }
+  .page-actions { position: static; }
+  .page-actions > summary, .page-menu-link { border-radius: 0; color: #fff; height: 40px; }
 }
 /* メニューはボタンの左に、上端を 2px 下げて開く（Cosense の .dropdown-menu-right）。 */
 .page-actions-menu { background-color: #fff; border: 1px solid rgb(0 0 0 / 15%); border-radius: 4px; box-shadow: 0 6px 12px rgb(0 0 0 / 17.6%); box-sizing: border-box; display: grid; inset-inline-end: 46px; margin-top: 2px; min-width: 160px; padding: 8px 0 4px; position: absolute; top: 0; z-index: 1; }
@@ -391,6 +397,11 @@ span.telomere { cursor: auto; }
 .page-actions-menu button:focus-visible { background-color: #f5f5f5; color: #262626; outline: none; }
 @media (hover: hover) {
   .page-actions-menu button:hover { background-color: #f5f5f5; color: #262626; }
+}
+/* 767px 以下では、menu は Cosense と同じく帯の 2px 下に、画面の右端から 10px のところに右を揃えて開く（#299）。
+   .page-actions を基準にしない（position: static）ので、帯（.page-menu）が基準になる。 */
+@media (max-width: 767px) {
+  .page-actions-menu { inset-inline-end: 10px; margin-top: 0; top: calc(100% + 2px); }
 }
 .page-info-row { line-height: 27px; margin: 0; padding: 0 16px; white-space: nowrap; }
 dialog { border: 1px solid #ccc; border-radius: 6px; max-width: min(28rem, calc(100% - 2rem)); }

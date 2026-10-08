@@ -76,6 +76,18 @@ const pageTitle = titleText;
 const version = Number(versionText);
 if (!Number.isInteger(version)) throw new Error('page version is invalid');
 
+// 767px 以下でページメニューをたたむつまみ（#299）。押すと 3 つのボタンの帯に広げ、もう一度押すとたたむ。
+// 768px 以上ではつまみを描かず、ボタンを常に並べる（CSS）。
+const drawer = root.parentElement;
+const drawerToggle = drawer?.querySelector('.page-menu-toggle');
+if (drawer !== null && drawerToggle instanceof HTMLButtonElement) {
+  drawerToggle.addEventListener('click', () => {
+    const open = !drawer.classList.contains('open');
+    drawer.classList.toggle('open', open);
+    drawerToggle.setAttribute('aria-expanded', String(open));
+  });
+}
+
 // ページ情報の作成・更新の日時を、相対の日時（「8 年前」）にする。正確な日時は、閲覧者の時間帯で
 // title（tooltip）に置く（Cosense と同じ）。単位は、差が 1 以上になる最も大きい単位を選び、端数は切り捨てる。
 const relativeFormat = new Intl.RelativeTimeFormat('ja', { numeric: 'always' });
