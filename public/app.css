@@ -31,8 +31,12 @@ body {
 a { color: #2c6ea3; }
 .empty-link { color: #c0392b; }
 /* 上部のバー。Cosense の navbar と同じ高さと色にする。中も Cosense と同じく、左の導線・真ん中の
-   検索欄・右の空きの 3 列（992px 以上は 2 : 3 : 2、それより狭いと 2 : 3 と幅 0）で、列の間隔は 16px（#247）。 */
-.page-nav { align-items: center; background-color: rgb(196 197 202 / 70%); box-sizing: border-box; column-gap: 16px; display: grid; grid-template-columns: 2fr 3fr 2fr; grid-template-rows: 40px; height: 41px; padding-inline: 16px; position: relative; }
+   検索欄・右の空きの 3 列（992px 以上は 2 : 3 : 2、それより狭いと 2 : 3 と幅 0）で、列の間隔は 16px（#247）。
+   Cosense と同じく画面の上に固定し、下を流れる紙面をぼかして透かす（#303）。本文の上に出す部品（z-index 3 まで）
+   より上に重ねる。 */
+.page-nav { align-items: center; backdrop-filter: blur(10px); background-color: rgb(196 197 202 / 70%); box-sizing: border-box; column-gap: 16px; display: grid; grid-template-columns: 2fr 3fr 2fr; grid-template-rows: 40px; height: 41px; inset-block-start: 0; inset-inline: 0; padding-inline: 16px; position: fixed; z-index: 10; }
+/* focus や scrollIntoView で画面へ入れる要素を、バーの下に置く。 */
+html:has(.page-nav) { scroll-padding-top: 41px; }
 .page-nav-start { display: flex; min-width: 0; }
 .page-nav-start a { color: #363c49; font-weight: 600; padding: 6px 8px; text-decoration: none; }
 @media (max-width: 991px) {
@@ -67,21 +71,28 @@ a { color: #2c6ea3; }
   .page-nav.search-open .nav-search-button { inset-block-start: 7px; inset-inline-end: 8px; }
   .page-nav.search-open .nav-search-candidates { inset-inline: 8px; max-width: none; width: auto; }
   .page-nav.search-open .nav-search-toggle { background-color: rgb(0 0 0 / 10%); }
+  /* 開いた検索欄（バーの下の 47px）も本文に重なるので、focus などで画面へ入れる要素はその下に置く。 */
+  html:has(.page-nav.search-open) { scroll-padding-top: 88px; }
 }
 /* バーの下端から紙面の上端までを Cosense と同じ 31px にする（15px + .page-column の 16px）。
    padding にするのは、子の margin と相殺させないため。 */
 main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 15px 8px 20px; }
+/* バーは画面の上に固定して本文の流れから外すので（#303）、バーのあるページでは、バーの高さ（41px）も足して
+   下げる（Cosense の .app の padding-top: 56px）。 */
+.page-nav + main { padding-top: 56px; }
 /* 紙面と、その右のページメニュー列。メニュー列の幅は中身によらず固定し、編集開始で
    メニューを隠しても紙面が横に動かないようにする。 */
 .page-column { align-items: start; display: grid; gap: 10px; grid-template-areas: "page menu"; grid-template-columns: minmax(200px, 960px) 46px; justify-content: center; margin-top: 16px; }
 .page-main { grid-area: page; min-width: 0; position: relative; }
-/* メニューは左へ開いて紙面に重なる。後に描かれる紙面の下へ潜らないよう、列ごと上に重ねる。 */
-.page-menu { grid-area: menu; position: sticky; top: 4px; z-index: 1; }
-/* Cosense は 767px 以下でページメニューを上部のバーの右端のつまみにたたみ、押すと 3 つのボタンの帯に広げる（#299）。 */
+/* メニューは左へ開いて紙面に重なる。後に描かれる紙面の下へ潜らないよう、列ごと上に重ねる。
+   scroll すると、Cosense と同じく画面の上に固定したバーの 4px 下で止まる（#303）。 */
+.page-menu { grid-area: menu; position: sticky; top: 45px; z-index: 1; }
+/* Cosense は 767px 以下でページメニューを上部のバーの右端のつまみにたたみ、押すと 3 つのボタンの帯に広げる（#299）。
+   つまみと帯はバーの上に重ね、バーと一緒に画面の上に固定する（#303）。 */
 .page-menu-toggle { display: none; }
 @media (max-width: 767px) {
   .page-column { display: block; }
-  .page-menu { background-color: rgb(53 59 72 / 60%); border-radius: 4px 0 0 4px; display: flex; height: 40px; inset-inline-end: 0; position: absolute; top: 0; z-index: 3; }
+  .page-menu { background-color: rgb(53 59 72 / 60%); border-radius: 4px 0 0 4px; display: flex; height: 40px; inset-inline-end: 0; position: fixed; top: 0; z-index: 11; }
   .page-menu-toggle { align-items: center; background: none; border: 0; color: #fff; cursor: pointer; display: flex; justify-content: center; order: 1; padding: 0; width: 24px; }
   .page-menu.open .page-menu-toggle svg { transform: scaleX(-1); }
   .page-menu:not(.open) #page-menu-root { display: none; }
@@ -211,9 +222,9 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
 .search-matched { background-color: #ff0; font-weight: 700; }
 /* 抜粋の行送り（14px）は字の高さより低いので、inline のままだと 3 行目の語の背景が 2 行目の下へはみ出す。 */
 .search-result-lines .search-matched { display: inline-block; line-height: 14px; }
-/* 767px 以下では検索の結果ページでも検索欄をバーの下に開いておくので、そのぶん本文を下げる。 */
+/* 767px 以下では検索の結果ページでも検索欄をバーの下に開いておくので、そのぶん（62px）も本文を下げる。 */
 @media (max-width: 767px) {
-  .search-main { padding-top: 62px; }
+  .page-nav + .search-main { padding-top: 103px; }
 }
 /* 分割できる位置を持たない長いラベル（URL など）でページを横にはみ出させない。
    CodeMirror 側は lineWrapping が同じ折り返しを行うので、両方の表示で同じ位置に折り返る。

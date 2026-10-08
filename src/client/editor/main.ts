@@ -598,13 +598,18 @@ async function restorePending(record: EditorRecord): Promise<Recovery | null> {
   return { engine: restored, effects, texts: textsAfterEffects(result.page, effects) };
 }
 
+// 画面の上に固定した上部のバー（#303）の下端。バーに隠れた部分は、画面に見えていないものとして扱う。
+function barBottom(): number {
+  return Math.max(0, document.querySelector('.page-nav')?.getBoundingClientRect().bottom ?? 0);
+}
+
 // SSR 行の画面上の位置。画面に掛かっている行は、上端がはみ出していてもその位置へ戻す。
-// 完全に画面の外にある行は、そこへ戻しても編集対象が見えないので対象にしない。
+// 完全に画面の外にある行（バーに隠れた行も含む）は、そこへ戻しても編集対象が見えないので対象にしない。
 function visibleRowTop(lineId: string): number | undefined {
   const row = document.getElementById(`L${lineId}`);
   if (row === null) return undefined;
   const box = row.getBoundingClientRect();
-  return box.bottom > 0 && box.top < window.innerHeight ? box.top : undefined;
+  return box.bottom > barBottom() && box.top < window.innerHeight ? box.top : undefined;
 }
 
 // 閲覧表示で読み込み済みの画像が、描かれている大きさ。
@@ -749,6 +754,8 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
       // 閲覧表示は通常の block として折り返る。これを入れないと CodeMirror の既定の
       // white-space: pre のままで、編集を開始した瞬間に長い行が横スクロールへ変わる。
       EditorView.lineWrapping,
+      // caret を画面へ入れるときと、drag で選びながら scroll するときに、バーに隠れた部分を画面の外として扱う。
+      EditorView.scrollMargins.of(() => ({ top: barBottom() })),
       historyExtension(),
       lineWysiwyg({ project, allowedImageHosts, allowedMediaHosts, knownPages, imageSizes, cspNonce }),
       doubleClickWordSelection,
