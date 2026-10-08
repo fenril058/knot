@@ -59,8 +59,10 @@ export function writeTableColumns(columns: TableColumns, nonce: string | undefin
     if (nonce !== undefined) element.nonce = nonce;
     document.head.append(element);
   }
+  // 編集表示のカーソル行のセル（#293）も、td と同じ幅にする。
   const rules = Array.from(columns, ([key, widths]) => widths.map((width, index) => (
-    `#editor-root table[data-table="${CSS.escape(key)}"] td:nth-child(${index + 1}) { min-width: ${width}px; }`
+    `#editor-root table[data-table="${CSS.escape(key)}"] td:nth-child(${index + 1}), `
+    + `#editor-root .cm-table-cell[data-table="${CSS.escape(key)}"][data-col="${index + 1}"] { min-width: ${width}px; }`
   )).join('\n'));
   element.textContent = rules.join('\n');
   element.dataset.widths = JSON.stringify(Array.from(columns));

@@ -327,7 +327,7 @@ function addActiveLineDecorations(builder: RangeSetBuilder<Decoration>, line: Pr
   const prefix = line.role === 'codeLine' ? line.textSpan.from - line.from : line.indent;
   const classes: string[] = [];
   const properties: string[] = [];
-  const indented = prefix > 0 && (line.role === 'line' || line.role === 'codeHeader' || line.role === 'codeLine');
+  const indented = prefix > 0 && line.role !== 'title';
   if (indented) {
     classes.push('cm-active-indent');
     properties.push(`--indent-level: ${prefix}`);
@@ -349,10 +349,35 @@ function addActiveLineDecorations(builder: RangeSetBuilder<Decoration>, line: Pr
   if (indented) builder.add(line.from, line.from + prefix, Decoration.mark({ class: 'cm-indent-text' }));
   // 引用の > は、整形表示で見えない > が占める位置（枠の線と余白の後ろ）に置く。
   if (quote) builder.add(line.from + line.indent, line.from + line.indent + 1, Decoration.mark({ class: 'cm-quote-mark' }));
-  // コードブロックの見出しは、code: も札の中に見せる。
-  if (line.role === 'codeHeader' && line.from + line.indent < line.to) {
-    builder.add(line.from + line.indent, line.to, Decoration.mark({ class: 'code-block-start' }));
+  // コードブロックと表の見出しは、code: と table: も札の中に見せる（表は #293）。
+  if ((line.role === 'codeHeader' || line.role === 'tableHeader') && line.from + line.indent < line.to) {
+    const label = line.role === 'codeHeader' ? 'code-block-start' : 'table-block-start';
+    builder.add(line.from + line.indent, line.to, Decoration.mark({ class: label }));
   }
+  if (line.role === 'tableRow') addTableCellDecorations(builder, line);
+}
+
+// 表の行のカーソル行（#293）。Cosense のカーソル行と同じく、閲覧表示と同じセルの箱（交互の背景・列の幅）を保ち、
+// 背景だけを少し濃くする。列の幅は、閲覧表示の td と同じ規則（tableColumns.ts）が data-table と data-col で決める。
+// 表の行の字は、見出しの字下げ（line.indent）より 1 字深い位置から始まり、セルはタブで区切る。閲覧表示と同じく、
+// その 1 字とタブは幅を持たせないので、セルの箱は td と同じ字の幅で決まる。字の無いセルは、箱を描かない。
+function addTableCellDecorations(builder: RangeSetBuilder<Decoration>, line: PresentedLine & { role: 'tableRow' }): void {
+  const start = line.from + line.indent;
+  if (start >= line.to) return;
+  builder.add(start, start + 1, Decoration.mark({ class: 'cm-table-gap' }));
+  const cells = line.source.slice(line.indent + 1).split('\t');
+  let from = start + 1;
+  cells.forEach((cell, index) => {
+    const to = from + cell.length;
+    if (to > from) {
+      builder.add(from, to, Decoration.mark({
+        class: index % 2 === 0 ? 'cm-table-cell' : 'cm-table-cell even',
+        attributes: { 'data-table': String(line.table), 'data-col': String(index + 1) },
+      }));
+    }
+    if (index < cells.length - 1) builder.add(to, to + 1, Decoration.mark({ class: 'cm-table-gap' }));
+    from = to + 1;
+  });
 }
 
 function buildDecorations(view: EditorView, config: LineWysiwygConfig): DecorationSet {
