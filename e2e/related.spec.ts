@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginE2eAccount } from './helpers.ts';
+import { lineRowClickPosition, loginE2eAccount } from './helpers.ts';
 
 // 関連ページの絞り込み欄と並び替え（#281）。ページは e2e/server.ts が e2e-related に用意する。
 
@@ -225,5 +225,48 @@ test('関連ページの最後に、ページの無いリンク先を Cosense �
   expect(await visibleGroups(page)).toEqual([['New Links', ['rel-nowhere-two']]]);
   await group.locator('.card', { hasText: 'rel-nowhere-two' }).click();
   await expect(page).toHaveURL('/e2e-related/rel-nowhere-two');
-  await expect(page.getByRole('heading', { name: '「rel-nowhere-two」はまだありません' })).toBeVisible();
+  await expect(page.locator('#editor-root h1.line-title')).toHaveText('rel-nowhere-two');
+});
+
+test('ページの無いタイトルは、タイトルの行だけの空のページと、そこへリンクしているページで描く', async ({ page }) => {
+  await openRelatedBase(page, 1280);
+  const normalPaper = await box(page, '.page');
+  await page.goto('/e2e-related/rel-nowhere-one');
+  // 紙面はふだんと同じ位置と幅で、タイトルの行だけ。不透明度を下げ、テロメアは未読の太さ（#289）。
+  const paper = await box(page, '.page');
+  expect({ x: paper.x, y: paper.y, width: paper.width }).toEqual({ x: normalPaper.x, y: normalPaper.y, width: normalPaper.width });
+  await expect(page.locator('.page')).toHaveCSS('opacity', '0.7');
+  await expect(page.locator('#editor-root .line-row')).toHaveCount(1);
+  await expect(page.locator('#editor-root h1.line-title')).toHaveText('rel-nowhere-one');
+  const telomere = page.locator('#editor-root .telomere');
+  await expect(telomere).toHaveCSS('border-left-width', '10px');
+  await expect(telomere).toHaveCSS('border-left-color', 'rgb(137, 163, 255)');
+  await expect(page).toHaveTitle('rel-nowhere-one');
+  // このタイトルへリンクしているページを、関連ページとして描く。
+  expect(await visibleGroups(page)).toEqual([['Links', ['rel-new']]]);
+});
+
+test('ページの無いタイトルは、タイトルの行を押して編集を始め、字を書いたときにページができる', async ({ page }, testInfo) => {
+  await openRelatedBase(page, 1280);
+  const title = `rel-created-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await page.goto(`/e2e/${title}`);
+  const titleRow = page.locator('#editor-root .line-row').first();
+  await titleRow.click({ position: lineRowClickPosition });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expect(page.locator('#editor-root .cm-line')).toHaveText([title]);
+
+  // 編集を始めただけでは、ページは作られない（#289）。
+  await page.reload();
+  await expect(page.locator('.page.not-persistent')).toHaveCount(1);
+
+  // 字を書くと、そのタイトルのページができる。
+  await titleRow.click({ position: lineRowClickPosition });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('created body');
+  await expect(page.locator('#save-status')).toHaveText('保存済み');
+  await page.reload();
+  await expect(page.locator('.page.not-persistent')).toHaveCount(0);
+  await expect(page.locator('#editor-root .line-row')).toHaveText([title, 'created body']);
 });

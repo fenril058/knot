@@ -48,6 +48,19 @@ void test('アイコン参照だけの逆リンクでも hasBackLinks が立つ�
   assert.equal(rel.hasBackLinks, true);
 });
 
+void test('getRelatedPages: ページの無いタイトルは空の pageId で、そのタイトルへリンクしているページだけを返す', async () => {
+  const { storage } = makeStorage();
+  const project = await storage.ensureProject('proj', now);
+  await seedPage(storage, project.id, 'Linker', ['[Missing Topic] と [Other]'], now);
+  await seedPage(storage, project.id, 'Other', ['[Missing Topic]'], now + 1);
+  await seedPage(storage, project.id, 'Unrelated', ['[Other]'], now + 2);
+  const rel = await storage.getRelatedPages(project.id, '', 'missing_topic');
+  assert.deepEqual(rel.links1hop.map((p) => p.title), ['Other', 'Linker']);
+  assert.deepEqual(rel.links2hop, []);
+  assert.equal(rel.hasBackLinks, true);
+  assert.equal(rel.linked, 2);
+});
+
 void test('listPageTitles: 原文タイトルのリンクを返す', async () => {
   const { storage } = makeStorage();
   const project = await storage.ensureProject('proj', now);

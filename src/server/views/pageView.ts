@@ -162,9 +162,11 @@ ${relatedSorts.map(({ key, label }) => (relatedSortTabs.includes(key)
 }
 
 type PageLink = { title: string; titleLc: string };
+// 関連ページを描くのに使う、ページのタイトルと行。ページの無いタイトル（#289）では行が無い。
+type RelatedSource = Pick<PageSnapshot, 'title' | 'lines'>;
 
 // 本文（タイトル行を除く）のリンク先。本文のリンクの順。
-function pageLinkTargets(page: PageSnapshot): PageLink[] {
+function pageLinkTargets(page: RelatedSource): PageLink[] {
   return extractRefs(page.lines.slice(1).map(({ text }) => text).join('\n')).linkTargets;
 }
 
@@ -176,7 +178,7 @@ function linkedByRelatedPages(related: RelatedPages): Set<string> {
 
 // 本文のリンク先のうち、ページは無いが、ほかのページからリンクされているもの（#285）。Cosense と同じく空リンクの
 // 色にしないので、閲覧表示と編集表示がリンクの見た目を決める既知のページに足す。
-export function linkedEmptyPages(page: PageSnapshot, related: RelatedPages, knownTitlesLc: ReadonlySet<string>): KnownPage[] {
+export function linkedEmptyPages(page: RelatedSource, related: RelatedPages, knownTitlesLc: ReadonlySet<string>): KnownPage[] {
   const linked = linkedByRelatedPages(related);
   return pageLinkTargets(page)
     .filter((link) => !knownTitlesLc.has(link.titleLc) && linked.has(link.titleLc))
@@ -202,7 +204,7 @@ ${cardPlaceholder}
 // 関連ページ（#249）。Cosense と同じく見出しを置かず、行の先頭に札と同じ大きさの見出しの札を置く。
 // 1-hop の行は「Links」、2-hop の行は共有するリンク先の名前、最後の行は「New Links」の札で始まる。
 function relatedSection(
-  page: PageSnapshot,
+  page: RelatedSource,
   related: RelatedPages,
   projectName: string,
   allowedImageHosts: string[],
@@ -332,15 +334,19 @@ ${relatedSection(page, related, project.name, renderConfig.allowedImageHosts, kn
   );
 }
 
-export function pageNotFoundPage(
+// ページの無いタイトルの画面（#289）。Cosense と同じく、タイトルの行だけの紙面を不透明度を下げて描き、その下に、
+// このタイトルへリンクしているページを関連ページとして描く。ページのあるときと同じく、タイトルの行を押すか
+// ctrl(cmd) + e で編集を始め、字を書いたときにページができる。テロメアは未読の太さで描くが、行がまだ無いので押せない。
+export function emptyPageView(
   project: Project,
   title: string,
+  related: RelatedPages,
   userName: string,
   styleNonce: string,
   renderConfig: RenderConfig,
   knownPages: readonly KnownPage[],
 ): Html {
-  return layout('ページが見つかりません', html`
+  return layout(title, html`
 ${pageNav(project.name, projectLink(project))}
 <main>
 <div class="page-column">
@@ -348,9 +354,7 @@ ${pageNav(project.name, projectLink(project))}
 <div id="save-status" aria-live="polite" hidden></div>
 ${editConflictPanel()}
 ${recoveryDialog()}
-<div class="page">
-<h1>「${title}」はまだありません</h1>
-<button type="button" id="edit-page-button">このタイトルで新規作成する</button>
+<div class="page not-persistent">
 <div
   id="editor-root"
   class="page-body"
@@ -362,11 +366,16 @@ ${recoveryDialog()}
   data-allowed-image-hosts="${JSON.stringify(renderConfig.allowedImageHosts)}"
   data-allowed-media-hosts="${JSON.stringify(renderConfig.allowedMediaHosts)}"
   data-known-pages="${JSON.stringify(knownPages)}"
-><p>このページはまだ作成されていません。</p></div>
+><div class="line-row" id="Lnew-title">
+<span class="telomere unread w-10" aria-hidden="true"></span>
+<h1 class="line-title">${title}</h1>
+</div></div>
 </div>
+${relatedSection({ title, lines: [] }, related, project.name, renderConfig.allowedImageHosts, knownPages)}
 </div>
 </div>
 </main>
+<script type="module" src="/assets/build/related-pages.js"></script>
 <script type="module" src="/assets/build/editor.js"></script>
 <script type="module" src="/assets/build/search.js"></script>`,
   );

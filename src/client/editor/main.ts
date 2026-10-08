@@ -41,7 +41,6 @@ const RECOVERY_WARNING = '再読み込み後に未保存内容を自動復元で
 
 const root = document.querySelector<HTMLElement>('#editor-root');
 const statusElement = document.querySelector<HTMLElement>('#save-status');
-const editButtonElement = document.querySelector<HTMLButtonElement>('#edit-page-button');
 const conflictPanelElement = document.querySelector<HTMLElement>('#edit-conflict');
 const conflictListElement = document.querySelector<HTMLOListElement>('#edit-conflict-list');
 const resolveConflictButtonElement = document.querySelector<HTMLButtonElement>('#resolve-edit-conflict');
@@ -62,7 +61,6 @@ if (
 }
 const editorRoot = root;
 const saveStatus = statusElement;
-const editButton = editButtonElement;
 const conflictPanel = conflictPanelElement;
 const conflictList = conflictListElement;
 const resolveConflictButton = resolveConflictButtonElement;
@@ -741,7 +739,6 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
     : unlessThrows(() => selectedSourceRange(initialPresentation));
 
   editorRoot.replaceChildren();
-  if (editButton !== null) editButton.hidden = true;
   // ページメニューは編集中も出したままにする（#192）。ページ操作の前には、メニューが
   // answerSettleEdits の約束事で手元の編集を保存し終えるのを待つ。
   view = new EditorView({
@@ -890,18 +887,14 @@ function blocksEditorActivation(target: Element): boolean {
 function beginEditing(initialTarget?: InitialEditTarget): void {
   if (starting) return;
   starting = true;
-  if (editButton !== null) editButton.disabled = true;
   void start(initialTarget).catch((error: unknown) => {
     console.error(error);
     starting = false;
-    if (editButton !== null) editButton.disabled = false;
     saveStatus.hidden = false;
     saveStatus.textContent = 'エラー';
     saveStatus.dataset.status = 'error';
   });
 }
-
-editButton?.addEventListener('click', () => beginEditing());
 
 const typingTargetSelector = 'input, select, textarea, [contenteditable="true"]';
 
@@ -929,37 +922,36 @@ document.addEventListener('keydown', (event) => {
     : { lineId: lastRow.id.slice(1), lineNumber: rows.length });
 });
 
-if (initialPageId !== undefined) {
-  editorRoot.addEventListener('click', (event) => {
-    if (starting || !(event.target instanceof Element)) return;
-    const selection = window.getSelection();
-    if (selection !== null && !selection.isCollapsed) return;
-    if (blocksEditorActivation(event.target)) return;
-    const row = event.target.closest<HTMLElement>('.line-row');
-    if (row === null || row.parentElement !== editorRoot || !row.id.startsWith('L')) return;
-    const rows = Array.from(editorRoot.querySelectorAll<HTMLElement>('.line-row'));
-    const index = rows.indexOf(row);
-    if (index < 0) return;
-    const elements = lineElements(row);
-    const target = elements === undefined ? undefined : clickTarget(elements, event.clientX, event.clientY);
-    beginEditing({
-      lineId: row.id.slice(1),
-      lineNumber: index + 1,
-      ...(elements === undefined || target === undefined ? {} : { click: { elements, target } }),
-    });
+// 本文の行を押すと、その位置から編集を始める。ページの無いタイトル（#289）でも、タイトルの行を押して始める。
+editorRoot.addEventListener('click', (event) => {
+  if (starting || !(event.target instanceof Element)) return;
+  const selection = window.getSelection();
+  if (selection !== null && !selection.isCollapsed) return;
+  if (blocksEditorActivation(event.target)) return;
+  const row = event.target.closest<HTMLElement>('.line-row');
+  if (row === null || row.parentElement !== editorRoot || !row.id.startsWith('L')) return;
+  const rows = Array.from(editorRoot.querySelectorAll<HTMLElement>('.line-row'));
+  const index = rows.indexOf(row);
+  if (index < 0) return;
+  const elements = lineElements(row);
+  const target = elements === undefined ? undefined : clickTarget(elements, event.clientX, event.clientY);
+  beginEditing({
+    lineId: row.id.slice(1),
+    lineNumber: index + 1,
+    ...(elements === undefined || target === undefined ? {} : { click: { elements, target } }),
   });
+});
 
-  // 閲覧表示の double click も、編集表示と同じ区切りの語を選ぶ（#261）。ブラウザの区切りは Cosense と
-  // 違う（ICU は漢字とかなの続く語や、. や : でつながる英数字をまとめる）。選んだ範囲は、編集を始める
-  // ときに編集表示へ持ち越す（#194）。編集表示に替わった後は CodeMirror が扱う。
-  editorRoot.addEventListener('dblclick', (event) => {
-    if (editorRoot.classList.contains('editor-active') || !(event.target instanceof Element)) return;
-    if (blocksEditorActivation(event.target)) return;
-    const row = event.target.closest<HTMLElement>('.line-row');
-    const elements = row === null || row.parentElement !== editorRoot ? undefined : lineElements(row);
-    const target = elements === undefined ? undefined : clickTarget(elements, event.clientX, event.clientY);
-    if (!(target?.node instanceof Text)) return;
-    const { from, to } = wordRange(target.node.data, target.offset);
-    window.getSelection()?.setBaseAndExtent(target.node, from, target.node, to);
-  });
-}
+// 閲覧表示の double click も、編集表示と同じ区切りの語を選ぶ（#261）。ブラウザの区切りは Cosense と
+// 違う（ICU は漢字とかなの続く語や、. や : でつながる英数字をまとめる）。選んだ範囲は、編集を始める
+// ときに編集表示へ持ち越す（#194）。編集表示に替わった後は CodeMirror が扱う。
+editorRoot.addEventListener('dblclick', (event) => {
+  if (editorRoot.classList.contains('editor-active') || !(event.target instanceof Element)) return;
+  if (blocksEditorActivation(event.target)) return;
+  const row = event.target.closest<HTMLElement>('.line-row');
+  const elements = row === null || row.parentElement !== editorRoot ? undefined : lineElements(row);
+  const target = elements === undefined ? undefined : clickTarget(elements, event.clientX, event.clientY);
+  if (!(target?.node instanceof Text)) return;
+  const { from, to } = wordRange(target.node.data, target.offset);
+  window.getSelection()?.setBaseAndExtent(target.node, from, target.node, to);
+});
