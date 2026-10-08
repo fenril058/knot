@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { ulid } from '../src/core/id.ts';
 import {
   blockLooks,
   charPoint,
@@ -218,6 +219,45 @@ async function anchorLooks(page: Page, rowIndex: number): Promise<AnchorLook[]> 
     })),
   );
 }
+
+test('行へのリンクは「リンク先#行 ID の末尾 6 字」で描き、押すとその行へ移って行を示す', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'link-e2e');
+  const suffix = `${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  const target = `line-anchor-target-${suffix}`;
+  // 行 ID は knot の行 ID と同じ ULID にする（#297）。
+  const lineId = ulid();
+  const created = await page.request.post(`/api/knot/pages/e2e/${target}/commits`, {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: {
+      commitId: `${target}-create`,
+      baseVersion: 0,
+      ops: [
+        { type: 'insert', id: `${target}-line-0`, after: '_head', text: target },
+        { type: 'insert', id: `${target}-line-1`, after: `${target}-line-0`, text: 'first' },
+        { type: 'insert', id: lineId, after: `${target}-line-1`, text: 'the linked line' },
+      ],
+    },
+  });
+  expect(created.ok()).toBe(true);
+  const title = `line-anchor-source-${suffix}`;
+  const body = [`[${target}#${lineId}]`, 'last body'];
+  await createE2ePage(page, title, body);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  const label = `${target}#${lineId.slice(-6)}`;
+  const link = page.locator('#editor-root .line-row').nth(1).locator('a');
+  await expect(link).toHaveText(label);
+  await expect(link).toHaveAttribute('href', `/e2e/${target}#${lineId}`);
+  await link.click();
+  await expect(page).toHaveURL(`/e2e/${target}#${lineId}`);
+  await expect(page.locator(`#L${lineId}`)).toHaveClass(/highlight/);
+
+  // 編集表示の整形表示の行も、同じ字で描く。
+  await page.goto(`/e2e/${title}`);
+  await startEditingAtLastRow(page, body.length);
+  await expect(page.locator('#editor-root .cm-line').nth(1).locator('a')).toHaveText(label);
+});
 
 test('外部リンクと別のプロジェクトへのリンクは、Cosense と同じく新しいタブで開く', async ({ page }, testInfo) => {
   // line-e2e はこの spec の login が多く、login の rate limit（10 分間に 10 回）に届くので、リンクの題材の account を使う。

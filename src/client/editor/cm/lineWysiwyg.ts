@@ -8,6 +8,7 @@ import {
   type DecorationSet,
   type ViewUpdate,
 } from '@codemirror/view';
+import { splitLineId } from '../../../core/links.ts';
 import { isAttachmentUrl } from '../../../core/media.ts';
 import { parsePageSyntax, type SyntaxNode } from '../../../core/syntax.ts';
 import { pageHref, titleLc } from '../../../core/title.ts';
@@ -173,9 +174,10 @@ function linkTargetAt(
       return { href: pageHref(project, target), newTab: false };
     }
     if (node?.type === 'link' && node.pathType === 'relative') {
-      const rawTarget = node.href.split('#')[0]!;
+      // 行へのリンクは、その行へ移る（#297）。
+      const { target: rawTarget, lineId } = splitLineId(node.href);
       const target = knownPages.get(titleLc(rawTarget))?.title ?? rawTarget;
-      return { href: pageHref(project, target), newTab: false };
+      return { href: `${pageHref(project, target)}${lineId === null ? '' : `#${lineId}`}`, newTab: false };
     }
     if (node?.type === 'link' && isHttpUrl(node.href)) return { href: node.href, newTab: true };
     if (node?.type === 'link' && node.pathType === 'root' && !isAttachmentUrl(node.href)) {

@@ -119,6 +119,19 @@ void test('リンクのラベルは、URL が先なら ] の直前、ラベル�
   assert.deepEqual(labels.map((piece) => source.slice(piece.span.from - 1, piece.span.to + 1)), [' label]', '[label ']);
 });
 
+void test('行へのリンクの字は、リンク先（# まで）と行 ID の末尾 6 字を、それぞれ原文の字に対応させる（#297）', () => {
+  const source = 'Title\n[Foo#5b630aae9dc7d80000931bc3] [/other/Bar#01M4CS1XG8662KTX9GW7P4DZDD]';
+  const line = presentationLines(source, new Map(), 'proj', config)[1];
+  assert.equal(line?.role, 'line');
+  if (line?.role !== 'line') return;
+  const pieces = textPieces(line.nodes).filter((piece) => piece.text.trim() !== '');
+  assert.deepEqual(pieces.map((piece) => piece.text), ['Foo#', '931bc3', '/other/Bar#', 'P4DZDD']);
+  for (const piece of pieces) {
+    assert.equal(piece.span.verbatim, true);
+    assert.equal(source.slice(piece.span.from, piece.span.to), piece.text);
+  }
+});
+
 void test('原文と違う字を描くアイコンと、画像は、node の範囲全体に対応する', () => {
   const source = 'Title\n[name.icon] [https://images.example/a.png]';
   const line = presentationLines(source, new Map(), 'proj', config)[1];
