@@ -552,6 +552,67 @@ test('本文の画像とアイコンを Cosense と同じ大きさの規則で�
   expect(await rows()).toEqual(rowsBefore);
 });
 
+test('画像とアイコンの行にカーソルを置いても、Cosense と同じく行の高さを保ち、画像の場所を薄い灰色で示す', async (
+  { page },
+  testInfo,
+) => {
+  await loginE2eAccount(page, 'active-line-e2e');
+  const suffix = `${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await page.route('https://i.gyazo.com/**', (route) => {
+    const [width, height] = route.request().url().endsWith('/icon.png') ? [64, 64] : [600, 400];
+    return route.fulfill({ status: 200, contentType: 'image/svg+xml', body: svg(width, height) });
+  });
+  const iconPage = `line-cursor-icon-${suffix}`;
+  await createE2ePage(page, iconPage, ['https://i.gyazo.com/icon.png']);
+  const title = `line-cursor-image-${suffix}`;
+  const body = ['[https://i.gyazo.com/wide.png]', `[${iconPage}.icon] のある行`, 'last body'];
+  await createE2ePage(page, title, body);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  await page.waitForFunction(() => Array.from(
+    document.querySelectorAll<HTMLImageElement>('#editor-root img'),
+    (image) => image.complete && image.naturalWidth > 0,
+  ).every(Boolean));
+  const heights = await rowHeights(page);
+  expect(heights[1]).toBeGreaterThan(300);
+  // カーソル行の背景のアニメーション（Cosense の .cursor-line.with-image）。無ければ null。
+  const flash = async (row: number): Promise<{ duration: string; from: string; to: string } | null> =>
+    page.locator('#editor-root .cm-line').nth(row).evaluate((line) => {
+      const animation = line.getAnimations().find((candidate) => candidate instanceof CSSAnimation);
+      if (animation === undefined) return null;
+      const keyframes = animation.effect instanceof KeyframeEffect ? animation.effect.getKeyframes() : [];
+      return {
+        duration: getComputedStyle(line).animationDuration,
+        from: String(keyframes[0]?.backgroundColor),
+        to: String(keyframes.at(-1)?.backgroundColor),
+      };
+    });
+  const imageFlash = { duration: '3s', from: 'rgb(239, 239, 239)', to: 'rgba(0, 0, 0, 0)' };
+
+  // 閲覧表示の画像の行の、画像の右を押して編集を始める。行は原文の 1 行になるが、高さは画像の行のまま。
+  await page.locator('#editor-root .line-row').nth(1).click({ position: { x: 700, y: 150 } });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expect(page.locator('#editor-root .cm-line').nth(1)).toHaveText(body[0]!);
+  expect(await rowHeights(page)).toEqual(heights);
+  expect(await flash(1)).toEqual(imageFlash);
+
+  // 編集表示でカーソルを移しても同じ。アイコンの行も、画像の行と同じく灰色で示す。
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('#editor-root .cm-line').nth(2)).toHaveText(body[1]!);
+  expect(await rowHeights(page)).toEqual(heights);
+  expect(await flash(2)).toEqual(imageFlash);
+  await page.keyboard.press('ArrowDown');
+  expect(await rowHeights(page)).toEqual(heights);
+  expect(await flash(3)).toBeNull();
+  // カーソルが離れた画像の行は、画像を描いた行に戻る。
+  await expect(page.locator('#editor-root .cm-line').nth(1).locator('img:not(.cm-widgetBuffer)')).toBeVisible();
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowUp');
+  await expect(page.locator('#editor-root .cm-line').nth(1)).toHaveText(body[0]!);
+  expect(await rowHeights(page)).toEqual(heights);
+});
+
 // コードブロック・引用・表の行で、段数 depth の本文の開始位置と、帯と札の見た目（#237）。
 function levelLeft(depth: number): number {
   return TEXT_LEFT + INDENT * depth;

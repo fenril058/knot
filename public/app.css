@@ -280,6 +280,13 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
 /* 行頭の印は、整形表示の .line-indent-content::before と同じ位置（本文の開始位置から 15px 左、上から 10px）。 */
 #editor-root .cm-line.cm-active-indent.mark-dot::before, #editor-root .cm-line.cm-active-indent.mark-dash::before { background-color: var(--dot-color); border-radius: 50%; content: ""; height: 6px; inset-inline-start: calc(var(--indent-level) * 22.5px - 15px); position: absolute; top: 10px; width: 6px; }
 #editor-root .cm-line.cm-active-indent.mark-dash::before { border-radius: 0; height: 2px; top: 12.5px; }
+/* 画像かアイコンのある行のカーソル行（#305）。カーソル行は画像を隠して原文を描き、行の高さは保つ（lineWysiwyg.ts）。
+   Cosense の .cursor-line.with-image と同じく、画像を描いていた場所を薄い灰色で示し、3 秒で消す。 */
+#editor-root .cm-line.cm-image-cursor-line { animation: cursor-line-image 3s ease-out; }
+@keyframes cursor-line-image {
+  from { background-color: #efefef; }
+  to { background-color: transparent; }
+}
 /* 本文の選択範囲（#301）。Cosense の .selection と同じ緑で、字の色は変えない。編集表示の CodeMirror も
    ブラウザの選択をそのまま使うので、閲覧表示と同じ規則で描く。 */
 #editor-root ::selection { background-color: rgb(0 128 0 / 40%); }

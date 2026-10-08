@@ -1,4 +1,4 @@
-import { EditorState, RangeSetBuilder, type Extension } from '@codemirror/state';
+import { EditorState, RangeSetBuilder, StateEffect, type Extension } from '@codemirror/state';
 import {
   Decoration,
   EditorView,
@@ -53,6 +53,63 @@ export function editingLineNumbers(state: EditorState): Set<number> {
     for (let number = first; number <= last; number += 1) numbers.add(number);
   }
   return numbers;
+}
+
+// 編集を始める行の、閲覧表示で測った高さ（#305）。from は行の開始位置。CodeMirror は caret から遠い行を
+// 描かないので、編集を始めるときには、その行の整形表示の高さを測れないことがある。
+export const keepCursorLineHeight = StateEffect.define<{ from: number; height: number }>();
+
+// カーソル行の高さ（#305）。Cosense と同じく、カーソル行になる前の行の高さを最小の高さとして保つので、
+// 画像を隠して原文を描いても下の行は動かない。行の開始位置ごとに持ち、カーソルが離れた行の分は捨てる。
+function keepCursorLineHeights(update: ViewUpdate, previous: ReadonlyMap<number, number>): Map<number, number> {
+  const { state, view } = update;
+  const editing = editingLineNumbers(state);
+  const kept = new Map<number, number>();
+  const given = new Map<number, number>();
+  for (const transaction of update.transactions) {
+    for (const effect of transaction.effects) {
+      if (effect.is(keepCursorLineHeight)) given.set(effect.value.from, effect.value.height);
+    }
+  }
+  // 前からカーソル行だった行は、文書の変更をまたいで高さを引き継ぐ。行頭に字を足したときは変更の前、
+  // 行頭で改行したときは変更の後ろの位置が、同じ行の開始位置になる。
+  for (const [from, height] of previous) {
+    for (const assoc of [-1, 1]) {
+      const mapped = update.changes.mapPos(from, assoc);
+      const line = state.doc.lineAt(mapped);
+      if (line.from === mapped && editing.has(line.number)) {
+        kept.set(mapped, height);
+        break;
+      }
+    }
+  }
+  // 新しくカーソル行になった行は、渡された高さか、整形表示で測った高さを保つ。文書が変わったときの行の
+  // 高さは、測り直す前の見積もりなので使わない。描いていない行の高さも見積もりなので使わない。
+  const before = editingLineNumbers(update.startState);
+  for (const number of editing) {
+    const line = state.doc.line(number);
+    const height = given.get(line.from);
+    if (height !== undefined) {
+      kept.set(line.from, height);
+      continue;
+    }
+    if (update.docChanged || before.has(number) || line.from < view.viewport.from || line.to > view.viewport.to) continue;
+    kept.set(line.from, view.lineBlockAt(line.from).height);
+  }
+  return kept;
+}
+
+function includesImage(nodes: readonly PresentedNode[]): boolean {
+  return nodes.some((node) => (
+    node.type === 'image' || ((node.type === 'container' || node.type === 'link') && includesImage(node.children))
+  ));
+}
+
+// 画像（アイコンを含む）を描く行。Cosense はこの行のカーソル行（.cursor-line.with-image）で、画像を描いていた
+// 場所を薄い灰色で示す（#305）。
+function hasImage(line: PresentedLine): boolean {
+  if (line.role === 'line') return includesImage(line.nodes);
+  return line.role === 'tableRow' && line.cells.some((cell) => includesImage(cell));
 }
 
 function isHttpUrl(value: string): boolean {
@@ -382,7 +439,7 @@ function addTableCellDecorations(builder: RangeSetBuilder<Decoration>, line: Pre
   });
 }
 
-function buildDecorations(view: EditorView, config: LineWysiwygConfig): DecorationSet {
+function buildDecorations(view: EditorView, config: LineWysiwygConfig, keptHeights: ReadonlyMap<number, number>): DecorationSet {
   const editing = editingLineNumbers(view.state);
   const imageSizes = config.imageSizes ?? new Map<string, ImageSize>();
   const builder = new RangeSetBuilder<Decoration>();
@@ -404,6 +461,14 @@ function buildDecorations(view: EditorView, config: LineWysiwygConfig): Decorati
       // 行末の余白も、閲覧表示と同じ行にだけ置く。カーソルが入っても折り返しの幅を変えない。
       if (isLinkOnlyLine(line)) builder.add(line.from, line.from, Decoration.line({ class: 'link-only' }));
       if (editing.has(line.number)) {
+        const height = keptHeights.get(line.from);
+        if (height !== undefined) {
+          // title 行は下に padding を持つので、padding を含めた高さで保つ。
+          const style = `box-sizing: border-box; min-height: ${height}px`;
+          builder.add(line.from, line.from, Decoration.line(hasImage(line)
+            ? { class: 'cm-image-cursor-line', attributes: { style } }
+            : { attributes: { style } }));
+        }
         addActiveLineDecorations(builder, line);
         continue;
       }
@@ -461,15 +526,20 @@ function mergeTableColumns(current: TableColumns, measured: MeasuredTables, rowC
 export function lineWysiwyg(config: LineWysiwygConfig): Extension {
   const plugin = ViewPlugin.fromClass(class {
     decorations: DecorationSet;
+    keptHeights: Map<number, number>;
 
     constructor(view: EditorView) {
       measureSpaceWidth(view);
-      this.decorations = buildDecorations(view, config);
+      this.keptHeights = new Map();
+      this.decorations = buildDecorations(view, config, this.keptHeights);
       this.alignTables(view);
     }
 
     update(update: ViewUpdate): void {
-      if (update.docChanged || update.selectionSet) this.decorations = buildDecorations(update.view, config);
+      if (update.docChanged || update.selectionSet) {
+        this.keptHeights = keepCursorLineHeights(update, this.keptHeights);
+        this.decorations = buildDecorations(update.view, config, this.keptHeights);
+      }
       if (update.docChanged || update.selectionSet || update.viewportChanged) this.alignTables(update.view);
     }
 

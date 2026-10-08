@@ -9,6 +9,7 @@ import { fetchPage, postCommit, uploadFile } from './api.ts';
 import {
   clickTarget,
   lineElements,
+  matchesLine,
   selectionPoint,
   sourcePosition,
   type ClickTarget,
@@ -21,7 +22,7 @@ import { titleAutocompletion } from './cm/complete.ts';
 import { doubleClickWordSelection, wordRange } from './cm/wordSelection.ts';
 import { syntaxHighlighting } from './cm/decorations.ts';
 import { editorKeymap } from './cm/keymap.ts';
-import { editStartPosition, imageSizeKey, lineWysiwyg, type ImageSize } from './cm/lineWysiwyg.ts';
+import { editStartPosition, imageSizeKey, keepCursorLineHeight, lineWysiwyg, type ImageSize } from './cm/lineWysiwyg.ts';
 import { pasteHandlers } from './cm/paste.ts';
 import { refreshTelomereGutter, telomereGutter } from './cm/telomere.ts';
 import {
@@ -651,6 +652,16 @@ function clickedSourcePosition(
   return line === undefined ? undefined : sourcePosition(line, click.elements, click.target);
 }
 
+// 編集を始める行の、閲覧表示での高さ（#305）。閲覧表示を描いた後で本文が変わり、行の字と画像の並びが
+// 合わないときは返さない。
+function initialRowHeight(lines: readonly PresentedLine[], lineNumber: number, lineId: string): number | undefined {
+  const row = document.getElementById(`L${lineId}`);
+  const line = lines.find((candidate) => candidate.number === lineNumber);
+  const elements = row === null ? undefined : lineElements(row);
+  if (row === null || line === undefined || elements === undefined || !matchesLine(line, elements)) return undefined;
+  return row.getBoundingClientRect().height;
+}
+
 type SourceRange = { anchor: number; head: number };
 type RowPosition = { row: HTMLElement; node: Node; offset: number };
 
@@ -742,6 +753,11 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
   const selectedRange = initialPresentation === undefined
     ? undefined
     : unlessThrows(() => selectedSourceRange(initialPresentation));
+  // 編集を始める行の高さも、閲覧表示の行が消える前に測る。CodeMirror は caret から遠い行を描かないので、
+  // 編集を始めた時点では、その行の整形表示の高さを測れないことがある。
+  const rowHeight = initialTarget === undefined || initialLineNumber === undefined || initialPresentation === undefined
+    ? undefined
+    : initialRowHeight(initialPresentation, initialLineNumber, initialTarget.lineId);
 
   editorRoot.replaceChildren();
   // ページメニューは編集中も出したままにする（#192）。ページ操作の前には、メニューが
@@ -803,8 +819,10 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
     const clickedAnchor = clickedPosition !== undefined && clickedPosition >= selectedLine.from && clickedPosition <= selectedLine.to
       ? clickedPosition
       : undefined;
+    // カーソル行は、閲覧表示での行の高さを最小の高さとして保つ（#305）。
     view.dispatch({
       selection: selectedRange ?? { anchor: clickedAnchor ?? editStartPosition(view.state, selectedLine.number) },
+      effects: rowHeight === undefined ? [] : keepCursorLineHeight.of({ from: selectedLine.from, height: rowHeight }),
       scrollIntoView: anchorTop === undefined,
     });
     // coordsAtPos は保留中の計測を済ませてから位置を返すので、そのあとの lineBlockAt は

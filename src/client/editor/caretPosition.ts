@@ -170,14 +170,26 @@ export function clickTarget(elements: LineElements, x: number, y: number): Click
   return { ...position, pastEnd: elements.content.contains(position.node) && isPastEnd(elements.content, position, x) };
 }
 
-// 押した位置の原文の位置（文書の先頭から）。DOM と PresentedLine が対応しないときは undefined。
-export function sourcePosition(line: PresentedLine, elements: LineElements, target: ClickTarget): number | undefined {
+// 行の DOM の字と画像の並びに、PresentedLine の piece を割り当てる。対応しないときは undefined。
+function alignLine(line: PresentedLine, elements: LineElements): { items: DomItem[]; aligned: AlignedItem[] } | undefined {
   const items = [...domItems(elements.prefix), ...domItems(elements.content)];
   const aligned = alignPieces(
     items.map((item) => (item.kind === 'text' ? { kind: 'text', text: item.node.data } : { kind: 'atom' })),
     linePieces(line),
   );
-  if (aligned === undefined) return undefined;
+  return aligned === undefined ? undefined : { items, aligned };
+}
+
+// 行の DOM が PresentedLine と同じ字と画像の並びで描かれているか（描いた後で本文が変わっていないか）。
+export function matchesLine(line: PresentedLine, elements: LineElements): boolean {
+  return alignLine(line, elements) !== undefined;
+}
+
+// 押した位置の原文の位置（文書の先頭から）。DOM と PresentedLine が対応しないときは undefined。
+export function sourcePosition(line: PresentedLine, elements: LineElements, target: ClickTarget): number | undefined {
+  const alignment = alignLine(line, elements);
+  if (alignment === undefined) return undefined;
+  const { items, aligned } = alignment;
   if (target.pastEnd) return line.to;
   const index = items.findIndex((item) => item.node === target.node);
   const hit = aligned[index];
