@@ -52,6 +52,7 @@ const accountNames = [
   'table-e2e',
   'related-e2e',
   'related-mobile-e2e',
+  'bar-e2e',
 ];
 for (const name of accountNames) {
   await storage.addAccount(

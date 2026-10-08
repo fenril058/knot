@@ -517,6 +517,33 @@ test('mobile browser でも scroll できるページの上の方から編集を
   expect(await rowTop()).toBe(before);
 });
 
+test('mobile browser でも scroll した後、上部のバーとページメニューのつまみが画面の上に残り、そこで開ける', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'geometry-mobile-e2e');
+
+  const title = `mgb-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, Array.from({ length: 40 }, (_, index) => `line ${index}`));
+
+  await page.goto(`/e2e/${title}`);
+  await page.evaluate(() => window.scrollTo(0, 300));
+  const scrolled = await page.evaluate(() => window.scrollY);
+  expect(scrolled).toBe(300);
+  // Cosense のバー（#303）とつまみ（.expandable-menu）は画面の上に固定され、scroll しても動かない。
+  const boxOf = async (selector: string): Promise<{ x: number; y: number; width: number; height: number }> =>
+    (await page.locator(selector).boundingBox())!;
+  expect(await boxOf('.page-nav')).toEqual({ x: 0, y: 0, width: expectedWidth, height: 41 });
+  expect(await boxOf('.nav-search-toggle')).toEqual({ x: expectedWidth - 72, y: 4, width: 32, height: 32 });
+  expect(await boxOf('.page-menu')).toEqual({ x: expectedWidth - 24, y: 0, width: 24, height: 40 });
+  // つまみで帯を広げ、帯のボタンの menu も、scroll したまま帯の 2px 下に開く。
+  await page.locator('.page-menu-toggle').tap();
+  expect(await boxOf('.page-menu')).toEqual({ x: expectedWidth - 162, y: 0, width: 162, height: 40 });
+  await page.locator('#page-info > summary').tap();
+  const infoMenu = await boxOf('#page-info .page-actions-menu');
+  expect({ right: infoMenu.x + infoMenu.width, y: infoMenu.y }).toEqual({ right: expectedWidth - 10, y: 42 });
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrolled);
+});
+
 // 360px でも確実に折り返す長さ。字下げの段は Cosense と同じ 22.5px（#231）。
 const MOBILE_INDENT_BODY = [
   ` ${'字下げした長い行が mobile でも同じ位置で折り返すことを確かめる。'.repeat(2)}`,
