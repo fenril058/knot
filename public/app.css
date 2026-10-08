@@ -340,6 +340,11 @@ span.telomere { cursor: auto; }
 .line-row td, .cm-wysiwyg-line td { padding: 0 2px 0 8px; vertical-align: top; white-space: pre; }
 .line-row td:nth-child(odd), .cm-wysiwyg-line td:nth-child(odd) { background-color: rgb(0 0 0 / 4%); }
 .line-row td:nth-child(even), .cm-wysiwyg-line td:nth-child(even) { background-color: rgb(0 0 0 / 6%); }
+/* 表の行のカーソル行（#293）。Cosense のカーソル行と同じく、td と同じ箱で、背景だけを少し濃くする。
+   行頭の 1 字とセルを区切るタブは幅を持たせない（列の幅は td と同じ min-width の規則、tableColumns.ts）。 */
+#editor-root .cm-table-cell { background-color: rgb(0 0 0 / 6%); display: inline-block; padding: 0 2px 0 8px; vertical-align: top; white-space: pre; }
+#editor-root .cm-table-cell.even { background-color: rgb(0 0 0 / 8%); }
+#editor-root .cm-table-gap { display: inline-block; overflow: hidden; vertical-align: top; width: 0; }
 /* 本文の画像（Cosense の .line .image）。CodeMirror が widget の前後に置く buffer の img は除く。 */
 #editor-root img:not(.cm-widgetBuffer) { display: inline-block; margin: 3px 0; max-height: 300px; max-width: 100%; vertical-align: bottom; }
 #editor-root img.strong-image { max-height: none; max-width: 95%; }

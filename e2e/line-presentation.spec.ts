@@ -730,6 +730,56 @@ test('表の列の幅を Cosense と同じく行のあいだで揃え、編集�
   expect(edited[0]![0]!.cell).toBeGreaterThan(widths[0]![0]!);
 });
 
+type Box = { x: number; y: number; width: number; height: number };
+
+function roundBox(box: Box): Box {
+  return { x: Math.round(box.x * 2) / 2, y: Math.round(box.y * 2) / 2, width: Math.round(box.width * 2) / 2, height: Math.round(box.height * 2) / 2 };
+}
+
+test('カーソル行でも、表のセルの箱と見出しの点・札を閲覧表示と同じ位置に描き、行の高さを変えない', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'table-e2e');
+  const title = `line-table-cursor-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  const body = [' table:sample', '  a\tbb', '  ccccc\td', 'last body'];
+  await createE2ePage(page, title, body);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  const heights = await rowHeights(page);
+  const readCells = await page.locator('#editor-root table').evaluateAll((tables) => tables.map((table) => Array.from(
+    table.querySelectorAll('td'),
+    (cell) => { const { x, y, width, height } = cell.getBoundingClientRect(); return { x, y, width, height }; },
+  )));
+  const readLabel = (await page.locator('#editor-root .table-block-start').boundingBox())!;
+
+  await startEditingAtLastRow(page, body.length);
+  const rows = page.locator('#editor-root .cm-line');
+  // 表の行に caret を入れても、セルは td と同じ位置と大きさの箱のまま。背景だけを少し濃くする（#293）。
+  const cellPoint = await charPoint(rows.nth(2), 'b', 1, 0.2);
+  await page.mouse.click(cellPoint.x, cellPoint.y);
+  await expect(rows.nth(2)).not.toHaveClass(/cm-wysiwyg/);
+  const cells = await rows.nth(2).locator('.cm-table-cell').evaluateAll((spans) => spans.map((span) => {
+    const { x, y, width, height } = span.getBoundingClientRect();
+    return { box: { x, y, width, height }, text: span.textContent, background: getComputedStyle(span).backgroundColor };
+  }));
+  expect(cells.map(({ box }) => roundBox(box))).toEqual(readCells[0]!.map(roundBox));
+  expect(cells.map(({ text, background }) => [text, background])).toEqual([['a', 'rgba(0, 0, 0, 0.06)'], ['bb', 'rgba(0, 0, 0, 0.08)']]);
+  expect(await rows.nth(2).locator('.cm-table-gap').evaluateAll((gaps) => gaps.map((gap) => gap.getBoundingClientRect().width))).toEqual([0, 0]);
+  expect(await rowHeights(page)).toEqual(heights);
+  // セルの中の字は、これまでどおり書き換えられる。
+  await page.keyboard.insertText('X');
+  await expect(rows.nth(2)).toHaveText('  a\tbXb');
+
+  // 表の見出しは、字下げの点と札を保ち、札の中に table: も見せる。
+  const headerPoint = await charPoint(rows.nth(1), 's', 0, 0.5);
+  await page.mouse.click(headerPoint.x, headerPoint.y);
+  await expect(rows.nth(1)).toHaveClass(/cm-active-indent/);
+  await expect(rows.nth(1)).toHaveClass(/mark-dot/);
+  const label = rows.nth(1).locator('.table-block-start');
+  await expect(label).toHaveText('table:sample');
+  expect(Math.round((await label.boundingBox())!.x * 2) / 2).toBe(Math.round(readLabel.x * 2) / 2);
+  expect(await rowHeights(page)).toEqual(heights);
+});
+
 test('表の見出しの click で原文の編集に入り、コードブロックの行末の click で行末に caret が入る', async (
   { page },
   testInfo,
