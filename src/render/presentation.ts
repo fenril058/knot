@@ -14,7 +14,8 @@ export type PresentedNode =
   | { type: 'text'; text: string; span: SourceSpan }
   | { type: 'code'; text: string; className?: string; span: SourceSpan }
   | { type: 'container'; kind: 'span' | 'strong' | 'em' | 'del' | 'quote'; className?: string; children: PresentedNode[] }
-  | { type: 'link'; href: string; className?: string; external: boolean; children: PresentedNode[] }
+  // newTab は Cosense と同じく新しいタブで開くリンク（外部リンクと、別のプロジェクトへのリンク、#287）。
+  | { type: 'link'; href: string; className?: string; external: boolean; newTab: boolean; children: PresentedNode[] }
   | { type: 'image'; src: string; alt: string; className?: string; lazy: boolean; span: SourceSpan }
   | { type: 'video' | 'audio'; src: string; span: SourceSpan };
 
@@ -114,7 +115,20 @@ function suffixSpan(source: string, range: SourceRange, value: string): SourceSp
 }
 
 function externalLink(url: string, label: string, span: SourceSpan, external = true): PresentedNode {
-  return { type: 'link', href: url, external, children: [text(label, span)] };
+  return { type: 'link', href: url, external, newTab: external, children: [text(label, span)] };
+}
+
+// 別のプロジェクトへのリンク（[/project/title#行 ID]）の行き先。同じ knot のそのプロジェクトのページを指す。
+// プロジェクトだけなら、そのプロジェクトのトップ。プロジェクトが空なら null。
+export function projectPathHref(path: string): string | null {
+  const hashAt = path.indexOf('#');
+  const location = hashAt === -1 ? path.slice(1) : path.slice(1, hashAt);
+  const hash = hashAt === -1 ? '' : path.slice(hashAt);
+  const slashAt = location.indexOf('/');
+  const project = slashAt === -1 ? location : location.slice(0, slashAt);
+  const title = slashAt === -1 ? '' : location.slice(slashAt + 1);
+  if (project === '') return null;
+  return `${title === '' ? `/${encodeURIComponent(project)}` : pageHref(project, title)}${hash}`;
 }
 
 // [*** x] の強調の段階。parser は *-3 のように表す。強調でなければ undefined。
@@ -236,6 +250,7 @@ function presentNode(
         href: pageHref(project, entry?.title ?? node.href),
         className: entry === undefined ? 'empty-link' : 'page-link',
         external: false,
+        newTab: false,
         children: [text(`#${node.href}`, spanAt(node, `#${node.href}`, 0))],
       };
     }
@@ -260,6 +275,7 @@ function presentNode(
         href: pageHref(project, entry?.title ?? node.path),
         className: entry === undefined ? 'icon-link empty-link' : 'icon-link',
         external: false,
+        newTab: false,
         children: linkChildren,
       };
     }
@@ -281,6 +297,7 @@ function presentNode(
           href: pageHref(project, entry?.title ?? target),
           className: entry === undefined ? 'empty-link' : 'page-link',
           external: false,
+          newTab: false,
           children: [text(label, spanAt(node, label, node.content === '' ? 1 : node.raw.indexOf(label)))],
         };
       }
@@ -291,6 +308,11 @@ function presentNode(
       if (isAttachmentUrl(node.href)) {
         const spans = { label: labelSpan(node, label), media: wholeSpan(node) };
         return presentMedia(node.href, node.content === '' ? undefined : node.content, config, spans);
+      }
+      // 別のプロジェクトへのリンク（#287）。Cosense と同じく、ページへのリンクと同じ見た目で、新しいタブで開く。
+      const href = node.pathType === 'root' ? projectPathHref(node.href) : null;
+      if (href !== null) {
+        return { type: 'link', href, className: 'page-link', external: false, newTab: true, children: [text(label, labelSpan(node, label))] };
       }
       return node.content === ''
         ? text(node.href, labelSpan(node, node.href))

@@ -8,6 +8,7 @@ import {
   type DecorationSet,
   type ViewUpdate,
 } from '@codemirror/view';
+import { isAttachmentUrl } from '../../../core/media.ts';
 import { parsePageSyntax, type SyntaxNode } from '../../../core/syntax.ts';
 import { pageHref, titleLc } from '../../../core/title.ts';
 import {
@@ -16,6 +17,7 @@ import {
   isQuoteLine,
   knownPageMap,
   presentationLines,
+  projectPathHref,
   type KnownPage,
   type PresentedLine,
   type PresentedNode,
@@ -86,7 +88,10 @@ function appendNode(parent: ParentNode, node: PresentedNode, imageSizes: Readonl
       const anchor = document.createElement('a');
       anchor.href = node.href;
       if (node.className !== undefined) anchor.className = node.className;
-      if (node.external) anchor.rel = 'noopener noreferrer';
+      // 閲覧表示（src/render/render.ts）と同じく、新しいタブで開くリンク（#287）と外部リンクは
+      // 開いた先にこのページを渡さない。
+      if (node.newTab) anchor.target = '_blank';
+      if (node.newTab || node.external) anchor.rel = 'noopener noreferrer';
       for (const child of node.children) appendNode(anchor, child, imageSizes);
       parent.append(anchor);
       return;
@@ -145,11 +150,14 @@ function linkNodeAt(nodes: readonly SyntaxNode[], position: number): SyntaxNode 
   return null;
 }
 
-function linkHrefAt(
+// caret のあるリンクの行き先。newTab は、押したときと同じく新しいタブで開くリンク（#287）。
+type LinkTarget = { href: string; newTab: boolean };
+
+function linkTargetAt(
   state: EditorState,
   project: string,
   knownPages: ReadonlyMap<string, KnownPage>,
-): string | null {
+): LinkTarget | null {
   const selection = state.selection.main;
   if (!selection.empty) return null;
   const position = selection.head;
@@ -162,14 +170,18 @@ function linkHrefAt(
         : null;
     if (node?.type === 'hashTag') {
       const target = knownPages.get(titleLc(node.href))?.title ?? node.href;
-      return pageHref(project, target);
+      return { href: pageHref(project, target), newTab: false };
     }
     if (node?.type === 'link' && node.pathType === 'relative') {
       const rawTarget = node.href.split('#')[0]!;
       const target = knownPages.get(titleLc(rawTarget))?.title ?? rawTarget;
-      return pageHref(project, target);
+      return { href: pageHref(project, target), newTab: false };
     }
-    if (node?.type === 'link' && isHttpUrl(node.href)) return node.href;
+    if (node?.type === 'link' && isHttpUrl(node.href)) return { href: node.href, newTab: true };
+    if (node?.type === 'link' && node.pathType === 'root' && !isAttachmentUrl(node.href)) {
+      const href = projectPathHref(node.href);
+      if (href !== null) return { href, newTab: true };
+    }
   }
   return null;
 }
@@ -177,9 +189,10 @@ function linkHrefAt(
 function openLinkAtCursor(config: LineWysiwygConfig): (view: EditorView) => boolean {
   const knownPages = knownPageMap(config.knownPages);
   return (view) => {
-    const href = linkHrefAt(view.state, config.project, knownPages);
-    if (href === null) return false;
-    window.location.assign(href);
+    const target = linkTargetAt(view.state, config.project, knownPages);
+    if (target === null) return false;
+    if (target.newTab) window.open(target.href, '_blank', 'noopener,noreferrer');
+    else window.location.assign(target.href);
     return true;
   };
 }
