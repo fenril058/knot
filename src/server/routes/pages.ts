@@ -5,7 +5,7 @@ import { renderLines } from '../../render/render.ts';
 import type { ApplicationDeps } from '../application.ts';
 import { resolvePage, resolveProject, safeDecode, type ApiEnv } from '../http.ts';
 import { pageListPage } from '../views/pageList.ts';
-import { linkedEmptyPages, pageNotFoundPage, pageViewPage, projectNotFoundPage } from '../views/pageView.ts';
+import { emptyPageView, linkedEmptyPages, pageViewPage, projectNotFoundPage } from '../views/pageView.ts';
 import { projectIndexPage } from '../views/projectIndex.ts';
 import { searchResultsPage } from '../views/searchPage.ts';
 
@@ -88,7 +88,11 @@ export function registerPageRoutes(app: Hono<ApiEnv>, deps: ApplicationDeps): vo
     const knownPagesList = titles.map(({ title, image }) => ({ title, image }));
     if (page === null) {
       c.status(404);
-      return c.html(pageNotFoundPage(project, rawTitle, actor?.name ?? '', styleNonce, renderConfig, knownPagesList));
+      // Cosense と同じく、URL のタイトルの _ は空白にする（#289）。ページが無いので本文のリンクもページの ID も無く、
+      // 空の ID で、このタイトルへリンクしているページだけを関連ページとして得る。
+      const title = rawTitle.replaceAll('_', ' ');
+      const related = await deps.storage.getRelatedPages(project.id, '', titleLc(title));
+      return c.html(emptyPageView(project, title, related, actor?.name ?? '', styleNonce, renderConfig, knownPagesList));
     }
 
     const previousVisit = await deps.storage.getVisit(accountId, page.id);

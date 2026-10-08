@@ -837,6 +837,28 @@ test('mobile browser では関連ページの並び替えを上の行に、絞�
   await expectMobileLayout(page, expectedWidth);
 });
 
+test('mobile browser でも、ページの無いタイトルを空のページで描き、タイトルの行の tap で編集を始める', async (
+  { page },
+  testInfo,
+) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'related-mobile-e2e');
+
+  // rel-nowhere-two は e2e/server.ts の rel-new だけがリンクしている、ページの無いタイトル（#289）。
+  await page.goto('/e2e-related/rel-nowhere-two');
+  const paper = (await page.locator('.page').boundingBox())!;
+  expect({ x: paper.x, width: paper.width }).toEqual({ x: 8, width: expectedWidth - 16 });
+  await expect(page.locator('#editor-root h1.line-title')).toHaveText('rel-nowhere-two');
+  await expect(page.locator('.related-group[aria-label="Links"] h3')).toHaveText(['rel-new']);
+  await expectMobileLayout(page, expectedWidth);
+
+  // tap で編集を始めても、字を書かなければページは作られない。
+  await page.locator('#editor-root .line-row').first().tap({ position: { x: 30, y: 8 } });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expect(page.locator('#editor-root .cm-line')).toHaveText(['rel-nowhere-two']);
+});
+
 test('mobile browser でもプロジェクトのトップの新規作成とページ数を画面の中で使える', async ({ page }, testInfo) => {
   const expectedWidth = expectedViewportWidths[testInfo.project.name];
   if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);

@@ -82,6 +82,8 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
   .page-menu { inset-inline-end: 8px; position: absolute; top: 0; }
 }
 .page { background-color: var(--page-bg); border-radius: 4px 4px 3px 3px; box-shadow: 0 4px 0 rgb(0 0 0 / 16%); padding: var(--page-padding-top) var(--page-padding-inline) var(--page-padding-bottom); }
+/* ページの無いタイトルの紙面（#289）。Cosense の .page.not-persistent と同じく、不透明度を下げて描く。 */
+.page.not-persistent { opacity: .7; }
 /* 画面には出さず、支援技術にだけ伝える見出しなど。 */
 .visually-hidden { clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
 .related-pages { margin-top: 24px; }
@@ -280,6 +282,8 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
   .telomere { margin-inline-end: calc(var(--page-padding-inline) - 20px); width: 20px; }
 }
 .telomere.unread { border-left-color: #89a3ff; }
+/* ページの無いタイトルの行のテロメアは、行がまだ無いので押せない（#289）。 */
+span.telomere { cursor: auto; }
 .telomere.w-1 { border-left-width: 1px; }
 .telomere.w-2 { border-left-width: 2px; }
 .telomere.w-3 { border-left-width: 3px; }

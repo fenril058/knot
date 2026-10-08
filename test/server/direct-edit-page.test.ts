@@ -65,7 +65,9 @@ void test('不在ページの正規 URL は同じ場所で作成を始める SSR
 
   assert.equal(res.status, 404);
   const body = await res.text();
-  assert.match(body, /id="edit-page-button"[^>]*>このタイトルで新規作成する<\/button>/);
+  // 作成ボタンではなく、ページのあるときと同じく、タイトルの行を押して編集を始める（#289）。
+  assert.match(body, /<div class="line-row" id="Lnew-title">\s*<span class="telomere unread w-10" aria-hidden="true"><\/span>\s*<h1 class="line-title">New Page<\/h1>/);
+  assert.doesNotMatch(body, /edit-page-button/);
   assert.equal(dataAttribute(body, 'title'), 'New Page');
   assert.equal(dataAttribute(body, 'last-seen-version'), '0');
   assert.match(body, /<section id="edit-conflict"[^>]*hidden>/);

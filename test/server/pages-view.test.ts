@@ -330,17 +330,26 @@ void test('ページ表示の knownPages は listKnownPages を使い listPageTi
   assert.match(await res.text(), /href="\/proj\/Beta"/);
 });
 
-void test('存在しないページは 404 と新規作成の案内', async () => {
+void test('存在しないページは 404 で、Cosense と同じくタイトルの行だけの空のページと、そこへリンクしているページを描く（#289）', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
   await seedPage(s.storage, project.id, 'Beta', ['x'], s.clock.t);
-  const res = await s.request('/proj/Nope', {}, cookie);
+  await seedPage(s.storage, project.id, 'Linker', ['[Nope Topic] へのリンク'], s.clock.t + 1);
+  // URL のタイトルの _ は空白にする（Cosense と同じ）。
+  const res = await s.request('/proj/Nope_Topic', {}, cookie);
   assert.equal(res.status, 404);
   const body = await res.text();
-  assert.match(body, /Nope/);
-  assert.match(body, /id="edit-page-button"[^>]*>このタイトルで新規作成する<\/button>/);
+  assert.match(body, /<title>Nope Topic<\/title>/);
+  // 紙面はタイトルの行だけ。テロメアは未読の太さで、押せない。作成ボタンは置かない。
+  assert.match(body, /<div class="page not-persistent">\s*<div\s+id="editor-root"[^>]*>\s*<div class="line-row" id="Lnew-title">\s*<span class="telomere unread w-10" aria-hidden="true"><\/span>\s*<h1 class="line-title">Nope Topic<\/h1>\s*<\/div>\s*<\/div>/);
+  assert.doesNotMatch(body, /edit-page-button|まだありません|まだ作成されていません/);
+  assert.match(body, /data-title="Nope Topic"/);
   assert.match(body, /data-known-pages="[^"]*Beta[^"]*"/);
+  // このタイトルへリンクしているページを、関連ページの Links の行に描く。
+  assert.deepEqual([...relatedGroups(body)], [['Links', ['Linker']]]);
+  assert.match(body, /class="related-toolbar"/);
+  assert.match(body, /<script type="module" src="\/assets\/build\/related-pages\.js"><\/script>/);
 });
 
 void test('GET /:project/:title: 存在しないプロジェクトは layout を使った HTML 404', async () => {

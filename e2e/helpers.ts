@@ -279,14 +279,9 @@ export async function visibleTitleCount(target: Page, title: string): Promise<nu
 }
 
 // SSR 本文の行を click して編集を開始する。
-// 未作成ページには行が無く、作成ボタンだけが編集開始の面になる。
+// 未作成ページはタイトルの行だけなので、その行を click する（#289）。
 // 回復ダイアログが挟まる経路ではエディタがすぐ現れないので、待たずに戻る。
 export async function startEditing(target: Page, lineIndex = 1): Promise<void> {
-  const creationButton = target.locator('#edit-page-button');
-  if (await creationButton.count() > 0) {
-    await creationButton.click();
-    return;
-  }
   const rows = target.locator('#editor-root .line-row');
   const count = await rows.count();
   if (count === 0) throw new Error('SSR editor row is missing');
