@@ -8,6 +8,7 @@ import {
   type RelatedCardKeys,
   type RelatedSort,
 } from '../../render/relatedSort.ts';
+import { closeSortMenuOnEscapeAndOutside } from '../sortMenu.ts';
 
 // 関連ページの絞り込み欄と並び替え（#281）。閲覧表示の toolbar に Cosense と同じ動きを付ける。
 // 並び替えは行の並びを変えずに各行の中の札を並べ替え、選んだ並び替えはブラウザに残す（Cosense も localStorage に
@@ -66,7 +67,7 @@ function setUp(section: HTMLElement): void {
   const sortRoot = section.querySelector('.related-sort');
   const menu = section.querySelector('.related-sort-menu');
   const summary = menu?.querySelector('summary');
-  const current = section.querySelector('.related-sort-current');
+  const current = menu?.querySelector('.sort-menu-current');
   const input = section.querySelector('.related-filter-input');
   if (!(sortRoot instanceof HTMLElement) || !(menu instanceof HTMLDetailsElement) || !(summary instanceof HTMLElement)
     || !(current instanceof HTMLElement) || !(input instanceof HTMLInputElement)) return;
@@ -106,15 +107,7 @@ function setUp(section: HTMLElement): void {
     });
   }
   input.addEventListener('input', applyFilter);
-  // Cosense の menu と同じく、Escape と menu の外を押したときに閉じる。
-  menu.addEventListener('keydown', (event) => {
-    if (event.key !== 'Escape' || !menu.open) return;
-    menu.open = false;
-    summary.focus();
-  });
-  document.addEventListener('pointerdown', (event) => {
-    if (menu.open && !(event.target instanceof Node && menu.contains(event.target))) menu.open = false;
-  });
+  closeSortMenuOnEscapeAndOutside(menu, summary);
 
   const initial = storedSort();
   if (initial !== 'related') applySort(initial);

@@ -110,30 +110,32 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
 .related-filter-input:focus { color: #000; }
 .related-filter-input::-webkit-search-cancel-button { appearance: none; }
 .related-sort { align-items: center; display: flex; flex-shrink: 0; gap: 4px; height: 42px; white-space: nowrap; }
-.related-sort .tool-button { border: 1px solid transparent; }
+/* Cosense の tool-btn と同じく、透明な 1px の枠で高さを 31px（展開ボタンは 35px）にする。.tool-button の border: 0 より強くする。 */
+.related-sort-tabs > .related-sort-tab, .sort-menu > .sort-menu-toggle { border: 1px solid transparent; }
 .related-sort-tabs { display: flex; gap: 2px; }
 .related-sort-tab[aria-pressed="true"] { background-color: #fff; border-radius: 4px; color: #444; }
-/* 展開ボタンの上端は、Cosense では高さ 42px の行の上から 4.8px（Open Sans の字の行に vertical-align: middle で
+/* 並び替えの menu（Cosense の .page-sort-menu）。関連ページ（#281）とプロジェクトのトップ（#291）で同じ部品。
+   展開ボタンの上端は、Cosense では高さ 42px の行の上から 4.8px（Open Sans の字の行に vertical-align: middle で
    置いた位置）。knot は web font を読まず字の形が違うので、同じ位置を margin で与える。 */
-.related-sort-menu { height: 42px; position: relative; }
-.related-sort-toggle { align-items: center; display: flex; list-style: none; margin-top: 4.8px; }
-.related-sort-toggle::-webkit-details-marker { display: none; }
-.related-sort-menu[open] > .related-sort-toggle { background-color: rgb(0 0 0 / 8%); }
+.sort-menu { height: 42px; position: relative; }
+.sort-menu-toggle { align-items: center; display: flex; list-style: none; margin-top: 4.8px; }
+.sort-menu-toggle::-webkit-details-marker { display: none; }
+.sort-menu[open] > .sort-menu-toggle { background-color: rgb(0 0 0 / 8%); }
 @media (hover: hover) {
-  .related-sort-tab[aria-pressed="false"]:hover, .related-sort-toggle:hover { background-color: rgb(0 0 0 / 8%); }
+  .related-sort-tab[aria-pressed="false"]:hover, .sort-menu-toggle:hover { background-color: rgb(0 0 0 / 8%); }
 }
-.related-sort-options { background-color: #fff; border: 1px solid rgb(0 0 0 / 15%); border-radius: 4px; box-shadow: 0 6px 12px rgb(0 0 0 / 17.6%); box-sizing: border-box; display: flex; flex-direction: column; inset-inline-end: 0; min-width: 160px; padding: 8px 0; position: absolute; top: calc(100% + 2px); z-index: 3; }
-.related-sort-heading { color: #777; font-size: 12px; line-height: 17px; margin: 0; padding: 3px 16px; }
-.related-sort-options button { background: none; border: 0; color: #333; cursor: pointer; font: inherit; font-size: 14px; line-height: 28px; padding: 0 16px; text-align: start; }
-.related-sort-options button[aria-pressed="true"] { color: #3d72f5; }
-.related-sort-options button:focus-visible { background-color: #f5f5f5; color: #262626; outline: none; }
+.sort-menu-options { background-color: #fff; border: 1px solid rgb(0 0 0 / 15%); border-radius: 4px; box-shadow: 0 6px 12px rgb(0 0 0 / 17.6%); box-sizing: border-box; display: flex; flex-direction: column; inset-inline-end: 0; min-width: 160px; padding: 8px 0; position: absolute; top: calc(100% + 2px); z-index: 3; }
+.sort-menu-heading { color: #777; font-size: 12px; line-height: 17px; margin: 0; padding: 3px 16px; }
+.sort-menu-options :is(button, a) { background: none; border: 0; color: #333; cursor: pointer; font: inherit; font-size: 14px; line-height: 28px; padding: 0 16px; text-align: start; text-decoration: none; }
+.sort-menu-options :is(button[aria-pressed="true"], a[aria-current="true"]) { color: #3d72f5; }
+.sort-menu-options :is(button, a):focus-visible { background-color: #f5f5f5; color: #262626; outline: none; }
 @media (hover: hover) {
-  .related-sort-options button:hover { background-color: #f5f5f5; color: #262626; }
+  .sort-menu-options :is(button, a):hover { background-color: #f5f5f5; color: #262626; }
 }
 @media (min-width: 992px) {
-  .related-sort-options [data-tab-sort] { display: none; }
-  .related-sort[data-tab-selected="true"] .related-sort-current { clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
-  .related-sort[data-tab-selected="false"] .related-sort-toggle { background-color: #fff; border-radius: 4px; color: #444; }
+  .related-sort-menu [data-tab-sort] { display: none; }
+  .related-sort[data-tab-selected="true"] .sort-menu-current { clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
+  .related-sort[data-tab-selected="false"] .sort-menu-toggle { background-color: #fff; border-radius: 4px; color: #444; }
 }
 @media (max-width: 991px) {
   .related-sort-tabs { display: none; }

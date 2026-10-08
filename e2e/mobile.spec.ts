@@ -825,14 +825,14 @@ test('mobile browser では関連ページの並び替えを上の行に、絞�
     .toEqual({ right: paper.x + paper.width, y: toolbar.y, height: 42 });
   expect(filter).toEqual({ x: paper.x, y: toolbar.y + 42, width: paper.width, height: 32 });
   await expect(page.locator('.related-sort-tab:visible')).toHaveCount(0);
-  await expect(page.locator('.related-sort-current')).toHaveText('関連度');
+  await expect(page.locator('.related-sort-menu .sort-menu-current')).toHaveText('関連度');
 
-  await page.locator('.related-sort-toggle').tap();
-  await expect(page.locator('.related-sort-options button:visible'))
+  await page.locator('.related-sort-menu .sort-menu-toggle').tap();
+  await expect(page.locator('.related-sort-menu .sort-menu-options button:visible'))
     .toHaveText(['関連度', '更新日時', '作成日時', '最終アクセス', '被リンク数', 'タイトル']);
-  await page.locator('.related-sort-options button', { hasText: 'タイトル' }).tap();
+  await page.locator('.related-sort-menu .sort-menu-options button', { hasText: 'タイトル' }).tap();
   await expect(page.locator('.related-sort-menu')).not.toHaveAttribute('open');
-  await expect(page.locator('.related-sort-current')).toHaveText('タイトル');
+  await expect(page.locator('.related-sort-menu .sort-menu-current')).toHaveText('タイトル');
   await expect(page.locator('.related-group[aria-label="Links"] h3')).toHaveText(['rel-alpha', 'rel-bravo', 'rel-charlie']);
   await expectMobileLayout(page, expectedWidth);
 });
@@ -865,9 +865,11 @@ test('mobile browser でもプロジェクトのトップの新規作成とペ�
   await loginE2eAccount(page, 'cards-mobile-e2e');
 
   await page.goto('/e2e');
-  // 新規作成は札の並びの右端、ページ数は画面の右下（#253）。
+  // 並び替えの展開ボタンは札の並びの右端（#291）で、新規作成はその左。ページ数は画面の右下（#253）。
+  const toggle = (await page.locator('.page-sort-menu .sort-menu-toggle').boundingBox())!;
+  expect(Math.round(toggle.x + toggle.width)).toBe(expectedWidth - 8);
   const button = (await page.locator('#create-page-button').boundingBox())!;
-  expect(Math.round(button.x + button.width)).toBe(expectedWidth - 8);
+  expect(Math.round(button.x + button.width)).toBe(Math.round(toggle.x));
   const status = (await page.locator('.page-list-status').boundingBox())!;
   const viewport = page.viewportSize()!;
   expect({ right: Math.round(status.x + status.width), bottom: Math.round(status.y + status.height) })
@@ -877,6 +879,23 @@ test('mobile browser でもプロジェクトのトップの新規作成とペ�
   await page.locator('#create-page-button').tap();
   await expect(page.locator('#create-page-dialog')).toBeVisible();
   await expectMobileLayout(page, expectedWidth);
+});
+
+test('mobile browser でもプロジェクトのトップの並び替えを tap で選べる', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'cards-mobile-e2e');
+
+  // e2e-related のページは e2e/server.ts が用意する（#291）。
+  await page.goto('/e2e-related');
+  await page.locator('.page-sort-menu .sort-menu-toggle').tap();
+  const menu = (await page.locator('.page-sort-menu .sort-menu-options').boundingBox())!;
+  expect(Math.round(menu.x + menu.width)).toBe(expectedWidth - 8);
+  await expectMobileLayout(page, expectedWidth);
+  await page.locator('.page-sort-menu .sort-menu-options a', { hasText: 'タイトル' }).tap();
+  await expect(page).toHaveURL('/e2e-related?sort=title');
+  await expect(page.locator('main > .card-grid .card h2').first()).toHaveText('rel-alpha');
+  await expect(page.locator('.page-sort-menu .sort-menu-current')).toHaveText('タイトル');
 });
 
 test('mobile browser でもテロメアの tap で更新日時と行へのリンクのメニューに届き、編集中も gutter から届く', async (

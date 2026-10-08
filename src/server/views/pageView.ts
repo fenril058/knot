@@ -10,6 +10,7 @@ import type { PageSnapshot, Project, RelatedPage, RelatedPages, Visit } from '..
 import { layout, type Html } from './layout.ts';
 import { canDisplayCardImage, pageCardListItem } from './pageCard.ts';
 import { pageNav } from './pageNav.ts';
+import { sortMenu } from './sortMenu.ts';
 
 function knownTitleMap(knownPages: readonly KnownPage[]): Map<string, string> {
   return new Map(knownPages.map(({ title }) => [titleLc(title), title]));
@@ -132,9 +133,8 @@ function relatedGroupList(
   )}</ul>`;
 }
 
-// 絞り込み欄の検索の印と、並び替えの menu を開くボタンの下向きの印。色は文字色に従う。
+// 絞り込み欄の検索の印。色は文字色に従う。
 const filterIcon = html`<svg class="related-filter-icon" viewBox="0 0 14 14" width="14" height="14" aria-hidden="true" focusable="false"><circle cx="5.75" cy="5.75" r="4.25" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="m9 9 3.5 3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2.75"/></svg>`;
-const caretIcon = html`<svg class="related-sort-caret" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="m7.5 9.5 4.5 4.5 4.5-4.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"/></svg>`;
 
 // 関連ページの絞り込み欄と並び替え（#281）。Cosense の関連ページの toolbar と同じ並びで、動きは
 // related-pages.js が付ける。広い画面では関連度と更新日時をタブに、残りを menu に置き、狭い画面では
@@ -148,15 +148,9 @@ function relatedToolbar(): Html {
 <div class="related-sort" data-tab-selected="${String(relatedSortTabs.includes(initial.key))}">
 <div class="related-sort-tabs" role="group" aria-label="並び替え">${tabs.map(({ key, label }) =>
     html`<button type="button" class="tool-button related-sort-tab" data-sort="${key}" aria-pressed="${pressed(key)}">${label}</button>`)}</div>
-<details class="related-sort-menu">
-<summary class="tool-button related-sort-toggle"><span class="visually-hidden">並び替え: </span><span class="related-sort-current">${initial.label}</span>${caretIcon}</summary>
-<div class="related-sort-options">
-<p class="related-sort-heading">ソート</p>
-${relatedSorts.map(({ key, label }) => (relatedSortTabs.includes(key)
+${sortMenu('related-sort-menu', initial.label, html`${relatedSorts.map(({ key, label }) => (relatedSortTabs.includes(key)
     ? html`<button type="button" data-sort="${key}" data-tab-sort aria-pressed="${pressed(key)}">${label}</button>`
-    : html`<button type="button" data-sort="${key}" aria-pressed="${pressed(key)}">${label}</button>`))}
-</div>
-</details>
+    : html`<button type="button" data-sort="${key}" aria-pressed="${pressed(key)}">${label}</button>`))}`)}
 </div>
 </div>`;
 }

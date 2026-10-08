@@ -1,13 +1,19 @@
 import type { Hono } from 'hono';
+import { getCookie, setCookie } from 'hono/cookie';
 import { checkSearchQuery } from '../../core/searchQuery.ts';
 import { pageHref, titleLc } from '../../core/title.ts';
 import { renderLines } from '../../render/render.ts';
 import type { ApplicationDeps } from '../application.ts';
 import { resolvePage, resolveProject, safeDecode, type ApiEnv } from '../http.ts';
-import { pageListPage } from '../views/pageList.ts';
+import { isPageSort, pageListPage } from '../views/pageList.ts';
 import { emptyPageView, linkedEmptyPages, pageViewPage, projectNotFoundPage } from '../views/pageView.ts';
 import { projectIndexPage } from '../views/projectIndex.ts';
 import { searchResultsPage } from '../views/searchPage.ts';
+
+// プロジェクトのトップの並び替え（#291）。Cosense と同じく、選んだ並び替えをプロジェクトごとにブラウザへ残す。
+// ページを開いた時から選んだ順で描けるよう、localStorage ではなく、そのプロジェクトの path の cookie に残す。
+const PAGE_SORT_COOKIE = 'knot_page_sort';
+const PAGE_SORT_MAX_AGE = 60 * 60 * 24 * 365;
 
 function nonce(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -31,13 +37,20 @@ export function registerPageRoutes(app: Hono<ApiEnv>, deps: ApplicationDeps): vo
       return c.text('bad request', 400);
     }
 
-    const result = await deps.storage.listPageSummaries(project.id, {
-      skip,
-      limit,
-      sort: 'updated',
-      pinnedFirst: true,
-    });
-    return c.html(pageListPage(project, result, skip, limit, deps.config.allowedImageHosts));
+    const requested = c.req.query('sort');
+    const stored = getCookie(c, PAGE_SORT_COOKIE);
+    const sort = isPageSort(requested) ? requested : isPageSort(stored) ? stored : 'updated';
+    if (isPageSort(requested)) {
+      setCookie(c, PAGE_SORT_COOKIE, requested, {
+        path: `/${encodeURIComponent(project.name)}`,
+        httpOnly: true,
+        sameSite: 'Lax',
+        secure: new URL(c.req.url).protocol === 'https:',
+        maxAge: PAGE_SORT_MAX_AGE,
+      });
+    }
+    const result = await deps.storage.listPageSummaries(project.id, { skip, limit, sort, pinnedFirst: true });
+    return c.html(pageListPage(project, result, skip, limit, sort, deps.config.allowedImageHosts));
   });
 
   // 全文検索の結果ページ（#247）。ページの URL（/:project/:title）とは段の数が違うので重ならない。

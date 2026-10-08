@@ -233,7 +233,7 @@ void test('関連ページの行の上に絞り込み欄と並び替えを置き
   const tabs = [...body.matchAll(/class="tool-button related-sort-tab" data-sort="(\w+)" aria-pressed="(\w+)">([^<]+)</g)];
   assert.deepEqual(tabs.map((match) => [match[1], match[2], match[3]]), [['related', 'true', '関連度'], ['updated', 'false', '更新日時']]);
   // menu には、タブにある並び替えも含めてすべて置く（タブにある分は広い画面で CSS が隠す）。ページランクは置かない。
-  const optionsStart = body.indexOf('<div class="related-sort-options">');
+  const optionsStart = body.indexOf('<div class="sort-menu-options">');
   const options = body.slice(optionsStart, body.indexOf('</details>', optionsStart));
   assert.deepEqual([...options.matchAll(/<button type="button" data-sort="(\w+)"/g)].map((match) => match[1]),
     ['related', 'updated', 'created', 'accessed', 'linked', 'title']);
