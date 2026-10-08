@@ -204,6 +204,65 @@ test('ページが無くても、ほかのページからリンクされてい�
     .toEqual([[`[${hub}]`, 'rgb(61, 114, 245)'], [`[${lonely}]`, 'rgb(253, 115, 115)']]);
 });
 
+type AnchorLook = { text: string | null; href: string | null; target: string | null; rel: string | null; color: string; decoration: string };
+
+async function anchorLooks(page: Page, rowIndex: number): Promise<AnchorLook[]> {
+  return page.locator('#editor-root .line-row, #editor-root .cm-line').nth(rowIndex).locator('a').evaluateAll(
+    (anchors) => anchors.map((anchor) => ({
+      text: anchor.textContent,
+      href: anchor.getAttribute('href'),
+      target: anchor.getAttribute('target'),
+      rel: anchor.getAttribute('rel'),
+      color: getComputedStyle(anchor).color,
+      decoration: getComputedStyle(anchor).textDecorationLine,
+    })),
+  );
+}
+
+test('外部リンクと別のプロジェクトへのリンクは、Cosense と同じく新しいタブで開く', async ({ page }, testInfo) => {
+  // line-e2e はこの spec の login が多く、login の rate limit（10 分間に 10 回）に届くので、リンクの題材の account を使う。
+  await loginE2eAccount(page, 'link-e2e');
+  const suffix = `${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  const title = `line-new-tab-${suffix}`;
+  const body = ['[https://example.com 外部] と [/e2e-related/rel-alpha]', 'last body'];
+  await createE2ePage(page, title, body);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  // 別のプロジェクトへのリンクは、ページへのリンクと同じ見た目（#287）。
+  const expected: AnchorLook[] = [
+    { text: '外部', href: 'https://example.com', target: '_blank', rel: 'noopener noreferrer', color: 'rgb(61, 114, 245)', decoration: 'underline' },
+    {
+      text: '/e2e-related/rel-alpha',
+      href: '/e2e-related/rel-alpha',
+      target: '_blank',
+      rel: 'noopener noreferrer',
+      color: 'rgb(61, 114, 245)',
+      decoration: 'none',
+    },
+  ];
+  expect(await anchorLooks(page, 1)).toEqual(expected);
+
+  // 押すと新しいタブで開き、このページは閲覧表示のまま残る。
+  const opened = page.waitForEvent('popup');
+  await page.locator('#editor-root .line-row').nth(1).locator('a').nth(1).click();
+  const popup = await opened;
+  await expect(popup).toHaveURL(/\/e2e-related\/rel-alpha$/);
+  await popup.close();
+  await expect(page).toHaveURL(`/e2e/${title}`);
+  await expect(page.locator('#editor-root .cm-editor')).toHaveCount(0);
+
+  // 編集表示の整形表示の行も同じリンク。カーソル行では、別のプロジェクトへのリンクはページへのリンクの色。
+  await startEditingAtLastRow(page, body.length);
+  expect(await anchorLooks(page, 1)).toEqual(expected);
+  const row = page.locator('#editor-root .cm-line').nth(1);
+  const rowBox = (await row.boundingBox())!;
+  await page.mouse.click(rowBox.x + rowBox.width - 8, rowBox.y + 8);
+  await expect(row.locator('a')).toHaveCount(0);
+  expect(await row.locator('[class*="cm-sb-"]').evaluateAll((spans) => spans.map((span) => [span.textContent, getComputedStyle(span).color])))
+    .toEqual([['[https://example.com 外部]', 'rgb(120, 30, 122)'], ['[/e2e-related/rel-alpha]', 'rgb(61, 114, 245)']]);
+});
+
 test('字下げした行でも、リンクの click は遷移し、行末の click は原文の編集に入る', async ({ page }, testInfo) => {
   await loginE2eAccount(page, 'line-e2e');
   const suffix = `${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;

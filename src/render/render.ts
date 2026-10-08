@@ -49,12 +49,12 @@ function renderNode(node: PresentedNode): RenderedHtml {
     }
     case 'link': {
       const children = node.children.map(renderNode);
-      if (node.className !== undefined && node.external) {
-        return html`<a href="${node.href}" class="${node.className}" rel="noopener noreferrer">${children}</a>`;
-      }
-      if (node.className !== undefined) return html`<a href="${node.href}" class="${node.className}">${children}</a>`;
-      if (node.external) return html`<a href="${node.href}" rel="noopener noreferrer">${children}</a>`;
-      return html`<a href="${node.href}">${children}</a>`;
+      const className = node.className === undefined ? '' : html` class="${node.className}"`;
+      // 新しいタブで開くリンク（#287）と外部リンクは、開いた先にこのページを渡さない。
+      const opening = node.newTab
+        ? html` target="_blank" rel="noopener noreferrer"`
+        : node.external ? html` rel="noopener noreferrer"` : '';
+      return html`<a href="${node.href}"${className}${opening}>${children}</a>`;
     }
     case 'image':
       if (node.className !== undefined) {

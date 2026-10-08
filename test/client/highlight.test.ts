@@ -47,6 +47,13 @@ void test('ページがあるかどうかを渡すと、ページの無いリン
   assert.deepEqual(highlightSpans('Title\n[missing] #missing').map((span) => span.kind), ['title', 'link', 'hashtag']);
 });
 
+// 別のプロジェクトへのリンクは、閲覧表示と同じくページへのリンクの色（#287）。ページの有無は分からないので
+// 空リンクにはしない。アップロードしたファイルへのリンクは、これまでどおり外部リンクの色。
+void test('別のプロジェクトへのリンクはページへのリンクにし、アップロードしたファイルへのリンクは外部リンクのままにする', () => {
+  assert.deepEqual(highlightSpans('Title\n[/villagepump/被リンク] [/files/01ABC/doc.pdf]', isKnownTitle).map((span) => span.kind),
+    ['title', 'link', 'external-link']);
+});
+
 void test('装飾の中のリンクにも、装飾の見た目を重ねる', () => {
   assert.deepEqual(highlightSpans('Title\n[** [page] と二段]'), [
     { from: 0, to: 5, kind: 'title' },

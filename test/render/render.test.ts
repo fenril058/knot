@@ -51,7 +51,8 @@ void test('ハッシュタグは title_lc で解決しブラケットリンク�
 });
 
 void test('外部リンクは http/https のみリンク化、他スキームは平文', () => {
-  assert.match(renderOne('[https://example.com Ex]'), /<a href="https:\/\/example\.com"[^>]*>Ex<\/a>/);
+  // Cosense と同じく、外部リンクは新しいタブで開く（#287）。
+  assert.match(renderOne('[https://example.com Ex]'), /<a href="https:\/\/example\.com" target="_blank" rel="noopener noreferrer">Ex<\/a>/);
   const js = renderOne('[javascript:alert(1) Ex]');
   assert.doesNotMatch(js, /<a /);
   assert.match(js, /javascript:alert\(1\)/);
@@ -197,9 +198,17 @@ void test('/files/ の画像以外のファイルはリンクにする', () => {
   assert.doesNotMatch(renderOne('[/files/01ABC/doc.pdf]'), /<img/);
 });
 
-void test('/files/ 以外のルートパスは従来どおり平文のまま', () => {
-  const out = renderOne('[/elsewhere/x.png]');
-  assert.doesNotMatch(out, /<img|<a /);
+void test('/files/ 以外のルートパスは、Cosense と同じく別のプロジェクトのページを新しいタブで開くリンクにする（#287）', () => {
+  assert.equal(
+    renderOne('[/villagepump/被リンク]'),
+    '<div><a href="/villagepump/%E8%A2%AB%E3%83%AA%E3%83%B3%E3%82%AF" class="page-link" target="_blank" rel="noopener noreferrer">/villagepump/被リンク</a></div>',
+  );
+  // 行 ID の # を保ち、プロジェクトだけのリンクはプロジェクトのトップへ。タイトルの空白は _ にする。
+  assert.match(renderOne('[/customize/vlzs#abc]'), /<a href="\/customize\/vlzs#abc" class="page-link" target="_blank"/);
+  assert.match(renderOne('[/help]'), /<a href="\/help" class="page-link" target="_blank"/);
+  assert.match(renderOne('[/help/Link ラベル]'), /<a href="\/help\/Link_%E3%83%A9%E3%83%99%E3%83%AB" class="page-link"/);
+  // 画像の拡張子があっても、/files/ 以外は画像にしない。
+  assert.doesNotMatch(renderOne('[/elsewhere/x.png]'), /<img/);
 });
 
 void test('許可ホストの #.png フラグメント付きURLも img にする', () => {
@@ -223,7 +232,7 @@ void test('許可されていないホストの画像URLは通常リンクにす
   assert.doesNotMatch(output, /<img/);
   assert.match(
     output,
-    /<a href="https:\/\/blocked\.example\/a\.png" rel="noopener noreferrer">https:\/\/blocked\.example\/a\.png<\/a>/,
+    /<a href="https:\/\/blocked\.example\/a\.png" target="_blank" rel="noopener noreferrer">https:\/\/blocked\.example\/a\.png<\/a>/,
   );
 });
 
@@ -259,7 +268,7 @@ void test('YouTube等は既定で埋め込まず通常リンク（iframe は生�
   assert.doesNotMatch(out, /<iframe/);
   assert.match(
     out,
-    /<a href="https:\/\/www\.youtube\.com\/watch\?v=abc" rel="noopener noreferrer">https:\/\/www\.youtube\.com\/watch\?v=abc<\/a>/,
+    /<a href="https:\/\/www\.youtube\.com\/watch\?v=abc" target="_blank" rel="noopener noreferrer">https:\/\/www\.youtube\.com\/watch\?v=abc<\/a>/,
   );
 });
 
