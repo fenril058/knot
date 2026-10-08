@@ -253,7 +253,8 @@ export function pageViewPage(
   knownPages: readonly KnownPage[],
   now: number,
 ): Html {
-  return layout(page.title, html`
+  // 文書のタイトルは、Cosense と同じく「ページのタイトル - プロジェクトの表示名」（#295）。
+  return layout(`${page.title} - ${project.displayName}`, html`
 ${pageNav(project.name, projectLink(project), { pageMenu: true })}
 <main>
 <div class="page-column">
@@ -340,7 +341,7 @@ export function emptyPageView(
   renderConfig: RenderConfig,
   knownPages: readonly KnownPage[],
 ): Html {
-  return layout(title, html`
+  return layout(`${title} - ${project.displayName}`, html`
 ${pageNav(project.name, projectLink(project))}
 <main>
 <div class="page-column">
