@@ -982,6 +982,37 @@ test('mobile browser では閲覧表示のテロメアの tap で行の編集を
   await expectMobileLayout(page, expectedWidth);
 });
 
+test('mobile browser でも、閲覧表示のテロメアにはキーボードの Tab で届き、Enter と Space でメニューを開く', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'telomere-mobile-e2e');
+  const title = `telomere-mobile-keyboard-${testInfo.project.name}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, ['first body', 'second body']);
+  await page.goto(`/e2e/${title}`);
+
+  // 行のテロメアは 1 つの tab stop で、Tab で先頭の行のテロメアに届く（#173）。
+  const buttons = page.locator('#editor-root .line-row > .telomere');
+  for (let count = 0; count < 20; count += 1) {
+    if (await buttons.first().evaluate((element) => element === document.activeElement)) break;
+    await page.keyboard.press('Tab');
+  }
+  await expect(buttons.first()).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(buttons.nth(1)).toBeFocused();
+
+  // touch の端末でも、キーボードで押したときは編集を始めず、メニューを出してその最初の項目へ移る（#319）。
+  const copyLink = page.getByRole('button', { name: 'リンクをコピー', exact: true });
+  await page.keyboard.press('Enter');
+  await expect(copyLink).toBeFocused();
+  // 先頭のテロメアはタイトルの行のもので、ArrowDown で移ったのは本文の 1 行目。
+  await expect(page.locator('#editor-root .line-row').nth(1)).toHaveClass(/\bhighlight\b/);
+  await expect(page.locator('#editor-root .cm-editor')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.telomere-info')).toBeHidden();
+  await expect(buttons.nth(1)).toBeFocused();
+  await page.keyboard.press('Space');
+  await expect(copyLink).toBeFocused();
+  await expect(page.locator('#editor-root .cm-editor')).toHaveCount(0);
+});
+
 test('mobile browser でも、本文の画像を tap すると画像を大きく出す dialog を開き、紙面の左の余白の tap で編集を始める', async (
   { page },
   testInfo,
