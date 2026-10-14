@@ -1,20 +1,66 @@
-body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem; }
+/* Cosense の既定テーマで観測した値（#228 / #229）。紙面は本文を載せる白い領域（.page）。
+   紙面の左 padding はテロメアを置く余白を兼ねるので、閲覧表示と編集表示が同じ値を使う。 */
+:root {
+  --body-bg: #dcdde0;
+  --page-bg: #fefefe;
+  --page-text-color: #4a4a4a;
+  --line-height: 28px;
+  --page-padding-top: 42px;
+  --page-padding-inline: 49px;
+  --page-padding-bottom: 42px;
+}
+@media (max-width: 991px) {
+  :root { --page-padding-inline: 42px; --page-padding-bottom: 35px; }
+}
+@media (max-width: 767px) {
+  :root { --page-padding-top: 28px; --page-padding-inline: 21px; --page-padding-bottom: 42px; }
+}
+body {
+  background-color: var(--body-bg);
+  color: #333;
+  font-family: "Open Sans", Helvetica, Arial, "Hiragino Sans", sans-serif;
+  font-size: 14px;
+  line-height: 20px;
+  margin: 0;
+}
 a { color: #2c6ea3; }
 .empty-link { color: #c0392b; }
-.page-nav { margin-bottom: 0.5rem; font-size: 0.9em; }
+/* 上部のバー。Cosense の navbar と同じ高さと色にする。 */
+.page-nav { align-items: center; background-color: rgb(196 197 202 / 70%); box-sizing: border-box; display: flex; height: 41px; padding-inline: 16px; }
+.page-nav a { color: #363c49; font-weight: 600; padding: 6px 8px; text-decoration: none; }
+@media (max-width: 991px) {
+  .page-nav { padding-inline: 8px; }
+}
+/* バーの下端から紙面の上端までを Cosense と同じ 31px にする（15px + .page-column の 16px）。
+   padding にするのは、子の margin と相殺させないため。 */
+main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 15px 8px 20px; }
+/* 紙面と、その右のページメニュー列。メニュー列の幅は中身によらず固定し、編集開始で
+   メニューを隠しても紙面が横に動かないようにする。 */
+.page-column { align-items: start; display: grid; gap: 10px; grid-template-areas: "page menu"; grid-template-columns: minmax(200px, 960px) 46px; justify-content: center; margin-top: 16px; }
+.page-main { grid-area: page; min-width: 0; position: relative; }
+/* メニューは左へ開いて紙面に重なる。後に描かれる紙面の下へ潜らないよう、列ごと上に重ねる。 */
+.page-menu { grid-area: menu; position: sticky; top: 4px; z-index: 1; }
+/* Cosense は 767px 以下でページメニューを上部のバーへ移す。 */
+@media (max-width: 767px) {
+  .page-column { display: block; }
+  .page-menu { inset-inline-end: 8px; position: absolute; top: 0; }
+}
+.page { background-color: var(--page-bg); border-radius: 4px 4px 3px 3px; box-shadow: 0 4px 0 rgb(0 0 0 / 16%); padding: var(--page-padding-top) var(--page-padding-inline) var(--page-padding-bottom); }
+.backlinks-badge { color: #555; font-size: 12px; margin: 8px 0 0; }
+.related-pages { margin-top: 24px; }
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; list-style: none; margin: 0; padding: 0; }
 .card-grid > li { display: flex; min-width: 0; }
 .card-grid > li > .card { flex: 1; }
-.card { display: block; border: 1px solid #ddd; border-radius: 4px; padding: 0.5rem; text-decoration: none; color: inherit; min-width: 0; overflow: hidden; overflow-wrap: anywhere; }
+.card { display: block; background: #fff; border: 1px solid #ddd; border-radius: 4px; padding: 0.5rem; text-decoration: none; color: inherit; min-width: 0; overflow: hidden; overflow-wrap: anywhere; }
 .card.pinned { border-color: #f1c40f; }
 .card img.card-image { width: 100%; height: 100px; object-fit: cover; }
 /* 分割できる位置を持たない長いラベル（URL など）でページを横にはみ出させない。
    CodeMirror 側は lineWrapping が同じ折り返しを行うので、両方の表示で同じ位置に折り返る。
    空白の連なりも CodeMirror 側（white-space: break-spaces）に合わせて畳まない。 */
 .line-row { display: flex; align-items: flex-start; overflow-wrap: anywhere; white-space: break-spaces; }
-/* 空行は高さが 0 になり、行クリックで編集を開始できる面が無くなる。 */
-#editor-root:not(.editor-active) > .line-row { min-height: 1.4em; }
-.line-title { margin: 0; }
+/* 空行は高さが 0 になり、行クリックで編集を開始できる面が無くなる。Cosense の空行も 1 行ぶんの高さを持つ。 */
+#editor-root:not(.editor-active) > .line-row { min-height: var(--line-height); }
+.line-title { font-weight: 400; margin: 0; }
 .line-indent-prefix, .cm-wysiwyg-indent-prefix { white-space: pre; letter-spacing: .25rem; flex-shrink: 0; }
 .line-indent-content, .cm-wysiwyg-indent-content { position: relative; }
 .line-indent-content::before, .cm-wysiwyg-indent-content::before {
@@ -22,7 +68,8 @@ a { color: #2c6ea3; }
   inset-inline-start: -0.9rem;
   position: absolute;
 }
-.telomere { width: 4px; align-self: stretch; margin-right: 0.5rem; flex-shrink: 0; background: #ccc; cursor: pointer; }
+/* テロメアは紙面の左端に置き、紙面の左 padding の残りを本文までの余白にする。 */
+.telomere { width: 4px; align-self: stretch; margin-inline-end: calc(var(--page-padding-inline) - 4px); flex-shrink: 0; background: #ccc; cursor: pointer; }
 .telomere.unread { background: #3498db; }
 .telomere.age-1 { opacity: 1; }
 .telomere.age-2 { opacity: 0.6; }
@@ -38,8 +85,15 @@ a { color: #2c6ea3; }
 .create-project form { display: grid; gap: 0.75rem; }
 .create-project input { box-sizing: border-box; font-size: 1rem; min-height: 2.75rem; padding: 0.5rem; width: 100%; }
 .create-project p { margin: 0; }
-.page-actions { display: inline-block; margin-left: 0.5rem; position: relative; }
-.page-actions-menu { background: white; border: 1px solid #ddd; border-radius: 4px; display: grid; gap: 0.25rem; padding: 0.5rem; position: absolute; z-index: 1; }
+.page-actions { position: relative; }
+/* Cosense のページメニューの tool button と同じ 46px 四方の押せる面にする。 */
+.page-actions > summary { align-items: center; box-sizing: border-box; color: #848484; cursor: pointer; display: flex; font-size: 13px; height: 46px; justify-content: center; list-style: none; width: 46px; }
+.page-actions > summary::-webkit-details-marker { display: none; }
+@media (max-width: 767px) {
+  .page-actions > summary { height: 41px; }
+}
+/* メニューは右端に揃えて左へ開く。右列やバーの右端から開いても画面の外へ出さない。 */
+.page-actions-menu { background: white; border: 1px solid #ddd; border-radius: 4px; display: grid; gap: 0.25rem; inset-inline-end: 0; padding: 0.5rem; position: absolute; z-index: 1; }
 .page-actions-menu button { text-align: left; white-space: nowrap; }
 dialog { border: 1px solid #ccc; border-radius: 6px; max-width: min(28rem, calc(100% - 2rem)); }
 dialog::backdrop { background: rgb(0 0 0 / 35%); }
@@ -47,11 +101,20 @@ dialog form { display: grid; gap: 1rem; }
 .dialog-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
 .danger { color: #c0392b; }
 
-/* 行送りは両方の表示で同じ数値に固定する。line-height: normal のままだと、閲覧表示の
-   .line-row（flex container）は 22.39px、CodeMirror の .cm-line は 22px になり、行ごとに
-   0.39px ずつずれが積み上がる。閲覧表示の行は 22.39px から 22.4px になるだけで、
-   見た目は変わらない。 */
-#editor-root { line-height: 1.4; }
+/* 本文の字と行送り。行送りは両方の表示で同じ数値に固定する。line-height: normal のままだと、
+   閲覧表示の .line-row（flex container）と CodeMirror の .cm-line で端数が違い、行ごとに
+   ずれが積み上がる。値は Cosense の .editor と同じ 15px / 28px。
+   紙面の左 padding へ食い込ませるのは、そこにテロメアを置くため。閲覧表示では行の中の
+   テロメア、編集表示では gutter がその幅を占めるので、本文の左端は両方で紙面の padding の内側に揃う。 */
+#editor-root {
+  color: var(--page-text-color);
+  font-family: Roboto, Helvetica, Arial, "Hiragino Sans", sans-serif;
+  font-size: 15px;
+  line-height: var(--line-height);
+  margin-inline-start: calc(-1 * var(--page-padding-inline));
+}
+/* 未作成ページの案内文は行ではないので、テロメアの余白を持たない。本文の左端に揃える。 */
+#editor-root > p { margin-inline-start: var(--page-padding-inline); }
 /* 閲覧表示を canonical として、編集表示をそれに合わせる。
    CodeMirror の base theme は .cm-scroller に monospace を指定する。font-size の指定が
    無いまま monospace になると、ブラウザは既定の monospace サイズ（13px）を使う。 */
@@ -63,16 +126,20 @@ dialog form { display: grid; gap: 1rem; }
 #editor-root .cm-content { padding: 0; min-width: 0; }
 #editor-root .cm-line { padding: 0; }
 /* タイトルの字の大きさと行送りは、閲覧表示でも編集表示でも「行」に掛ける。
-   行の高さがこれで決まるので、片方だけ変えると起動前後で行の高さがずれる。値は 1 か所に置く。 */
-.line-title, #editor-root .cm-title-line { font-size: 1.25em; }
+   行の高さがこれで決まるので、片方だけ変えると起動前後で行の高さがずれる。値は 1 か所に置く。
+   Cosense のタイトル行は 1.73em / 42px の太字でない字で、下に 21px の余白を持つ（行の高さ 63px）。 */
+.line-title, #editor-root .cm-title-line { color: #000; font-size: 1.73em; line-height: 42px; padding-bottom: 21px; }
 /* 行末の余白。ここが無いと、リンクだけの行はラベルの長さ次第で行末までリンクが占め、
    その行を編集し始める面が残らない。閲覧表示と編集表示で必ず同じ幅にする。
    2.5rem あるのは touch adjustment のため。ブラウザは tap をリンクへ吸い寄せるので、
    リンク寄りの約 14px は tap しても遷移する。実用になる幅はそこを引いた残りになる。 */
 #editor-root .line-row, #editor-root .cm-line { padding-inline-end: 2.5rem; }
-/* outline は箱の外に描かれ、行の位置を動かさない。 */
-#editor-root .cm-focused { outline: 2px solid #2c6ea3; outline-offset: 2px; }
-#save-status { min-height: 1.5em; margin-bottom: 0.5rem; color: #555; text-align: right; }
+/* 編集を始めても紙面に枠を出さない。本文は紙面そのものなので、Cosense と同じく
+   caret だけで編集中であることを示す。CodeMirror の base theme が付ける点線も消す。 */
+#editor-root .cm-editor.cm-focused { outline: none; }
+/* 保存状態は紙面の上の余白に出す。文書の流れに置くと、編集開始で現れたときに紙面ごと
+   本文を押し下げる。長い文言は上へ折り返す。 */
+#save-status { bottom: 100%; color: #555; font-size: 12px; inset-inline-end: 0; line-height: 16px; margin-bottom: 4px; position: absolute; text-align: right; }
 #save-status[data-status="error"] { color: #c0392b; }
 #save-status[data-status="conflict"] { color: #9a6700; font-weight: 700; }
 .edit-conflict { border: 2px solid #9a6700; border-radius: 4px; margin-block: 0.75rem; max-width: 960px; padding: 1rem; }
@@ -90,9 +157,8 @@ dialog form { display: grid; gap: 1rem; }
 /* 既定テーマの gutter は境界線と背景を持つ。閲覧表示のテロメアには無いので消す。 */
 #editor-root .cm-gutters { border-right: 0; background: transparent; }
 #editor-root .cm-telomere-gutter .cm-gutterElement { display: flex; align-items: stretch; }
-/* 閲覧表示のテロメアと同じ 4px + 0.5rem を占め、本文の左端を揃える。 */
-#editor-root .cm-telomere-gutter .telomere { display: block; min-height: 1.4em; }
-.cm-sb-title { font-weight: 700; }
+/* 閲覧表示のテロメアと同じ幅（4px + 紙面の左 padding の残り）を占め、本文の左端を揃える。 */
+#editor-root .cm-telomere-gutter .telomere { display: block; min-height: var(--line-height); }
 .cm-sb-indent { color: #aaa; }
 .cm-sb-link, .cm-sb-hashtag { color: #2c6ea3; }
 .cm-sb-external-link, .cm-sb-url { color: #287c3c; }
@@ -103,7 +169,7 @@ dialog form { display: grid; gap: 1rem; }
 .cm-sb-code-inline, .cm-sb-code-block, .cm-sb-formula { font-family: monospace; }
 .cm-sb-code-block { background: #f5f5f5; }
 .cm-sb-quote { color: #666; }
-.cm-wysiwyg-line { display: inline; min-height: 1.4em; }
+.cm-wysiwyg-line { display: inline; }
 /* 引用行は blockquote。整形表示の widget は inline で、CodeMirror が widget の前後へ
    置く buffer も inline なので、block のままだと匿名の行が 1 本増えて閲覧表示より
    1 行ぶん下がる。inline-block にして、閲覧表示の block と同じ字下げと上下の余白を持たせる。 */

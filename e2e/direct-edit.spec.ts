@@ -10,6 +10,7 @@ import {
   loginDirectEditE2e,
   loginE2eAccount,
   loginTitleE2e,
+  scrollRowTo,
   textStyleOf,
   visibleTitleCount,
   type LinkRowTarget,
@@ -671,7 +672,7 @@ test('長いページの途中から編集を始めても scroll 位置と触っ
   await createPage(page, title, longBody(100));
 
   await page.goto(`/e2e/${title}`);
-  await page.evaluate(() => window.scrollTo(0, 1200));
+  await scrollRowTo(page, 70, 300);
   const before = await rowViewportTop(page, 'body line 69');
   expectInViewport(before);
 

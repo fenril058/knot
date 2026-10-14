@@ -13,6 +13,7 @@ export function pageListPage(
   const nextSkip = skip + limit;
   return layout(project.displayName, html`
 <nav class="page-nav"><a href="/">プロジェクト一覧</a></nav>
+<main>
 <h1>${project.displayName}</h1>
 <div id="search-root" data-project="${project.name}">
 <button type="button" id="create-page-button">新規作成</button>
@@ -30,6 +31,7 @@ export function pageListPage(
 ${nextSkip < result.count
     ? html`<a href="/${encodeURIComponent(project.name)}?skip=${nextSkip}&limit=${limit}">もっと見る</a>`
     : ''}
+</main>
 <script type="module" src="/assets/build/search.js"></script>`,
   );
 }
