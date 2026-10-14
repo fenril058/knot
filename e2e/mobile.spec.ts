@@ -353,10 +353,11 @@ test('mobile browser は長いページの途中から編集を始めても scro
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
   await expectMobileLayout(page, expectedWidth);
 
+  // desktop と同じく 1px も動かない（#313）。scroll した先の行を測り直した後にも動かないことを見るため、
+  // CodeMirror の次の計測を待つ。
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const after = await tappedRowTop();
-  expect(after.top).toBeGreaterThanOrEqual(0);
-  expect(after.top).toBeLessThan(after.viewportHeight);
-  expect(Math.abs(after.top - before.top)).toBeLessThan(22);
+  expect(after.top).toBe(before.top);
 });
 
 test('mobile browser は link だけの行を、遷移と編集のどちらにも tap で到達できる', async ({ page }, testInfo) => {

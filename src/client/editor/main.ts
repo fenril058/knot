@@ -828,8 +828,15 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
     // coordsAtPos は保留中の計測を済ませてから位置を返すので、そのあとの lineBlockAt は
     // 計測済みの行の箱になる。比べるのは caret の矩形（字の高さ）ではなく、SSR 行と同じ
     // 行の箱の上端にする。行送りが字より高いと、caret の矩形との差だけ画面が動く。
-    if (anchorTop !== undefined && view.coordsAtPos(selectedLine.from) !== null) {
-      window.scrollBy(0, view.documentTop + view.lineBlockAt(selectedLine.from).top - anchorTop);
+    // scroll した先の画面の行は、まだ実測していない見積もりの高さで置かれていることがある。scroll の後に
+    // 計測を済ませ、実測した高さでずれた分をもう一度合わせる（#313）。
+    if (anchorTop !== undefined) {
+      for (let attempt = 0; attempt < 3 && view.coordsAtPos(selectedLine.from) !== null; attempt += 1) {
+        const drift = view.documentTop + view.lineBlockAt(selectedLine.from).top - anchorTop;
+        if (Math.abs(drift) < 1) break;
+        window.scrollBy(0, drift);
+        view.requestMeasure();
+      }
     }
   }
   renderStatus();
