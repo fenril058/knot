@@ -261,3 +261,45 @@ test('行へのリンクで開いた行は編集を始めても強調したま�
     .toBe(`${new URL(page.url()).origin}/e2e/${title}#${ids[3]}`);
   await expect(page.locator('#editor-root .cm-editor')).toHaveCount(1);
 });
+
+test('行へのリンクで開くと、Cosense と同じく、行が先頭の画面に入っていれば scroll せず、入っていなければ行の上端を 100px に置く', async (
+  { page },
+  testInfo,
+) => {
+  await loginE2eAccount(page, 'telomere-e2e');
+  const title = `telomere-anchor-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  const ids = await importPage(page, title, Array.from({ length: 60 }, (_, index) => `line ${index}`));
+  const path = `/e2e/${encodeURIComponent(title)}`;
+  // 行の上端（ページの先頭から）。Cosense は、これに 10px を足して画面の高さ（800px）より上なら、行が先頭の画面に入っていると見る。
+  const tops = await page.locator('#editor-root .line-row').evaluateAll((rows) => rows.map((row) => row.getBoundingClientRect().top + window.scrollY));
+  const inFirstScreen = tops.findLastIndex((top) => top + 10 < 800);
+  const belowFirstScreen = inFirstScreen + 1;
+  expect(tops[belowFirstScreen]! + 10).toBeGreaterThanOrEqual(800);
+  const view = async (index: number): Promise<{ scrollY: number; top: number }> => page.evaluate((id) => ({
+    scrollY: window.scrollY,
+    top: Math.round(document.getElementById(`L${id}`)!.getBoundingClientRect().top),
+  }), ids[index]);
+
+  // 開いたときの画面に入っている行は、scroll せずに強調する。
+  await page.goto('about:blank');
+  await page.goto(`${path}#${ids[inFirstScreen]}`);
+  await expect(page.locator('#editor-root .line-row.highlight')).toHaveId(`L${ids[inFirstScreen]}`);
+  expect(await view(inFirstScreen)).toEqual({ scrollY: 0, top: Math.round(tops[inFirstScreen]!) });
+  // 入っていない行は、上端を画面の上から 100px に置く。
+  await page.goto('about:blank');
+  await page.goto(`${path}#${ids[belowFirstScreen]}`);
+  await expect(page.locator('#editor-root .line-row.highlight')).toHaveId(`L${ids[belowFirstScreen]}`);
+  expect((await view(belowFirstScreen)).top).toBe(100);
+
+  // 同じページの行へのリンクを押したときも、開き直したときと同じ位置にする。下へ scroll した後でも、
+  // 先頭の画面に入る行なら先頭へ戻る。
+  await page.evaluate(() => window.scrollTo(0, 1000));
+  await page.evaluate((id) => { window.location.hash = id; }, ids[inFirstScreen]!);
+  await expect(page.locator('#editor-root .line-row.highlight')).toHaveId(`L${ids[inFirstScreen]}`);
+  expect(await view(inFirstScreen)).toEqual({ scrollY: 0, top: Math.round(tops[inFirstScreen]!) });
+  // 下の行は、上端を画面の上から 100px に置く（ページの末尾に近すぎて、そこまで scroll できない行は選ばない）。
+  const below = belowFirstScreen + 10;
+  await page.evaluate((id) => { window.location.hash = id; }, ids[below]!);
+  await expect(page.locator('#editor-root .line-row.highlight')).toHaveId(`L${ids[below]}`);
+  expect((await view(below)).top).toBe(100);
+});

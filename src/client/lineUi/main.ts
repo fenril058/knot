@@ -17,13 +17,20 @@ function markHighlighted(row: Element | null): void {
   row?.classList.add('highlight');
 }
 
-// 行へのリンクで開いた行（Cosense の .line.permalink）。
+// 行へのリンクで開いた行（Cosense の .line.permalink）。Cosense と同じく、行の上端（ページの先頭から）に 10px を
+// 足しても画面の高さより上なら、行は先頭の画面に入っているので先頭のまま置き、入っていなければ行の上端を画面の
+// 上から 100px に置く。同じページの行へのリンクを押したときも、開き直したときと同じ位置にする（#311）。
+const LINKED_LINE_TOP = 100;
+const FIRST_SCREEN_MARGIN = 10;
+
 function highlight(): void {
   const row = linkedLineIds(location.hash)
     .map((id) => document.getElementById(`L${id}`))
     .find((element) => element?.classList.contains('line-row') === true);
   markHighlighted(row ?? null);
-  row?.scrollIntoView({ block: 'center' });
+  if (row === undefined || row === null) return;
+  const top = row.getBoundingClientRect().top + window.scrollY;
+  window.scrollTo(0, top + FIRST_SCREEN_MARGIN < window.innerHeight ? 0 : top - LINKED_LINE_TOP);
 }
 
 window.addEventListener('hashchange', highlight);
