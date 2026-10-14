@@ -940,7 +940,7 @@ test('mobile browser でもプロジェクトのトップの並び替えを tap 
   await expect(page.locator('.page-sort-menu .sort-menu-current')).toHaveText('タイトル');
 });
 
-test('mobile browser でもテロメアの tap で更新日時と行へのリンクのメニューに届き、編集中も gutter から届く', async (
+test('mobile browser では閲覧表示のテロメアの tap で行の編集を始め、更新日時と行へのリンクのメニューには編集中の gutter から届く', async (
   { page },
   testInfo,
 ) => {
@@ -959,27 +959,115 @@ test('mobile browser でもテロメアの tap で更新日時と行へのリン
   expect([telomereBox.width, telomereBox.height].map(Math.round))
     .toEqual([10, Math.round((await row.boundingBox())!.height)]);
 
-  // touch には hover が無いので、tap で帯とメニューを一度に出す。編集は始めない。
+  // Cosense の mobile と同じく、閲覧表示のテロメアの tap では、メニューを出さずにその行の編集を始める（#319）。
+  // caret は本文の先頭に置き、行へのリンクにはしない。
   const updated = /^\d{4}\/\d{1,2}\/\d{1,2} \d{1,2}:\d{2}:\d{2}に更新$/;
   const menu = page.locator('.telomere-info');
   await telomere.tap();
-  await expect(menu.locator('> *')).toHaveText([updated, 'リンクをコピー', 'リーダブルリンクをコピー']);
-  await expect(row).toHaveClass(/\bhighlight\b/);
-  await expect(page.locator('#editor-root .cm-editor')).toHaveCount(0);
-  const menuBox = (await menu.boundingBox())!;
-  expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(expectedWidth);
-
-  // メニューの外を tap すると閉じ、その tap で編集が始まる。メニューは下の 2 行の先頭に重なるので、
-  // その下の行を tap する。
-  const point = await charPoint(page.locator('#editor-root .line-row').nth(4), 'u', 0, 0.5);
-  await page.touchscreen.tap(point.x, point.y);
-  await expect(menu).toBeHidden();
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
-  await expect(page.locator('#editor-root .cm-line.highlight')).toHaveText('first body');
+  await expect(menu).toBeHidden();
+  expect(new URL(page.url()).hash).toBe('');
+  expect(await page.evaluate(() => {
+    const anchor = window.getSelection()?.anchorNode;
+    const line = (anchor instanceof Element ? anchor : anchor?.parentElement)?.closest('.cm-line');
+    return { line: line?.textContent, offset: window.getSelection()?.anchorOffset };
+  })).toEqual({ line: 'first body', offset: 0 });
 
-  // 編集中の gutter のテロメアも tap で届く（#195）。
+  // 更新日時と行へのリンクのメニューへは、編集中の gutter のテロメアの tap で届く（#195）。
   await page.locator('#editor-root .cm-telomere-gutter .telomere').nth(2).tap();
   await expect(menu.locator('> *')).toHaveText([updated, 'リンクをコピー', 'リーダブルリンクをコピー']);
   await expect(page.locator('#editor-root .cm-line.highlight')).toHaveText('second body');
+  const menuBox = (await menu.boundingBox())!;
+  expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(expectedWidth);
   await expectMobileLayout(page, expectedWidth);
+});
+
+test('mobile browser でも、閲覧表示のテロメアにはキーボードの Tab で届き、Enter と Space でメニューを開く', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'telomere-mobile-e2e');
+  const title = `telomere-mobile-keyboard-${testInfo.project.name}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, ['first body', 'second body']);
+  await page.goto(`/e2e/${title}`);
+
+  // 行のテロメアは 1 つの tab stop で、Tab で先頭の行のテロメアに届く（#173）。
+  const buttons = page.locator('#editor-root .line-row > .telomere');
+  for (let count = 0; count < 20; count += 1) {
+    if (await buttons.first().evaluate((element) => element === document.activeElement)) break;
+    await page.keyboard.press('Tab');
+  }
+  await expect(buttons.first()).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(buttons.nth(1)).toBeFocused();
+
+  // touch の端末でも、キーボードで押したときは編集を始めず、メニューを出してその最初の項目へ移る（#319）。
+  const copyLink = page.getByRole('button', { name: 'リンクをコピー', exact: true });
+  await page.keyboard.press('Enter');
+  await expect(copyLink).toBeFocused();
+  // 先頭のテロメアはタイトルの行のもので、ArrowDown で移ったのは本文の 1 行目。
+  await expect(page.locator('#editor-root .line-row').nth(1)).toHaveClass(/\bhighlight\b/);
+  await expect(page.locator('#editor-root .cm-editor')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.telomere-info')).toBeHidden();
+  await expect(buttons.nth(1)).toBeFocused();
+  await page.keyboard.press('Space');
+  await expect(copyLink).toBeFocused();
+  await expect(page.locator('#editor-root .cm-editor')).toHaveCount(0);
+});
+
+test('mobile browser でも、本文の画像を tap すると画像を大きく出す dialog を開き、紙面の左の余白の tap で編集を始める', async (
+  { page },
+  testInfo,
+) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'image-mobile-e2e');
+  // 画像は外部ホストなので、本文の幅より広い SVG で代える（#319）。
+  await page.context().route('https://i.gyazo.com/**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'image/svg+xml',
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="400"><rect width="100%" height="100%" fill="#89a"/></svg>',
+  }));
+  const title = `mobile-image-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, ['[https://i.gyazo.com/wide.png]', 'last body']);
+  const open = async (): Promise<void> => {
+    await page.goto(`/e2e/${title}`);
+    await page.waitForFunction(() => Array.from(
+      document.querySelectorAll<HTMLImageElement>('#editor-root img'),
+      (image) => image.complete && image.naturalWidth > 0,
+    ).every(Boolean));
+  };
+  await open();
+  const row = page.locator('#editor-root .line-row').nth(1);
+  const bodyImage = row.locator('img');
+  // 画像は Cosense と同じく本文の幅（紙面の幅から左右の余白 21px を引いた幅）いっぱいに描き、右に余白を残さない。
+  expect((await bodyImage.boundingBox())!.width).toBe(expectedWidth - 16 - 42);
+
+  const dialog = page.locator('dialog.image-modal');
+  await bodyImage.tap();
+  await expect(dialog).toBeVisible();
+  const shown = (await dialog.locator('img').boundingBox())!;
+  expect(shown.width).toBeCloseTo(expectedWidth * 0.95 - 30, 0);
+  await expect(page.locator('#editor-root .cm-editor')).toHaveCount(0);
+  // 背景を tap すると閉じる。
+  await page.touchscreen.tap(2, 10);
+  await expect(dialog).toBeHidden();
+
+  // Cosense の mobile と同じく、行の左の余白（テロメアの右から本文の左まで）を tap すると、テロメアのメニューは
+  // 出さずに、その行の編集を始める。指で押した点はブラウザが近くのテロメアへ寄せるので、テロメアの tap と同じに扱う。
+  const telomere = (await row.locator('> .telomere').boundingBox())!;
+  const rowBox = (await row.boundingBox())!;
+  const imageBox = (await bodyImage.boundingBox())!;
+  const gap = { from: telomere.x + telomere.width, to: imageBox.x };
+  expect(gap.to - gap.from).toBeGreaterThan(5);
+  await page.touchscreen.tap((gap.from + gap.to) / 2, rowBox.y + 10);
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expect(page.locator('#editor-root .cm-line').nth(1)).toHaveText('[https://i.gyazo.com/wide.png]');
+  await expect(page.locator('.telomere-info')).toBeHidden();
+  await expect(dialog).toBeHidden();
+  await expectMobileLayout(page, expectedWidth);
+  // テロメアそのものを tap しても同じ。
+  await open();
+  await page.touchscreen.tap(telomere.x + telomere.width / 2, rowBox.y + 10);
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expect(page.locator('#editor-root .cm-line').nth(1)).toHaveText('[https://i.gyazo.com/wide.png]');
+  await expect(page.locator('.telomere-info')).toBeHidden();
 });

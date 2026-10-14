@@ -55,12 +55,17 @@ export function isQuoteLine(line: PresentedLine): boolean {
   return first?.type === 'container' && first.kind === 'quote';
 }
 
+// 本文の画像を包むリンクの class（#319）。
+const IMAGE_LINK_CLASS = 'image-link';
+
 // 行の中身がリンクと埋め込み（動画・音声）と空白だけの行。リンクが行末まで届くと、行を押して
 // 編集を始める面が残らない（#186）。閲覧表示と編集表示は、この行にだけ行末の余白を置く（#245）。
+// 画像のリンクは数えない。Cosense と同じく画像の行には行末の余白を置かず、画像の表示幅を変えない（#319）。
 export function isLinkOnlyLine(line: PresentedLine): boolean {
   if (line.role !== 'line') return false;
   let links = 0;
   const onlyLinks = (nodes: readonly PresentedNode[]): boolean => nodes.every((node) => {
+    if (node.type === 'link' && node.className === IMAGE_LINK_CLASS) return false;
     if (node.type === 'link' || node.type === 'video' || node.type === 'audio') {
       links += 1;
       return true;
@@ -166,9 +171,12 @@ function presentMedia(
   const hostname = isLocal ? '' : new URL(url).hostname;
   const kind = classifyUrl(url);
   if (kind === 'image' && (isLocal || isHostAllowed(hostname, config.allowedImageHosts))) {
-    return strong
-      ? { type: 'image', src: url, alt: '', className: 'strong-image', lazy: true, span: spans.media }
-      : { type: 'image', src: url, alt: '', lazy: true, span: spans.media };
+    // 本文の画像は、Cosense と同じく画像を新しいタブで開くリンクに包む。押したときは image-modal.js が
+    // dialog で画像を出す（#319）。リンクの名前は画像の alt で付ける。
+    const image: PresentedNode = strong
+      ? { type: 'image', src: url, alt: '画像', className: 'strong-image', lazy: true, span: spans.media }
+      : { type: 'image', src: url, alt: '画像', lazy: true, span: spans.media };
+    return { type: 'link', href: url, className: IMAGE_LINK_CLASS, external: !isLocal, newTab: true, children: [image] };
   }
   if (kind === 'video' && (isLocal || isHostAllowed(hostname, config.allowedMediaHosts))) {
     return { type: 'video', src: url, span: spans.media };
