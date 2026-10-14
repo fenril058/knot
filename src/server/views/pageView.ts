@@ -111,6 +111,7 @@ ${recoveryDialog()}
 </form></dialog>
 </div>
 ${related.hasBackLinks ? html`<p class="backlinks-badge">逆リンクまたはアイコン参照あり</p>` : ''}
+<p id="edit-hint" class="edit-hint" hidden>キーボード: <kbd>Ctrl</kbd> + <kbd>E</kbd>（macOS は <kbd>⌘</kbd> + <kbd>E</kbd>）で編集、<kbd>Escape</kbd> で編集から抜ける</p>
 <div
   id="editor-root"
   class="page-body"

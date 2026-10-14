@@ -58,6 +58,10 @@ const resolveConflictButton = resolveConflictButtonElement;
 const recoveryDialog = recoveryDialogElement;
 const recoveryRecords = recoveryRecordsElement;
 const startFreshButton = startFreshButtonElement;
+// ショートカットは editor.js が動いてはじめて効くので、案内も JavaScript 側で出す。
+// 出すのは編集画面を用意できると分かってから。既存ページにだけ置いてあり、
+// 不在ページには作成ボタンという別の入口がある。
+document.querySelector<HTMLElement>('#edit-hint')?.removeAttribute('hidden');
 
 const data = editorRoot.dataset;
 if (data.project === undefined || data.title === undefined || data.userName === undefined || data.cspNonce === undefined) {
