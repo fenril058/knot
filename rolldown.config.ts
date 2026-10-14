@@ -10,6 +10,7 @@ export default defineConfig({
     'line-ui': 'src/client/lineUi/main.ts',
     'related-pages': 'src/client/relatedPages/main.ts',
     'status-bar': 'src/client/statusBar/main.ts',
+    'image-modal': 'src/client/imageModal/main.ts',
   },
   output: { dir: 'public/build', format: 'esm', sourcemap: true, minify: true },
   platform: 'browser',

@@ -93,9 +93,27 @@ void test('画像リンクの alt にイベントハンドラを注入しよう�
   assert.doesNotMatch(html, /onerror=/);
 });
 
+// 本文の画像を包むリンクの開きタグ（#319）。
+function imageLink(href: string): string {
+  return `<a href="${href}" class="image-link" target="_blank" rel="noopener noreferrer">`;
+}
+
+void test('本文の画像は、Cosense と同じく画像を新しいタブで開くリンクに包む（#319）', () => {
+  assert.equal(
+    renderOne('[https://i.gyazo.com/a.png]'),
+    `<div>${imageLink('https://i.gyazo.com/a.png')}<img src="https://i.gyazo.com/a.png" alt="画像" loading="lazy"></a></div>`,
+  );
+  assert.match(
+    renderOne('[[https://i.gyazo.com/a.png]]'),
+    new RegExp(`${imageLink('https://i\\.gyazo\\.com/a\\.png')}<img src="https://i\\.gyazo\\.com/a\\.png" alt="画像" class="strong-image" loading="lazy"></a>`),
+  );
+  // アップロードした画像も、新しいタブで開く。
+  assert.match(renderOne('[/files/01ABC/x.png]'), new RegExp(`${imageLink('/files/01ABC/x\\.png')}<img src="/files/01ABC/x\\.png"`));
+});
+
 void test('引用画像デコレーションに相対リンクを混在させない', () => {
   const output = renderOne('[" https://example.com/a.png [relative.png]]');
-  assert.match(output, /<span><img src="https:\/\/example\.com\/a\.png"/);
+  assert.match(output, /<span><a href="https:\/\/example\.com\/a\.png" class="image-link"[^>]*><img src="https:\/\/example\.com\/a\.png"/);
   assert.doesNotMatch(output, /relative\.png/);
 });
 

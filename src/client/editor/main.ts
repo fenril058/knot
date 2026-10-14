@@ -17,6 +17,7 @@ import {
   type SelectionPoint,
 } from './caretPosition.ts';
 import { answerSettleEdits, type SettledPage } from '../editSession.ts';
+import { telomereTapEditsLine } from '../telomereInfo.ts';
 import { mapSelectionByLineId } from './documentChanges.ts';
 import { titleAutocompletion } from './cm/complete.ts';
 import { doubleClickWordSelection, wordRange } from './cm/wordSelection.ts';
@@ -959,14 +960,17 @@ editorRoot.addEventListener('click', (event) => {
   if (starting || !(event.target instanceof Element)) return;
   const selection = window.getSelection();
   if (selection !== null && !selection.isCollapsed) return;
-  if (blocksEditorActivation(event.target)) return;
+  // touch の端末では、Cosense と同じく行の左の余白（テロメアを含む）の tap でその行の編集を始め、caret は
+  // 本文の先頭に置く（#319）。テロメアのボタンはこの tap ではメニューを出さない（lineUi/main.ts）。
+  const telomereTap = event.target.closest('.line-row > .telomere') !== null && telomereTapEditsLine(event);
+  if (!telomereTap && blocksEditorActivation(event.target)) return;
   const row = event.target.closest<HTMLElement>('.line-row');
   if (row === null || row.parentElement !== editorRoot || !row.id.startsWith('L')) return;
   const rows = Array.from(editorRoot.querySelectorAll<HTMLElement>('.line-row'));
   const index = rows.indexOf(row);
   if (index < 0) return;
   const elements = lineElements(row);
-  const target = elements === undefined ? undefined : clickTarget(elements, event.clientX, event.clientY);
+  const target = elements === undefined || telomereTap ? undefined : clickTarget(elements, event.clientX, event.clientY);
   beginEditing({
     lineId: row.id.slice(1),
     lineNumber: index + 1,

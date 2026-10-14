@@ -32,6 +32,14 @@ export function lineHref(lineId: string, page: PageLocation = location): string 
   return `${page.origin}${page.pathname}#${lineId}`;
 }
 
+// touch の端末（hover できない端末）で、閲覧表示のテロメアを指で押したか（#319）。Cosense の mobile と同じく、
+// 行の左の余白（テロメアを含む）の tap ではメニューを出さず、その行の編集を始める。指で押した点はブラウザが
+// 近くのテロメアへ寄せるので、余白の tap もここに来る。キーボードで押したとき（detail が 0）と、編集表示の
+// gutter のテロメアは、これまでどおりメニューを出す。
+export function telomereTapEditsLine(event: MouseEvent): boolean {
+  return event.detail !== 0 && !window.matchMedia('(hover: hover)').matches;
+}
+
 // fragment が指しうる行の ID。Cosense と同じ #<行の ID> を先に試し、行の要素の id（L<行の ID>）を
 // そのまま書いた #L<行の ID> も受ける。
 export function linkedLineIds(hash: string): string[] {

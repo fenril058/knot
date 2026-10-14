@@ -330,7 +330,8 @@ ${statusBar(page.title)}
 <script type="module" src="/assets/build/page-menu.js"></script>
 <script type="module" src="/assets/build/editor.js"></script>
 <script type="module" src="/assets/build/search.js"></script>
-<script type="module" src="/assets/build/status-bar.js"></script>`,
+<script type="module" src="/assets/build/status-bar.js"></script>
+<script type="module" src="/assets/build/image-modal.js"></script>`,
   );
 }
 
@@ -385,7 +386,8 @@ ${statusBar(title)}
 <script type="module" src="/assets/build/related-pages.js"></script>
 <script type="module" src="/assets/build/editor.js"></script>
 <script type="module" src="/assets/build/search.js"></script>
-<script type="module" src="/assets/build/status-bar.js"></script>`,
+<script type="module" src="/assets/build/status-bar.js"></script>
+<script type="module" src="/assets/build/image-modal.js"></script>`,
   );
 }
 

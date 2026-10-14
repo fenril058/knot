@@ -4,6 +4,7 @@ import {
   linkedLineIds,
   openTelomereMenu,
   showTelomereUpdated,
+  telomereTapEditsLine,
   updatedLabel,
   type TelomereTarget,
 } from '../telomereInfo.ts';
@@ -75,8 +76,10 @@ for (const button of telomeres) {
   });
   button.addEventListener('mouseleave', leaveTelomere);
   // 押すと、Cosense と同じく行を強調して URL を行へのリンクにし、メニューを出す。
-  // キーボードで押したとき（detail が 0）は、メニューへ focus を移す。
+  // キーボードで押したとき（detail が 0）は、メニューへ focus を移す。touch の端末で指で押したときは、
+  // メニューを出さない（その行の編集を editor.js が始める）。
   button.addEventListener('click', (event) => {
+    if (telomereTapEditsLine(event)) return;
     const target = targetOf(button);
     if (target.lineId !== undefined) {
       history.replaceState(history.state, '', `#${target.lineId}`);

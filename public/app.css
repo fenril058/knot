@@ -297,7 +297,7 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
 /* 本文のリンク。ページへのリンク（内部リンク・空リンク・ハッシュタグ・アイコン）は下線なし、
    URL のリンクは下線ありで、どちらも Cosense の既定テーマと同じ色にする。 */
 #editor-root a { color: var(--link-color); }
-#editor-root a.page-link, #editor-root a.empty-link, #editor-root a.icon-link { text-decoration: none; }
+#editor-root a.page-link, #editor-root a.empty-link, #editor-root a.icon-link, #editor-root a.image-link { text-decoration: none; }
 #editor-root a.empty-link { color: var(--empty-link-color); }
 @media (hover: hover) {
   #editor-root a:hover { color: var(--link-hover-color); }
@@ -432,6 +432,13 @@ span.telomere { cursor: auto; }
 dialog { border: 1px solid #ccc; border-radius: 6px; max-width: min(28rem, calc(100% - 2rem)); }
 dialog::backdrop { background: rgb(0 0 0 / 35%); }
 dialog form { display: grid; gap: 1rem; }
+/* 本文の画像を押して開く dialog（Cosense の .full-content-modal、#319）。画像を画面の中央に実寸で出し、幅は
+   95vw から余白（15px × 2）を引いた幅まで、高さは制限せず、画面より高い画像は dialog の中で scroll する。
+   背景は黒の 80%。 */
+.image-modal { background: none; border: 0; border-radius: 0; box-sizing: border-box; max-width: 95vw; padding: 15px; }
+.image-modal::backdrop { background: rgb(0 0 0 / 80%); }
+.image-modal-link { display: block; }
+.image-modal-image { background-color: #fff; display: block; max-width: 100%; }
 .dialog-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
 .danger { color: #c0392b; }
 

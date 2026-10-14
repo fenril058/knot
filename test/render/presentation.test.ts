@@ -41,8 +41,13 @@ void test('引用画像装飾は許可された絶対画像だけを表示計画
   const decoration = nodes[0];
   assert.equal(decoration?.type, 'container');
   if (decoration?.type !== 'container') return;
-  assert.deepEqual(decoration.children.map((child) => child.type), ['image']);
-  const image = decoration.children[0];
+  // 画像は、画像を新しいタブで開くリンクに包む（#319）。
+  assert.deepEqual(decoration.children.map((child) => child.type), ['link']);
+  const link = decoration.children[0];
+  assert.equal(link?.type, 'link');
+  if (link?.type !== 'link') return;
+  assert.deepEqual({ href: link.href, newTab: link.newTab }, { href: 'https://images.example/a.png', newTab: true });
+  const image = link.children[0];
   assert.equal(image?.type, 'image');
   if (image?.type === 'image') assert.equal(image.src, 'https://images.example/a.png');
 });
@@ -139,7 +144,8 @@ void test('原文と違う字を描くアイコンと、画像は、node の範�
   if (line?.role !== 'line') return;
   const icon = textPieces(line.nodes)[0];
   assert.deepEqual(icon, { text: '[name]', span: { from: 6, to: 17, verbatim: false } });
-  const image = line.nodes.at(-1);
+  const link = line.nodes.at(-1);
+  const image = link?.type === 'link' ? link.children[0] : undefined;
   assert.equal(image?.type, 'image');
   if (image?.type === 'image') assert.deepEqual(image.span, { from: 18, to: 48, verbatim: false });
 });
@@ -183,7 +189,10 @@ void test('リンクと埋め込みと空白だけの行を、行末に編集を
     ['text [a]', false],
     ['[a].', false],
     ['1. [a]', false],
+    // 画像はリンクに包む（#319）が、Cosense と同じく画像の行には行末の余白を置かない。
     ['[https://images.example/a.png]', false],
+    ['[[https://images.example/a.png]]', false],
+    ['[https://images.example/a.png] [a]', false],
     ['plain', false],
     ['', false],
   ];
