@@ -206,6 +206,10 @@ main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 
 .tool-button:focus-visible { box-shadow: 0 0 0 3px rgb(102 175 233 / 60%); outline: none; }
 /* ページ数（Cosense の .page-list-status）。画面の右下に固定し、scroll しても動かさない。 */
 .page-list-status { background-color: var(--body-bg); bottom: 0; color: #666874; font-size: 12px; line-height: 20px; padding: 0 4px; position: fixed; right: 0; }
+/* ページの画面の下端の帯（Cosense の .footer .status-bar、#307）。本文の上に重ねるが、押しても下の本文に届く。 */
+.status-bar { bottom: 0; inset-inline: 0; pointer-events: none; position: fixed; z-index: 3; }
+/* 200px を超えて scroll したときに左端に出す、ページのタイトル。幅は字に合わせ、250px を超える分は省略する。 */
+.status-page-title { background-color: var(--body-bg); border-start-end-radius: 3px; box-sizing: border-box; color: #666874; font-size: 12px; line-height: 20px; max-width: 250px; overflow: hidden; padding: 0 2px 0 5px; text-overflow: ellipsis; white-space: nowrap; width: fit-content; }
 /* 全文検索の結果（Cosense の /search/page の .page-list-item、#247）。1 ページ 1 行で、左の 70px に
    画像、右にタイトル（16px）と語を含む行の抜粋（12px、2 行まで）。語は太字・黄色の背景。 */
 .search-heading { font-size: 14px; font-weight: 700; line-height: 20px; margin: 0 0 16px; }

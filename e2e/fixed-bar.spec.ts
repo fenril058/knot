@@ -109,6 +109,53 @@ test('キーボードでテロメアの focus を上の行へ移しても、そ�
   expect(focused - await barBottom(page)).toBeGreaterThanOrEqual(0);
 });
 
+test('200px を超えて scroll したら、Cosense と同じく画面の左下にページのタイトルを出す', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'bar-e2e');
+  // 250px に収まらない長さのタイトル。
+  const title = `bar-status-${testInfo.workerIndex}-${testInfo.repeatEachIndex}-${'long-title-'.repeat(6)}`;
+  await createE2ePage(page, title, LONG_BODY);
+
+  await page.setViewportSize({ width: 1280, height: 600 });
+  await page.goto(`/e2e/${title}`);
+  const status = page.locator('.status-page-title');
+  await expect(status).toBeHidden();
+  // Cosense は 200px では出さず、201px で出す（#307）。
+  await page.evaluate(() => window.scrollTo(0, 200));
+  await expect(status).toBeHidden();
+  await page.evaluate(() => window.scrollTo(0, 201));
+  await expect(status).toBeVisible();
+  await expect(status).toHaveText(title);
+  expect(await status.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const { x, y, width, height } = element.getBoundingClientRect();
+    return {
+      box: { x, y, width, height },
+      truncated: element.scrollWidth > element.clientWidth,
+      font: `${style.fontSize}/${style.lineHeight}`,
+      color: style.color,
+      background: style.backgroundColor,
+      padding: style.padding,
+      radius: style.borderRadius,
+    };
+  })).toEqual({
+    box: { x: 0, y: 600 - 20, width: 250, height: 20 },
+    truncated: true,
+    font: '12px/20px',
+    color: 'rgb(102, 104, 116)',
+    background: 'rgb(220, 221, 224)',
+    padding: '0px 2px 0px 5px',
+    radius: '0px 3px 0px 0px',
+  });
+  // タイトルの上を押しても、下の本文に届く。
+  expect(await status.evaluate((element) => {
+    const { x, y, width, height } = element.getBoundingClientRect();
+    const hit = document.elementFromPoint(x + width / 2, y + height / 2);
+    return hit !== null && !element.contains(hit);
+  })).toBe(true);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(status).toBeHidden();
+});
+
 test('ショートカットで編集を始めるとき、最終行が上部のバーの下に入っていれば、caret をバーの下へ出す', async ({ page }, testInfo) => {
   await loginE2eAccount(page, 'bar-e2e');
   const suffix = `${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
