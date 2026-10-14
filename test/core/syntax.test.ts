@@ -97,3 +97,36 @@ void test('ラベルとローカル画像 URL の記法は通常のリンクと�
     content: '',
   });
 });
+
+// [name.icon*N] は、parser が同じ raw のアイコン N 個に展開する。各アイコンは記法全体の範囲を共有する（#227）。
+void test('アイコンの繰り返し記法は、繰り返しの数だけのアイコンに記法全体の範囲を割り当てる', () => {
+  const source = 'Title\n[a.icon*3] x [b c.icon*2][a.icon*2] [[d.icon*2]]';
+  const blocks = parsePageSyntax(source, { hasTitle: true });
+  const line = blocks[1];
+  assert.ok(line?.type === 'line');
+  const located = line.nodes.map((node) => [node.type, source.slice(node.range.from, node.range.to)]);
+  assert.deepEqual(located, [
+    ['icon', '[a.icon*3]'],
+    ['icon', '[a.icon*3]'],
+    ['icon', '[a.icon*3]'],
+    ['plain', ' x '],
+    ['icon', '[b c.icon*2]'],
+    ['icon', '[b c.icon*2]'],
+    ['icon', '[a.icon*2]'],
+    ['icon', '[a.icon*2]'],
+    ['plain', ' '],
+    ['strongIcon', '[[d.icon*2]]'],
+    ['strongIcon', '[[d.icon*2]]'],
+  ]);
+  // 繰り返し記法が続いても、後ろの記法から展開したアイコンは後ろの記法の範囲になる。
+  const second = source.indexOf('[a.icon*2]');
+  const secondRange = { from: second, to: second + '[a.icon*2]'.length };
+  assert.deepEqual(line.nodes.slice(6, 8).map((node) => node.range), [secondRange, secondRange]);
+});
+
+void test('繰り返しでない同じアイコンが続くときは、それぞれの記法の範囲を割り当てる', () => {
+  const source = 'Title\n[a.icon][a.icon]';
+  const line = parsePageSyntax(source, { hasTitle: true })[1];
+  assert.ok(line?.type === 'line');
+  assert.deepEqual(line.nodes.map((node) => node.range), [{ from: 6, to: 14 }, { from: 14, to: 22 }]);
+});
