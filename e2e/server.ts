@@ -55,6 +55,7 @@ const accountNames = [
   'related-e2e',
   'related-mobile-e2e',
   'bar-e2e',
+  'covered-mobile-e2e',
   'image-e2e',
   'image-mobile-e2e',
 ];

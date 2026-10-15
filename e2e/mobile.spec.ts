@@ -814,6 +814,70 @@ test('mobile browser では検索ボタンでバーの下に検索欄を開き�
   await expectMobileLayout(page, expectedWidth);
 });
 
+// caret の字の箱の上端。caret の後ろに字が無ければ、前の字の箱を使う。CodeMirror が caret を画面へ入れる
+// scroll は次の描画の前に行うので、2 フレーム待ってから測る。
+async function caretTop(page: Page): Promise<number> {
+  await page.evaluate(() => new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  }));
+  return page.evaluate(() => {
+    const selection = window.getSelection();
+    const node = selection?.focusNode;
+    if (selection === null || !(node instanceof Text) || node.length === 0) throw new Error('caret is not in a text');
+    const from = Math.min(selection.focusOffset, node.length - 1);
+    const range = document.createRange();
+    range.setStart(node, from);
+    range.setEnd(node, from + 1);
+    return range.getBoundingClientRect().top;
+  });
+}
+
+test('mobile browser で検索欄を開いたままでも、編集を始めても、caret を動かしても、選択を広げても、caret を検索欄の下に置く', async (
+  { page },
+  testInfo,
+) => {
+  await loginE2eAccount(page, 'covered-mobile-e2e');
+  const title = `covered-${testInfo.project.name}-${testInfo.repeatEachIndex}`;
+  // 本文の 15 行目は、折り返して何行にもなる長い行。
+  const body = Array.from({ length: 30 }, (_, index) => (index === 14 ? '折り返す長い行の字。'.repeat(20) : `line ${index + 1}`));
+  await createE2ePage(page, title, body);
+  await page.goto(`/e2e/${title}`);
+  const coveredTop = (): Promise<number> => page.evaluate(() =>
+    Number.parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop));
+
+  // 本文を覆う固定した UI の下端は、閉じているときは上部のバーの下端、検索欄を開くと検索欄の下端（#331）。
+  // focus や scrollIntoView に使う CSS の scroll-padding-top も、それと同じ値。
+  expect(await coveredTop()).toBe(await page.locator('.page-nav').evaluate((nav) => nav.getBoundingClientRect().bottom));
+  await page.locator('.nav-search-toggle').tap();
+  await expect(page.locator('.nav-search-input')).toBeFocused();
+  const formBottom = await page.locator('.nav-search').evaluate((form) => form.getBoundingClientRect().bottom);
+  expect(formBottom).toBe(88);
+  expect(await coveredTop()).toBe(formBottom);
+
+  // 長い行の上端を検索欄の下に隠し、見えている下の方でテロメアを tap する。touch では行頭から編集を始める（#319）。
+  await scrollRowTo(page, 15, 50);
+  const longRow = page.locator('#editor-root .line-row').nth(15);
+  const rowBox = (await longRow.boundingBox())!;
+  expect(rowBox.y + rowBox.height).toBeGreaterThan(formBottom + 40);
+  const telomere = (await longRow.locator('> .telomere').boundingBox())!;
+  await page.touchscreen.tap(telomere.x + telomere.width / 2, formBottom + 20);
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expect(page.locator('.nav-search')).toBeVisible();
+  expect.soft(await caretTop(page)).toBeGreaterThanOrEqual(formBottom);
+
+  // caret を上の行へ動かすと、画面の外の行へ移るたびに scroll し、caret を検索欄の下に置く。
+  for (let count = 0; count < 4; count += 1) {
+    await page.keyboard.press('ArrowUp');
+    expect.soft(await caretTop(page)).toBeGreaterThanOrEqual(formBottom);
+  }
+  // 選択を上へ広げても、選択の先端を検索欄の下に置く。
+  for (let count = 0; count < 4; count += 1) {
+    await page.keyboard.press('Shift+ArrowUp');
+    expect.soft(await caretTop(page)).toBeGreaterThanOrEqual(formBottom);
+  }
+  expect(await page.evaluate(() => window.getSelection()?.isCollapsed)).toBe(false);
+});
+
 test('mobile browser で検索欄を閉じた後は、閉じる前の入力に対するタイトルの一覧の応答が遅れて届いても、候補を出し直さない', async (
   { page },
   testInfo,

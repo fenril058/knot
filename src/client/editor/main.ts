@@ -600,18 +600,21 @@ async function restorePending(record: EditorRecord): Promise<Recovery | null> {
   return { engine: restored, effects, texts: textsAfterEffects(result.page, effects) };
 }
 
-// 画面の上に固定した上部のバー（#303）の下端。バーに隠れた部分は、画面に見えていないものとして扱う。
-function barBottom(): number {
-  return Math.max(0, document.querySelector('.page-nav')?.getBoundingClientRect().bottom ?? 0);
+// 画面の上に固定した UI（上部のバー #303 と、767px 以下で開いた検索欄 #247）が本文を覆う下端。覆われた部分は、
+// 画面に見えていないものとして扱う。ブラウザが focus や scrollIntoView で要素を置く位置と同じにするため、
+// その高さを持つ html の scroll-padding-top（app.css）を読み、CSS と別に数を持たない（#331）。
+function coveredTop(): number {
+  const padding = Number.parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop);
+  return Number.isFinite(padding) ? padding : 0;
 }
 
 // SSR 行の画面上の位置。画面に掛かっている行は、上端がはみ出していてもその位置へ戻す。
-// 完全に画面の外にある行（バーに隠れた行も含む）は、そこへ戻しても編集対象が見えないので対象にしない。
+// 完全に画面の外にある行（固定した UI に隠れた行も含む）は、そこへ戻しても編集対象が見えないので対象にしない。
 function visibleRowTop(lineId: string): number | undefined {
   const row = document.getElementById(`L${lineId}`);
   if (row === null) return undefined;
   const box = row.getBoundingClientRect();
-  return box.bottom > barBottom() && box.top < window.innerHeight ? box.top : undefined;
+  return box.bottom > coveredTop() && box.top < window.innerHeight ? box.top : undefined;
 }
 
 // 閲覧表示で読み込み済みの画像が、描かれている大きさ。
@@ -771,8 +774,8 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
       // 閲覧表示は通常の block として折り返る。これを入れないと CodeMirror の既定の
       // white-space: pre のままで、編集を開始した瞬間に長い行が横スクロールへ変わる。
       EditorView.lineWrapping,
-      // caret を画面へ入れるときと、drag で選びながら scroll するときに、バーに隠れた部分を画面の外として扱う。
-      EditorView.scrollMargins.of(() => ({ top: barBottom() })),
+      // caret を画面へ入れるときと、drag で選びながら scroll するときに、固定した UI に隠れた部分を画面の外として扱う。
+      EditorView.scrollMargins.of(() => ({ top: coveredTop() })),
       historyExtension(),
       lineWysiwyg({ project, allowedImageHosts, allowedMediaHosts, knownPages, imageSizes, cspNonce }),
       doubleClickWordSelection,
@@ -838,6 +841,10 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
         window.scrollBy(0, drift);
         view.requestMeasure();
       }
+      // 戻した行の caret が固定した UI に隠れているときだけ、その下へ入れる。行の一部が見えていても caret が
+      // 隠れていることがある（折り返した長い行の下の方で、touch のテロメアを tap して行頭から始めたときなど）。
+      // caret が見えていれば動かさない（#331）。
+      view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head, { y: 'nearest', yMargin: 0 }) });
     }
   }
   renderStatus();
