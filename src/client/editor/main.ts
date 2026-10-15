@@ -841,10 +841,6 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
         window.scrollBy(0, drift);
         view.requestMeasure();
       }
-      // 戻した行の caret が固定した UI に隠れているときだけ、その下へ入れる。行の一部が見えていても caret が
-      // 隠れていることがある（折り返した長い行の下の方で、touch のテロメアを tap して行頭から始めたときなど）。
-      // caret が見えていれば動かさない（#331）。
-      view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head, { y: 'nearest', yMargin: 0 }) });
     }
   }
   renderStatus();

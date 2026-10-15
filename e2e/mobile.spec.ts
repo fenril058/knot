@@ -832,15 +832,16 @@ async function caretTop(page: Page): Promise<number> {
   });
 }
 
-test('mobile browser で検索欄を開いたままでも、編集を始めても、caret を動かしても、選択を広げても、caret を検索欄の下に置く', async (
+test('mobile browser で検索欄を開いたままでも、隠れた行から編集を始めても、caret を動かしても、選択を広げても、caret を検索欄の下に置く', async (
   { page },
   testInfo,
 ) => {
   await loginE2eAccount(page, 'covered-mobile-e2e');
   const title = `covered-${testInfo.project.name}-${testInfo.repeatEachIndex}`;
-  // 本文の 15 行目は、折り返して何行にもなる長い行。
-  const body = Array.from({ length: 30 }, (_, index) => (index === 14 ? '折り返す長い行の字。'.repeat(20) : `line ${index + 1}`));
+  const body = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`);
   await createE2ePage(page, title, body);
+  // このページへリンクするページを作り、本文の下に関連ページを並べる。最後の行を画面の上の方まで scroll できる。
+  for (let index = 0; index < 6; index += 1) await createE2ePage(page, `${title}-from-${index}`, [`[${title}]`]);
   await page.goto(`/e2e/${title}`);
   const coveredTop = (): Promise<number> => page.evaluate(() =>
     Number.parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop));
@@ -854,13 +855,14 @@ test('mobile browser で検索欄を開いたままでも、編集を始めて�
   expect(formBottom).toBe(88);
   expect(await coveredTop()).toBe(formBottom);
 
-  // 長い行の上端を検索欄の下に隠し、見えている下の方でテロメアを tap する。touch では行頭から編集を始める（#319）。
-  await scrollRowTo(page, 15, 50);
-  const longRow = page.locator('#editor-root .line-row').nth(15);
-  const rowBox = (await longRow.boundingBox())!;
-  expect(rowBox.y + rowBox.height).toBeGreaterThan(formBottom + 40);
-  const telomere = (await longRow.locator('> .telomere').boundingBox())!;
-  await page.touchscreen.tap(telomere.x + telomere.width / 2, formBottom + 20);
+  // 最後の行を、バーの下で検索欄に隠れる位置へ置き、検索欄から抜けて（検索欄は開いたまま）、ctrl + e で
+  // 最後の行から編集を始める。隠れた行は元の位置へ戻さず、caret を検索欄の下へ入れる。
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.nav-search-input')).not.toBeFocused();
+  await scrollRowTo(page, body.length, 50);
+  const lastRow = (await page.locator('#editor-root .line-row').nth(body.length).boundingBox())!;
+  expect(lastRow.y + lastRow.height).toBeLessThanOrEqual(formBottom);
+  await page.keyboard.press('Control+e');
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
   await expect(page.locator('.nav-search')).toBeVisible();
   expect.soft(await caretTop(page)).toBeGreaterThanOrEqual(formBottom);
