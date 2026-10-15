@@ -861,12 +861,14 @@ function handleVisibilityChange(): void {
 // ページ操作（複製・リネーム・削除）の前に、手元の編集を保存し終えるのを待つ（#192）。
 // 自動保存の待ち時間を飛ばして送り、送信中のコミットが返るまで待つ。保存できない状態
 // （競合中・送信の失敗）では待たずに断り、ページ操作を止めてもらう。
+// ページ操作をやめたら（signal）、待つのをやめる。やめた後の編集を、やめた操作のために急いで送らない。
 const SETTLE_TIMEOUT_MS = 10_000;
 const SETTLE_POLL_MS = 100;
 
-async function settleEdits(): Promise<SettledPage> {
+async function settleEdits(signal: AbortSignal): Promise<SettledPage> {
   const deadline = Date.now() + SETTLE_TIMEOUT_MS;
   while (Date.now() < deadline) {
+    signal.throwIfAborted();
     if (engine.status === 'conflict' || engine.status === 'error') {
       throw new Error('手元に保存できていない編集があります。保存し終えてから、もう一度操作してください');
     }
@@ -884,7 +886,7 @@ async function settleEdits(): Promise<SettledPage> {
   throw new Error('編集の保存が終わりません。保存し終えてから、もう一度操作してください');
 }
 
-answerSettleEdits(() => (editorRoot.classList.contains('editor-active') ? settleEdits() : undefined));
+answerSettleEdits((signal) => (editorRoot.classList.contains('editor-active') ? settleEdits(signal) : undefined));
 
 resolveConflictButton.addEventListener('click', () => {
   resolveConflictButton.disabled = true;

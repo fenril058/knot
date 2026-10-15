@@ -113,17 +113,33 @@ for (const time of root.querySelectorAll<HTMLTimeElement>('.page-info-menu time'
   time.title = exactFormat.format(date);
 }
 
-// 操作するページの版とタイトル。編集中なら、手元の編集を保存し終えるのを待ち、その版とタイトルを
-// 使う（#192）。保存できない状態なら、理由の文で reject する。編集していなければ閲覧表示の値を使う。
-async function currentPage(): Promise<SettledPage> {
-  return requestSettledPage() ?? { version, title: pageTitle };
+// ダイアログで始めたページ操作は、そのダイアログを閉じたら（キャンセル・Escape）やめる。保存し終えるのを
+// 待つあいだや複製元を読むあいだに閉じたら、その後のどの await の先でも server へ書き込みを送らない。
+// 閉じた後の編集は自動保存が保存し、やめた操作がその版を使うことはない（#323）。
+function operationSignal(dialog: HTMLDialogElement): AbortSignal {
+  const controller = new AbortController();
+  dialog.addEventListener('close', () => controller.abort(), { once: true });
+  return controller.signal;
 }
 
-async function settledOrShowError(elements: DialogElements): Promise<SettledPage | undefined> {
+// close イベントは閉じた後の task で届くので、まだ届いていなくても、ダイアログが閉じていればやめたものとする。
+function abandoned(elements: DialogElements, signal: AbortSignal): boolean {
+  return signal.aborted || !elements.dialog.open;
+}
+
+// 操作するページの版とタイトル。編集中なら、手元の編集を保存し終えるのを待ち、その版とタイトルを
+// 使う（#192）。保存できない状態なら、理由の文で reject する。編集していなければ閲覧表示の値を使う。
+async function currentPage(signal: AbortSignal): Promise<SettledPage> {
+  return requestSettledPage(signal) ?? { version, title: pageTitle };
+}
+
+// 操作をやめていたら、理由を出さずに undefined を返す。
+async function settledOrShowError(elements: DialogElements, signal: AbortSignal): Promise<SettledPage | undefined> {
   try {
-    return await currentPage();
+    const current = await currentPage(signal);
+    return abandoned(elements, signal) ? undefined : current;
   } catch (error) {
-    showError(elements, error instanceof Error ? error.message : String(error));
+    if (!abandoned(elements, signal)) showError(elements, error instanceof Error ? error.message : String(error));
     return undefined;
   }
 }
@@ -146,8 +162,9 @@ duplicate.form.addEventListener('submit', (event) => {
   event.preventDefault();
   duplicate.error.hidden = true;
   const newTitle = duplicateTitle.value.trim();
+  const signal = operationSignal(duplicate.dialog);
   void (async () => {
-    const current = await settledOrShowError(duplicate);
+    const current = await settledOrShowError(duplicate, signal);
     if (current === undefined) return;
     try {
       const sourceResponse = await fetch(`/api/pages/${encodeURIComponent(project)}/${encodeTitleForUrl(current.title)}`, {
@@ -156,6 +173,7 @@ duplicate.form.addEventListener('submit', (event) => {
       if (!sourceResponse.ok) return showError(duplicate, await errorMessage(sourceResponse));
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       const source = await sourceResponse.json() as { lines: { text: string }[] };
+      if (abandoned(duplicate, signal)) return;
       const response = await fetch(`/api/knot/pages/${encodeURIComponent(project)}/${encodeTitleForUrl(newTitle)}/commits`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Knot-Client': 'page-menu' },
@@ -173,8 +191,9 @@ rename.form.addEventListener('submit', (event) => {
   event.preventDefault();
   rename.error.hidden = true;
   const newTitle = renameTitle.value.trim();
+  const signal = operationSignal(rename.dialog);
   void (async () => {
-    const current = await settledOrShowError(rename);
+    const current = await settledOrShowError(rename, signal);
     if (current === undefined) return;
     try {
       const response = await fetch(`/api/knot/pages/${encodeURIComponent(project)}/${encodeTitleForUrl(current.title)}/rename`, {
@@ -196,8 +215,9 @@ rename.form.addEventListener('submit', (event) => {
 remove.form.addEventListener('submit', (event) => {
   event.preventDefault();
   remove.error.hidden = true;
+  const signal = operationSignal(remove.dialog);
   void (async () => {
-    const current = await settledOrShowError(remove);
+    const current = await settledOrShowError(remove, signal);
     if (current === undefined) return;
     try {
       const response = await fetch(`/api/knot/pages/${encodeURIComponent(project)}/${encodeTitleForUrl(current.title)}`, {
