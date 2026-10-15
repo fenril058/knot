@@ -612,13 +612,14 @@ function coveredTop(): number {
 const CARET_REVEAL_MARGIN = 5;
 
 // caret が固定した UI の下（か画面の上の外）に隠れているときだけ、隠れている分と余白だけ scroll して caret を
-// 見せる。行全体は見せない。
+// 見せる。行全体は見せない。scroll 位置は整数の px に丸められ、丸め方はブラウザで違う（Playwright の mobile
+// WebKit は切り捨て、Chromium は四捨五入）。動かす量を整数に切り上げ、丸めで余白を削らない。
 function revealCoveredCaret(target: EditorView): void {
   const caret = target.coordsAtPos(target.state.selection.main.head);
   if (caret === null) return;
   const hidden = coveredTop() - caret.top;
   if (hidden <= 0) return;
-  window.scrollBy(0, -(hidden + CARET_REVEAL_MARGIN));
+  window.scrollBy(0, -Math.ceil(hidden + CARET_REVEAL_MARGIN));
   target.requestMeasure();
 }
 

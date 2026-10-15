@@ -777,22 +777,23 @@ test('上端が画面の外に出ている行は、見えている字を押し�
 
   // 画面に残っている下側の、行の左の余白を押す。caret は押した位置ではなく行頭に置かれ、行頭は画面の上の外に
   // ある。上部のバーの下端（scroll-padding-top）と CodeMirror が caret を画面へ入れるときの余白（5px）の下まで、
-  // caret を入れる分だけ動かす。行全体を見せる量は動かさない（#333）。
+  // caret を入れる分だけ動かす。scroll 位置は整数の px なので、動かす量は 1px 未満だけ切り上がる。
+  // 行全体を見せる量は動かさない（#333）。
   await showLowerHalf();
-  const marginBefore = await rowViewportTop(page, 'after line 0');
   const covered = await page.evaluate(() => Number.parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop));
+  const visible = (await tallRow.boundingBox())!;
   const firstChar = await firstCharTop(tallRow);
   expect(firstChar).toBeLessThan(0);
-  const visible = (await tallRow.boundingBox())!;
   await page.mouse.click(visible.x + 20, visible.y + visible.height - 6);
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
 
   const atLineStart = await editorCaret(page);
   expect(atLineStart).toMatchObject({ text: tall, offset: 0 });
-  expect(atLineStart.top).toBeCloseTo(covered + 5, 0);
-  const marginSettled = await rowViewportTop(page, 'after line 0');
-  expectInViewport(marginSettled);
-  expect(marginSettled.top - marginBefore.top).toBeCloseTo(covered + 5 - firstChar, 0);
+  expect(atLineStart.top).toBeGreaterThanOrEqual(covered + 5);
+  expect(atLineStart.top).toBeLessThan(covered + 6);
+  const overshoot = atLineStart.lineTop - visible.y - (covered + 5 - firstChar);
+  expect(overshoot).toBeGreaterThanOrEqual(0);
+  expect(overshoot).toBeLessThan(1);
 });
 
 // 行末ぴったりで終わるラベルを作る。折り返し位置は font と幅で決まるので、
