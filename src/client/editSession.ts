@@ -2,28 +2,31 @@
 // 約束事（#192）。ページメニューが document へ SETTLE_EDITS_EVENT を投げ、編集中の Editor が
 // detail.settled に「保存し終えたときのページの版とタイトル」を返す Promise を入れる。
 // Editor が動いていなければ settled は空のままで、ページメニューは閲覧表示の値を使う。
+// detail.signal は、ページ操作をやめたこと（ダイアログを閉じたこと）を Editor へ伝える。やめたら Editor は
+// 保存し終えるのを待つのをやめて reject する。手元の編集は、自動保存がいつもどおり保存する。
 
 const SETTLE_EDITS_EVENT = 'knot:settle-edits';
 
 export type SettledPage = { version: number; title: string };
 
-type SettleEditsDetail = { settled: Promise<SettledPage> | undefined };
+type SettleEditsDetail = { signal: AbortSignal; settled: Promise<SettledPage> | undefined };
 
 function isSettleEditsDetail(value: unknown): value is SettleEditsDetail {
-  return typeof value === 'object' && value !== null && 'settled' in value;
+  return typeof value === 'object' && value !== null && 'settled' in value
+    && 'signal' in value && value.signal instanceof AbortSignal;
 }
 
 // ページメニューの側。編集中なら、保存し終えたときのページの状態を待つ Promise を返す。
-export function requestSettledPage(): Promise<SettledPage> | undefined {
-  const detail: SettleEditsDetail = { settled: undefined };
+export function requestSettledPage(signal: AbortSignal): Promise<SettledPage> | undefined {
+  const detail: SettleEditsDetail = { signal, settled: undefined };
   document.dispatchEvent(new CustomEvent(SETTLE_EDITS_EVENT, { detail }));
   return detail.settled;
 }
 
 // Editor の側。編集中でなければ handler は undefined を返す。
-export function answerSettleEdits(handler: () => Promise<SettledPage> | undefined): void {
+export function answerSettleEdits(handler: (signal: AbortSignal) => Promise<SettledPage> | undefined): void {
   document.addEventListener(SETTLE_EDITS_EVENT, (event) => {
     if (!(event instanceof CustomEvent) || !isSettleEditsDetail(event.detail)) return;
-    event.detail.settled = handler();
+    event.detail.settled = handler(event.detail.signal);
   });
 }

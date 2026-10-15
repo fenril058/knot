@@ -48,6 +48,7 @@ const accountNames = [
   'search-e2e',
   'search-mobile-e2e',
   'page-menu-e2e',
+  'page-menu-cancel-e2e',
   'selection-e2e',
   'table-e2e',
   'related-e2e',
