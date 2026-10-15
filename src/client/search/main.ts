@@ -27,7 +27,10 @@ if (projectName === undefined) throw new Error('search data attributes are missi
 const project = projectName;
 
 let titles: Promise<TitleEntry[]> | undefined;
-let latestInput = 0;
+// 候補を出す入力の世代。入力のたびと、候補を閉じるたびに進める。タイトルの一覧を待つ間に世代が進んだら、
+// その入力の候補は出さない。入力が進んだときに加えて、Escape・外を押す・focus を外へ移す・mobile の
+// 検索欄を閉じる、で候補を閉じた後に届いた応答も、閉じた候補を出し直さない（#329）。
+let generation = 0;
 
 async function fetchTitles(): Promise<TitleEntry[]> {
   const response = await fetch(`/api/pages/${encodeURIComponent(project)}/search/titles`);
@@ -52,6 +55,7 @@ function candidateLinks(): HTMLAnchorElement[] {
 }
 
 function closeCandidates(): void {
+  generation += 1;
   list.hidden = true;
   list.replaceChildren();
 }
@@ -70,19 +74,19 @@ function showCandidates(entries: readonly TitleEntry[]): void {
 
 input.addEventListener('input', () => {
   const query = input.value.trim();
-  latestInput += 1;
-  const current = latestInput;
   if (query === '') {
     closeCandidates();
     return;
   }
+  generation += 1;
+  const current = generation;
   loadTitles().then((all) => {
-    // 一覧を待つ間に入力が進んだら、古い入力の候補は出さない。
-    if (current !== latestInput) return;
+    // 一覧を待つ間に入力が進むか候補を閉じたら、この入力の候補は出さない。
+    if (current !== generation) return;
     showCandidates(rankTitles(query, all, (entry) => entry.title, CANDIDATE_LIMIT));
   }).catch((error: unknown) => {
     console.error(error);
-    if (current === latestInput) closeCandidates();
+    if (current === generation) closeCandidates();
   });
 });
 

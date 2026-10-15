@@ -153,3 +153,44 @@ test('タイトルの一覧の応答が遅れても、最後の入力に対す�
   held.resolve();
   await expect(page.locator('.nav-search-candidates a')).toHaveText([`${prefix}b`]);
 });
+
+test('候補を閉じた後は、閉じる前の入力に対するタイトルの一覧の応答が遅れて届いても、候補を出し直さない', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'search-e2e');
+  const title = `navsearch-late-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, ['閉じた後に届いた応答']);
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  // Escape、検索欄の外を押す、focus を検索欄の外へ移す、のそれぞれで候補を閉じる（#329）。
+  const closings: Array<[string, () => Promise<void>]> = [
+    ['Escape', () => page.keyboard.press('Escape')],
+    ['外を押す', () => page.locator('#editor-root .line-row').nth(1).click({ position: lineRowClickPosition })],
+    ['focus を外へ移す', () => page.locator('.page-actions > summary').first().focus()],
+  ];
+  for (const [closing, close] of closings) {
+    // タイトルの一覧は最初の入力で 1 度だけ取るので、ページを開き直して、その応答を止めておく。
+    const requested = deferred();
+    const held = deferred();
+    await page.route('**/api/pages/e2e/search/titles', async (route) => {
+      requested.resolve();
+      await held.promise;
+      await route.continue();
+    });
+    await page.goto(`/e2e/${title}`);
+    const input = page.locator('.nav-search-input');
+    await input.click();
+    await input.pressSequentially(title);
+    await requested.promise;
+    await close();
+
+    const delivered = page.waitForResponse('**/api/pages/e2e/search/titles');
+    held.resolve();
+    await delivered;
+    // 応答の本文を読んで候補を出すまでより十分に長く待つ。
+    await new Promise((resolve) => {
+      setTimeout(resolve, 300);
+    });
+    await expect.soft(page.locator('.nav-search-candidates'), closing).toBeHidden();
+    await expect.soft(page.locator('.nav-search-candidates a'), closing).toHaveCount(0);
+    await page.unroute('**/api/pages/e2e/search/titles');
+  }
+});

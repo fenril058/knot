@@ -3,6 +3,7 @@ import {
   blockLooks,
   charPoint,
   createE2ePage,
+  deferred,
   expectSameTextBox,
   firstRectCenter,
   firstVisualLineLength,
@@ -811,6 +812,46 @@ test('mobile browser では検索ボタンでバーの下に検索欄を開き�
   expect(heading.y).toBeGreaterThanOrEqual(form.y + form.height);
   await expect(page.locator('.search-result a')).toHaveAttribute('href', `/e2e/${title}`);
   await expectMobileLayout(page, expectedWidth);
+});
+
+test('mobile browser で検索欄を閉じた後は、閉じる前の入力に対するタイトルの一覧の応答が遅れて届いても、候補を出し直さない', async (
+  { page },
+  testInfo,
+) => {
+  await loginE2eAccount(page, 'search-mobile-e2e');
+  const title = `qzx-late-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, ['閉じた後に届いた応答']);
+  // タイトルの一覧の応答を止めておき、検索欄を閉じてから返す（#329）。
+  const requested = deferred();
+  const held = deferred();
+  await page.route('**/api/pages/e2e/search/titles', async (route) => {
+    requested.resolve();
+    await held.promise;
+    await route.continue();
+  });
+  await page.goto(`/e2e/${title}`);
+  const toggle = page.locator('.nav-search-toggle');
+  const input = page.locator('.nav-search-input');
+  await toggle.tap();
+  await expect(input).toBeFocused();
+  await input.pressSequentially(title);
+  await requested.promise;
+  await toggle.tap();
+  await expect(input).toBeHidden();
+
+  const delivered = page.waitForResponse('**/api/pages/e2e/search/titles');
+  held.resolve();
+  await delivered;
+  // 応答の本文を読んで候補を出すまでより十分に長く待つ。閉じた検索欄の中にも候補を作らない。
+  await new Promise((resolve) => {
+    setTimeout(resolve, 300);
+  });
+  await expect(page.locator('.nav-search-candidates a')).toHaveCount(0);
+  // 開き直しても候補は出ない。tap では外を押したときと同じく候補を閉じてから開くので、キーボードで開く。
+  await toggle.focus();
+  await page.keyboard.press('Enter');
+  await expect(input).toBeFocused();
+  await expect(page.locator('.nav-search-candidates')).toBeHidden();
 });
 
 test('mobile browser でも関連ページを、Links の札と共有するリンク先ごとの 2 列の行に並べる', async ({ page }, testInfo) => {
