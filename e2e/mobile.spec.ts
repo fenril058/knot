@@ -982,7 +982,7 @@ test('mobile browser では閲覧表示のテロメアの tap で行の編集を
   await expectMobileLayout(page, expectedWidth);
 });
 
-test('mobile browser でも、閲覧表示のテロメアにはキーボードの Tab で届き、Enter と Space でメニューを開く', async ({ page }, testInfo) => {
+test('mobile browser でも、テロメアには閲覧表示でも編集を始めた後もキーボードの Tab で届き、Enter と Space でメニューを開く', async ({ page }, testInfo) => {
   await loginE2eAccount(page, 'telomere-mobile-e2e');
   const title = `telomere-mobile-keyboard-${testInfo.project.name}-${testInfo.repeatEachIndex}`;
   await createE2ePage(page, title, ['first body', 'second body']);
@@ -1011,6 +1011,38 @@ test('mobile browser でも、閲覧表示のテロメアにはキーボード�
   await page.keyboard.press('Space');
   await expect(copyLink).toBeFocused();
   await expect(page.locator('#editor-root .cm-editor')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
+  // 編集を始めた後も、カーソル行のテロメアを指す button にキーボードで届く（#327）。指で押すのは、これまで
+  // どおり gutter のテロメアで、押せる幅は閲覧表示と同じ 10px、高さは行と同じ。
+  const text = await charPoint(page.locator('#editor-root .line-row').nth(2), 's', 0, 0.5);
+  await page.touchscreen.tap(text.x, text.y);
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  const button = page.getByRole('button', { name: /^\d{4}\/\d{1,2}\/\d{1,2} \d{1,2}:\d{2}:\d{2}に更新$/ });
+  await expect(button).toHaveCount(1);
+  expect(await button.evaluate((element) => element.closest('[aria-hidden="true"]'))).toBeNull();
+  const gutterTelomere = page.locator('#editor-root .cm-telomere-gutter .telomere').nth(2);
+  const gutterBox = (await gutterTelomere.boundingBox())!;
+  const lineBox = (await page.locator('#editor-root .cm-line').nth(2).boundingBox())!;
+  expect([gutterBox.width, gutterBox.height].map(Math.round)).toEqual([10, Math.round(lineBox.height)]);
+  expect(await gutterTelomere.evaluate((element, { x, y }) => document.elementFromPoint(x, y) === element, {
+    x: gutterBox.x + gutterBox.width / 2,
+    y: gutterBox.y + gutterBox.height / 2,
+  })).toBe(true);
+
+  await page.keyboard.press('Escape');
+  for (let count = 0; count < 30; count += 1) {
+    if (await button.evaluate((element) => element === document.activeElement)) break;
+    await page.keyboard.press('Tab');
+  }
+  await expect(button).toBeFocused();
+  expect(Object.values((await button.boundingBox())!).map(Math.round)).toEqual(Object.values(gutterBox).map(Math.round));
+  await page.keyboard.press('Enter');
+  await expect(copyLink).toBeFocused();
+  await expect(page.locator('#editor-root .cm-line.highlight')).toHaveText('second body');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.telomere-info')).toBeHidden();
+  await expect(button).toBeFocused();
 });
 
 test('mobile browser でも、本文の画像を tap すると画像を大きく出す dialog を開き、紙面の左の余白の tap で編集を始める', async (

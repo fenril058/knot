@@ -233,6 +233,91 @@ test('テロメアは Tab と上下の矢印で選び、Enter と Space でメ�
   await expect(page.locator('#editor-root .cm-editor')).toHaveCount(0);
 });
 
+test('編集を始めた後も、カーソル行のテロメアには Tab と読み上げで届き、Enter と Space でメニューを開き、閉じるとテロメアへ戻る', async (
+  { page },
+  testInfo,
+) => {
+  await loginE2eAccount(page, 'telomere-edit-e2e');
+  const title = `telomere-edit-keyboard-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  // 2 行目だけ、更新日時を 1 日後にする。
+  const imported = await page.request.post('/api/knot/projects/e2e/import', {
+    headers: { 'X-Knot-Client': 'e2e' },
+    data: {
+      pages: [{
+        title,
+        created: UPDATED,
+        updated: UPDATED + DAY,
+        lines: [
+          { text: title, created: UPDATED, updated: UPDATED },
+          { text: 'first body', created: UPDATED, updated: UPDATED },
+          { text: 'second body', created: UPDATED, updated: UPDATED + DAY },
+        ],
+      }],
+    },
+  });
+  expect(imported.ok()).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  const ids = await page.locator('#editor-root .line-row').evaluateAll((rows) => rows.map((row) => row.id.slice(1)));
+  await page.locator('#editor-root .line-row').nth(1).click({ position: lineRowClickPosition });
+  const content = page.locator('#editor-root .cm-content');
+  await expect(content).toBeFocused();
+
+  // CodeMirror は gutter を aria-hidden にするので、カーソル行のテロメアを指す button を gutter の外に置く（#327）。
+  // 名前は閲覧表示のテロメアと同じ「<日時>に更新」で、caret を動かすとその行の日時になる。
+  const button = page.getByRole('button', { name: /に更新$/ });
+  await expect(button).toHaveAccessibleName(UPDATED_LABEL);
+  await expect(button).toHaveAttribute('aria-expanded', 'false');
+  expect(await button.evaluate((element) => element.closest('[aria-hidden="true"]'))).toBeNull();
+  await page.keyboard.press('ArrowDown');
+  const secondLabel = '2020/7/23 2:23:18に更新';
+  await expect(button).toHaveAccessibleName(secondLabel);
+
+  // mouse は、これまでどおり gutter のテロメアが受ける。押せる幅は閲覧表示と同じ 20px で、高さは行と同じ。
+  const gutterTelomere = page.locator('#editor-root .cm-telomere-gutter .telomere').nth(2);
+  const gutterBox = (await gutterTelomere.boundingBox())!;
+  const lineBox = (await page.locator('#editor-root .cm-line').nth(2).boundingBox())!;
+  expect([gutterBox.width, gutterBox.height].map(Math.round)).toEqual([20, Math.round(lineBox.height)]);
+  const center = await telomereCenter(gutterTelomere);
+  expect(await gutterTelomere.evaluate((element, { x, y }) => document.elementFromPoint(x, y) === element, center)).toBe(true);
+
+  // 本文から Escape で出ると、Tab でカーソル行のテロメアに届き、その枠は gutter のテロメアに重なる。
+  await page.keyboard.press('Escape');
+  for (let count = 0; count < 20; count += 1) {
+    if (await button.evaluate((element) => element === document.activeElement)) break;
+    await page.keyboard.press('Tab');
+  }
+  await expect(button).toBeFocused();
+  expect(Object.values((await button.boundingBox())!).map(Math.round)).toEqual(Object.values(gutterBox).map(Math.round));
+
+  // Enter で開くと、行を強調して行へのリンクにし、メニューの最初の項目へ移る。Escape で閉じてテロメアへ戻る。
+  const copyLink = page.getByRole('button', { name: 'リンクをコピー', exact: true });
+  await page.keyboard.press('Enter');
+  await expect(copyLink).toBeFocused();
+  await expect(page.locator('.telomere-info > *')).toHaveText([secondLabel, 'リンクをコピー', 'リーダブルリンクをコピー']);
+  await expect(page).toHaveURL(new RegExp(`#${ids[2]}$`));
+  await expect(page.locator('#editor-root .cm-line.highlight')).toHaveText('second body');
+  await expect(button).toHaveAttribute('aria-expanded', 'true');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.telomere-info')).toBeHidden();
+  await expect(button).toBeFocused();
+  await expect(button).toHaveAttribute('aria-expanded', 'false');
+
+  // Space でも開く。項目を選ぶと、コピーしてメニューを閉じ、テロメアへ戻る。
+  await page.keyboard.press('Space');
+  await expect(copyLink).toBeFocused();
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe(`${new URL(page.url()).origin}/e2e/${title}#${ids[2]}`);
+  await expect(page.locator('.telomere-info')).toBeHidden();
+  await expect(button).toBeFocused();
+
+  // テロメアは本文の前の tab stop で、次の Tab で本文へ移る。
+  await page.keyboard.press('Tab');
+  await expect(content).toBeFocused();
+});
+
 test('行へのリンクで開いた行は編集を始めても強調したままで、編集中も gutter のテロメアから更新日時とメニューに届く', async (
   { page },
   testInfo,
