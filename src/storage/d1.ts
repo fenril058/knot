@@ -818,6 +818,7 @@ export class D1Storage implements Storage {
       descriptions: textArray(row.descriptions_json),
       linksLc: textArray(row.shared_json ?? row.links_json),
       linked: row.linked,
+      created: row.created,
       updated: row.updated,
       accessed: row.accessed,
     });
