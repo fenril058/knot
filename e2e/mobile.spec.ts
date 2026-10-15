@@ -4,7 +4,9 @@ import {
   charPoint,
   createE2ePage,
   deferred,
+  editorCaret,
   expectSameTextBox,
+  firstCharTop,
   firstRectCenter,
   firstVisualLineLength,
   indentMarks,
@@ -19,6 +21,7 @@ import {
   textStyleOf,
   visibleTitleCount,
   visualLineRects,
+  type EditorCaret,
 } from './helpers.ts';
 
 const expectedViewportWidths: Record<string, number> = {
@@ -814,24 +817,6 @@ test('mobile browser では検索ボタンでバーの下に検索欄を開き�
   await expectMobileLayout(page, expectedWidth);
 });
 
-// caret の字の箱の上端。caret の後ろに字が無ければ、前の字の箱を使う。CodeMirror が caret を画面へ入れる
-// scroll は次の描画の前に行うので、2 フレーム待ってから測る。
-async function caretTop(page: Page): Promise<number> {
-  await page.evaluate(() => new Promise((resolve) => {
-    requestAnimationFrame(() => requestAnimationFrame(resolve));
-  }));
-  return page.evaluate(() => {
-    const selection = window.getSelection();
-    const node = selection?.focusNode;
-    if (selection === null || !(node instanceof Text) || node.length === 0) throw new Error('caret is not in a text');
-    const from = Math.min(selection.focusOffset, node.length - 1);
-    const range = document.createRange();
-    range.setStart(node, from);
-    range.setEnd(node, from + 1);
-    return range.getBoundingClientRect().top;
-  });
-}
-
 test('mobile browser で検索欄を開いたままでも、隠れた行から編集を始めても、caret を動かしても、選択を広げても、caret を検索欄の下に置く', async (
   { page },
   testInfo,
@@ -865,19 +850,95 @@ test('mobile browser で検索欄を開いたままでも、隠れた行から�
   await page.keyboard.press('Control+e');
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
   await expect(page.locator('.nav-search')).toBeVisible();
-  expect.soft(await caretTop(page)).toBeGreaterThanOrEqual(formBottom);
+  expect.soft((await editorCaret(page)).top).toBeGreaterThanOrEqual(formBottom);
 
   // caret を上の行へ動かすと、画面の外の行へ移るたびに scroll し、caret を検索欄の下に置く。
   for (let count = 0; count < 4; count += 1) {
     await page.keyboard.press('ArrowUp');
-    expect.soft(await caretTop(page)).toBeGreaterThanOrEqual(formBottom);
+    expect.soft((await editorCaret(page)).top).toBeGreaterThanOrEqual(formBottom);
   }
   // 選択を上へ広げても、選択の先端を検索欄の下に置く。
   for (let count = 0; count < 4; count += 1) {
     await page.keyboard.press('Shift+ArrowUp');
-    expect.soft(await caretTop(page)).toBeGreaterThanOrEqual(formBottom);
+    expect.soft((await editorCaret(page)).top).toBeGreaterThanOrEqual(formBottom);
   }
   expect(await page.evaluate(() => window.getSelection()?.isCollapsed)).toBe(false);
+});
+
+test('mobile browser で検索欄を開いたまま編集を始めると、押した字に caret を置くときは動かず、行頭に置いた caret が隠れるときだけ caret が見えるところまで scroll する', async (
+  { page },
+  testInfo,
+) => {
+  await loginE2eAccount(page, 'covered-mobile-e2e');
+  const title = `covered-start-${testInfo.project.name}-${testInfo.repeatEachIndex}`;
+  // 最後の行を、折り返して背の高い行にする。ctrl + e はこの行から編集を始める。
+  const tall = '折り返した長い行の上の方が検索欄の下にあるときに編集を始める本文です。'.repeat(6);
+  const body = [...Array.from({ length: 20 }, (_, index) => `line ${index + 1}`), tall];
+  await createE2ePage(page, title, body);
+  // このページへリンクするページを作り、本文の下に関連ページを並べる。最後の行を画面の上の方まで scroll できる。
+  for (let index = 0; index < 6; index += 1) await createE2ePage(page, `${title}-from-${index}`, [`[${title}]`]);
+  const tallRow = page.locator('#editor-root .line-row').nth(body.length);
+
+  // 閲覧表示を開き直し、検索欄を開いて focus だけ外し、背の高い行の上端を y = top に置く。
+  // 返すのは、本文を覆う下端（検索欄の下端）と、その行の上端と、その行の本文の先頭の字の箱の上端。
+  const showTallRowAt = async (top: number): Promise<{ covered: number; rowTop: number; firstChar: number }> => {
+    await page.goto(`/e2e/${title}`);
+    await page.locator('.nav-search-toggle').tap();
+    await expect(page.locator('.nav-search-input')).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.nav-search-input')).not.toBeFocused();
+    await scrollRowTo(page, body.length, top);
+    const rowTop = (await tallRow.boundingBox())!.y;
+    expect(Math.round(rowTop)).toBe(top);
+    const covered = await page.evaluate(() => Number.parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop));
+    expect(covered).toBe(88);
+    return { covered, rowTop, firstChar: await firstCharTop(tallRow) };
+  };
+  // 編集を始めた後も検索欄は開いたままで、本文を覆う下端は変わらない。
+  const started = async (): Promise<EditorCaret> => {
+    await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+    await expect(page.locator('.nav-search')).toBeVisible();
+    return editorCaret(page);
+  };
+  // 行頭の caret が検索欄に隠れていたときは、隠れていた分と、CodeMirror が caret を画面へ入れるときの
+  // 余白（5px）だけ scroll する。scroll 位置は整数の px なので、動かす量は 1px 未満だけ切り上がる。
+  // 行全体を見せる量は動かさない（#333）。
+  const expectRevealedJustEnough = (caret: EditorCaret, start: { covered: number; rowTop: number; firstChar: number }): void => {
+    expect.soft(caret).toMatchObject({ text: tall, offset: 0 });
+    expect.soft(caret.top).toBeGreaterThanOrEqual(start.covered + 5);
+    expect.soft(caret.top).toBeLessThan(start.covered + 6);
+    const overshoot = caret.lineTop - start.rowTop - (start.covered + 5 - start.firstChar);
+    expect.soft(overshoot).toBeGreaterThanOrEqual(0);
+    expect.soft(overshoot).toBeLessThan(1);
+  };
+
+  // 見えている下の方の字を tap すると、その字に caret を置く。caret は見えているので、行は動かない。
+  await showTallRowAt(54);
+  const pressed = await charPoint(tallRow, '本', 5, 0.25);
+  await page.touchscreen.tap(pressed.x, pressed.y);
+  const atPressed = await started();
+  expect.soft(atPressed).toMatchObject({ text: tall, offset: tall.length - '本文です。'.length });
+  expect.soft(atPressed.top).toBeGreaterThanOrEqual(88);
+  expect.soft(Math.round(atPressed.lineTop)).toBe(54);
+
+  // 同じ行のテロメアの見えている部分を tap すると、行頭に caret を置く（#319）。行頭は検索欄に隠れている。
+  const hidden = await showTallRowAt(54);
+  expect(hidden.firstChar).toBeLessThan(hidden.covered);
+  const telomere = (await tallRow.locator('.telomere').boundingBox())!;
+  const row = (await tallRow.boundingBox())!;
+  await page.touchscreen.tap(telomere.x + telomere.width / 2, row.y + row.height - 10);
+  expectRevealedJustEnough(await started(), hidden);
+
+  // ctrl + e で最後の行から始めるときも、行頭の caret が隠れるときだけ同じく scroll する。
+  const keyboardHidden = await showTallRowAt(54);
+  await page.keyboard.press('Control+e');
+  expectRevealedJustEnough(await started(), keyboardHidden);
+  await showTallRowAt(150);
+  await page.keyboard.press('Control+e');
+  const atVisibleStart = await started();
+  expect.soft(atVisibleStart).toMatchObject({ text: tall, offset: 0 });
+  expect.soft(atVisibleStart.top).toBeGreaterThanOrEqual(88);
+  expect.soft(Math.round(atVisibleStart.lineTop)).toBe(150);
 });
 
 test('mobile browser で検索欄を閉じた後は、閉じる前の入力に対するタイトルの一覧の応答が遅れて届いても、候補を出し直さない', async (

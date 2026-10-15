@@ -608,6 +608,21 @@ function coveredTop(): number {
   return Number.isFinite(padding) ? padding : 0;
 }
 
+// CodeMirror が caret を画面へ入れるときの既定の余白（EditorView.scrollIntoView の yMargin）。
+const CARET_REVEAL_MARGIN = 5;
+
+// caret が固定した UI の下（か画面の上の外）に隠れているときだけ、隠れている分と余白だけ scroll して caret を
+// 見せる。行全体は見せない。scroll 位置は整数の px に丸められ、丸め方はブラウザで違う（Playwright の mobile
+// WebKit は切り捨て、Chromium は四捨五入）。動かす量を整数に切り上げ、丸めで余白を削らない。
+function revealCoveredCaret(target: EditorView): void {
+  const caret = target.coordsAtPos(target.state.selection.main.head);
+  if (caret === null) return;
+  const hidden = coveredTop() - caret.top;
+  if (hidden <= 0) return;
+  window.scrollBy(0, -Math.ceil(hidden + CARET_REVEAL_MARGIN));
+  target.requestMeasure();
+}
+
 // SSR 行の画面上の位置。画面に掛かっている行は、上端がはみ出していてもその位置へ戻す。
 // 完全に画面の外にある行（固定した UI に隠れた行も含む）は、そこへ戻しても編集対象が見えないので対象にしない。
 function visibleRowTop(lineId: string): number | undefined {
@@ -841,6 +856,10 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
         window.scrollBy(0, drift);
         view.requestMeasure();
       }
+      // 行を戻した後も、押した位置ではなく行頭に置いた caret（テロメアの tap、行の余白の click、ctrl + e など）は、
+      // 行の隠れた部分にあることがある。そのときだけ caret が見えるところまで動かす。押した字に置いた caret は
+      // 見えているので動かない（#333）。
+      revealCoveredCaret(view);
     }
   }
   renderStatus();

@@ -422,6 +422,51 @@ export async function charPoint(
   }, [char, occurrence, fraction] as const);
 }
 
+// 閲覧表示の行の、本文の先頭の字の箱の上端。
+export async function firstCharTop(row: Locator): Promise<number> {
+  return row.evaluate((element) => {
+    const content = element.lastElementChild;
+    const node = content === null ? null : document.createTreeWalker(content, NodeFilter.SHOW_TEXT).nextNode();
+    if (!(node instanceof Text) || node.length === 0) throw new Error('the row has no text');
+    const range = document.createRange();
+    range.setStart(node, 0);
+    range.setEnd(node, 1);
+    return range.getBoundingClientRect().top;
+  });
+}
+
+// 編集表示の caret（selection の先端）がある行の原文、行の中での位置、caret の字の箱の上端、行の箱の上端。
+// caret の字は caret の後ろの字で、後ろに字が無ければ前の字を使う。CodeMirror が caret を画面へ入れる
+// scroll は次の描画の前に行うので、2 フレーム待ってから測る。
+export type EditorCaret = { text: string; offset: number; top: number; lineTop: number };
+
+export async function editorCaret(target: Page): Promise<EditorCaret> {
+  await target.evaluate(() => new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  }));
+  return target.evaluate(() => {
+    const selection = window.getSelection();
+    const node = selection?.focusNode;
+    const line = node?.parentElement?.closest('.cm-line');
+    if (selection === null || !(node instanceof Text) || node.length === 0 || line == null) {
+      throw new Error('caret is not in a text');
+    }
+    const before = document.createRange();
+    before.setStart(line, 0);
+    before.setEnd(node, selection.focusOffset);
+    const from = Math.min(selection.focusOffset, node.length - 1);
+    const char = document.createRange();
+    char.setStart(node, from);
+    char.setEnd(node, from + 1);
+    return {
+      text: line.textContent ?? '',
+      offset: before.toString().length,
+      top: char.getBoundingClientRect().top,
+      lineTop: line.getBoundingClientRect().top,
+    };
+  });
+}
+
 export type BlockLook = {
   height: number;
   label: { x: number; background: string; fontSize: string; color: string } | null;
