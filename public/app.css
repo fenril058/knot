@@ -505,6 +505,14 @@ dialog form { display: grid; gap: 1rem; }
 #editor-root .cm-telomere-gutter .cm-gutterElement { display: flex; align-items: stretch; }
 /* 閲覧表示のテロメアと同じ幅（4px + 紙面の左 padding の残り）を占め、本文の左端を揃える。 */
 #editor-root .cm-telomere-gutter .telomere { display: block; }
+/* 編集表示のカーソル行のテロメアを指す button（#327）。キーボードと読み上げのためのもので、カーソル行の gutter の
+   テロメアに重ね（位置は cm/telomere.ts が決める）、focus したときだけ閲覧表示のテロメアと同じ枠を描く。
+   押す・hover は、下の gutter のテロメアがこれまでどおり受ける。 */
+#editor-root .telomere-keyboard { appearance: none; background: none; border: 0; box-sizing: border-box; margin: 0; padding: 0; pointer-events: none; position: absolute; width: 10px; z-index: 1; }
+@media (hover: hover) {
+  #editor-root .telomere-keyboard { width: 20px; }
+}
+#editor-root .telomere-keyboard:focus-visible { outline: 2px solid rgb(102 175 233 / 60%); outline-offset: -2px; }
 .cm-sb-indent { color: #aaa; }
 /* カーソル行の原文表示の、記法の字の色（Cosense の既定テーマのカーソル行と同じ、#273）。ページへの
    リンクとハッシュタグは整形表示と同じ色（ページが無ければ空リンクの色）。外部リンクと URL は、整形表示
