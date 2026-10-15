@@ -1,8 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
 import {
+  charPoint,
   createE2ePage as createPage,
+  editorCaret,
   expectSameTextBox,
   deferred,
+  firstCharTop,
   lineRowClickPosition,
   firstVisualLineLength,
   lineTextBoxes,
@@ -737,36 +740,59 @@ test('編集開始に失敗しても scroll 位置を保って再試行できる
   expect(Math.abs(after.top - before.top)).toBeLessThan(22);
 });
 
-test('上端が画面の外に出ている行から編集を始めてもページが飛ばない', async ({ page }, testInfo) => {
+test('上端が画面の外に出ている行は、見えている字を押して編集を始めてもページが飛ばず、余白を押して行頭から始めると caret が見えるところまでだけ動く', async ({ page }, testInfo) => {
   await loginE2eAccount(page, 'scroll-e2e');
   const title = `editor-scroll-partial-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
   // 折り返して背の高い行を 1 本挟む。上端だけ画面の外に出した状態で、その行を押す。
   const tall = '上端が画面の外へ出た行から編集を始めてもページが飛ばないことを確かめる本文です。'.repeat(12);
   const after = Array.from({ length: 40 }, (_, index) => `after line ${index}`);
   await createPage(page, title, [...longBody(40), tall, ...after]);
-
-  await page.goto(`/e2e/${title}`);
   const tallRow = page.locator('#editor-root .line-row').nth(41);
-  const tallBox = (await tallRow.boundingBox())!;
-  // 折り返しの本数は font で変わるので、はみ出させる量は行の高さから決める。
-  // 固定値にすると、行がそれより低い環境で直後の行まで画面の外に出てしまう。
-  expect(tallBox.height).toBeGreaterThan(60);
-  const offScreen = Math.round(tallBox.height / 2);
-  const tallTopInDocument = await tallRow.evaluate((row) => row.getBoundingClientRect().top + window.scrollY);
-  await page.evaluate((top) => window.scrollTo(0, top), tallTopInDocument + offScreen);
-  expect(await tallRow.evaluate((row) => Math.round(row.getBoundingClientRect().top))).toBe(-offScreen);
 
+  // 閲覧表示を開き直し、背の高い行の上半分を画面の外に出す。
+  const showLowerHalf = async (): Promise<void> => {
+    await page.goto(`/e2e/${title}`);
+    const tallBox = (await tallRow.boundingBox())!;
+    // 折り返しの本数は font で変わるので、はみ出させる量は行の高さから決める。
+    // 固定値にすると、行がそれより低い環境で直後の行まで画面の外に出てしまう。
+    expect(tallBox.height).toBeGreaterThan(60);
+    const offScreen = Math.round(tallBox.height / 2);
+    const tallTopInDocument = await tallRow.evaluate((row) => row.getBoundingClientRect().top + window.scrollY);
+    await page.evaluate((top) => window.scrollTo(0, top), tallTopInDocument + offScreen);
+    expect(await tallRow.evaluate((row) => Math.round(row.getBoundingClientRect().top))).toBe(-offScreen);
+  };
+
+  // 画面に残っている下側の字を押す。caret はその字に置かれて見えているので、ページは動かない。
+  await showLowerHalf();
   const before = await rowViewportTop(page, 'after line 0');
   expectInViewport(before);
-
-  // 画面に残っている下側を押す。
-  const visible = (await tallRow.boundingBox())!;
-  await page.mouse.click(visible.x + 20, visible.y + visible.height - 6);
+  const pressed = await charPoint(tallRow, '本', 11, 0.25);
+  await page.mouse.click(pressed.x, pressed.y);
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
 
   const settled = await rowViewportTop(page, 'after line 0');
   expectInViewport(settled);
   expect(Math.abs(settled.top - before.top)).toBeLessThan(22);
+  expect(await editorCaret(page)).toMatchObject({ text: tall, offset: tall.length - '本文です。'.length });
+
+  // 画面に残っている下側の、行の左の余白を押す。caret は押した位置ではなく行頭に置かれ、行頭は画面の上の外に
+  // ある。上部のバーの下端（scroll-padding-top）と CodeMirror が caret を画面へ入れるときの余白（5px）の下まで、
+  // caret を入れる分だけ動かす。行全体を見せる量は動かさない（#333）。
+  await showLowerHalf();
+  const marginBefore = await rowViewportTop(page, 'after line 0');
+  const covered = await page.evaluate(() => Number.parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop));
+  const firstChar = await firstCharTop(tallRow);
+  expect(firstChar).toBeLessThan(0);
+  const visible = (await tallRow.boundingBox())!;
+  await page.mouse.click(visible.x + 20, visible.y + visible.height - 6);
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+
+  const atLineStart = await editorCaret(page);
+  expect(atLineStart).toMatchObject({ text: tall, offset: 0 });
+  expect(atLineStart.top).toBeCloseTo(covered + 5, 0);
+  const marginSettled = await rowViewportTop(page, 'after line 0');
+  expectInViewport(marginSettled);
+  expect(marginSettled.top - marginBefore.top).toBeCloseTo(covered + 5 - firstChar, 0);
 });
 
 // 行末ぴったりで終わるラベルを作る。折り返し位置は font と幅で決まるので、
