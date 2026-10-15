@@ -881,6 +881,94 @@ test('カーソル行でも、表のセルの箱と見出しの点・札を閲�
   expect(await rowHeights(page)).toEqual(heights);
 });
 
+// カーソル行の中の selection の両端を、行の原文の何字目かで返す。
+async function lineSelection(page: Page, rowIndex: number): Promise<[number, number]> {
+  return page.locator('#editor-root .cm-line').nth(rowIndex).evaluate((line) => {
+    const selection = document.getSelection();
+    const { anchorNode, focusNode } = selection ?? {};
+    if (selection === null || anchorNode == null || focusNode == null || !line.contains(anchorNode) || !line.contains(focusNode)) {
+      throw new Error('selection is not in the line');
+    }
+    const offset = (node: Node, at: number): number => {
+      const range = document.createRange();
+      range.setStart(line, 0);
+      range.setEnd(node, at);
+      return range.toString().length;
+    };
+    return [offset(anchorNode, selection.anchorOffset), offset(focusNode, selection.focusOffset)];
+  });
+}
+
+test('カーソル行の表のセルの先頭・タブの前後・空のセルでも、IME の変換中の字を確定した位置に入れて保存し、取り消せば何も入れない', async (
+  { page },
+  testInfo,
+) => {
+  await loginE2eAccount(page, 'table-e2e');
+  const title = `line-table-ime-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  const body = ['table:sample', ' alpha\tbeta', ' alpha\tbeta', ' alpha\tbeta', ' alpha\t\tbeta', ' alpha\tbeta', 'last body'];
+  await createE2ePage(page, title, body);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  await startEditingAtLastRow(page, body.length);
+  const rows = page.locator('#editor-root .cm-line');
+  // OS の IME は再現できないので、Chromium の IME 入力（変換中の文字列・確定・取り消し）を CDP で送る。
+  const cdp = await page.context().newCDPSession(page);
+  const compose = async (): Promise<void> => {
+    for (const text of ['に', 'にほ', 'にほん']) {
+      await cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
+    }
+  };
+
+  // セルの先頭、タブの直前、タブの直後。セルの先頭とタブの直後では、caret の前にセルを区切る幅 0 の字がある（#325）。
+  const cases = [
+    { rowIndex: 2, point: () => charPoint(rows.nth(2), 'a', 0, 0.1), at: 1, saved: ' 日本alpha\tbeta' },
+    { rowIndex: 3, point: () => charPoint(rows.nth(3), 'a', 1, 0.9), at: 6, saved: ' alpha日本\tbeta' },
+    { rowIndex: 4, point: () => charPoint(rows.nth(4), 'b', 0, 0.1), at: 7, saved: ' alpha\t日本beta' },
+  ];
+  for (const { rowIndex, point, at, saved } of cases) {
+    const { x, y } = await point();
+    await page.mouse.click(x, y);
+    expect(await lineSelection(page, rowIndex)).toEqual([at, at]);
+    await compose();
+    await expect(rows.nth(rowIndex)).toHaveText(`${saved.slice(0, at)}にほん${saved.slice(at + 2)}`);
+    await cdp.send('Input.insertText', { text: '日本' });
+    await expect(rows.nth(rowIndex)).toHaveText(saved);
+    expect(await lineSelection(page, rowIndex)).toEqual([at + 2, at + 2]);
+  }
+
+  // 空のセル（2 つのタブのあいだ）。
+  const emptyCell = await charPoint(rows.nth(5), 'a', 1, 0.9);
+  await page.mouse.click(emptyCell.x, emptyCell.y);
+  await page.keyboard.press('ArrowRight');
+  expect(await lineSelection(page, 5)).toEqual([7, 7]);
+  await compose();
+  await cdp.send('Input.insertText', { text: '日本' });
+  await expect(rows.nth(5)).toHaveText(' alpha\t日本\tbeta');
+  expect(await lineSelection(page, 5)).toEqual([9, 9]);
+
+  // 変換を取り消すと（変換中の文字列を空にする）、セルの先頭に何も入れず、caret も動かない。
+  const cancelled = await charPoint(rows.nth(6), 'a', 0, 0.1);
+  await page.mouse.click(cancelled.x, cancelled.y);
+  await compose();
+  await cdp.send('Input.imeSetComposition', { text: '', selectionStart: 0, selectionEnd: 0 });
+  await expect(rows.nth(6)).toHaveText(' alpha\tbeta');
+  expect(await lineSelection(page, 6)).toEqual([1, 1]);
+
+  await expect(page.locator('#save-status')).toHaveText('保存済み');
+  const persisted = await page.request.get(`/api/pages/e2e/${title}`);
+  expect((await persisted.json()).lines.map((line: { text: string }) => line.text)).toEqual([
+    title,
+    'table:sample',
+    ' 日本alpha\tbeta',
+    ' alpha日本\tbeta',
+    ' alpha\t日本beta',
+    ' alpha\t日本\tbeta',
+    ' alpha\tbeta',
+    'last body',
+  ]);
+});
+
 test('表の見出しの click で原文の編集に入り、コードブロックの行末の click で行末に caret が入る', async (
   { page },
   testInfo,

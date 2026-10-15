@@ -374,7 +374,11 @@ span.telomere { cursor: auto; }
    行頭の 1 字とセルを区切るタブは幅を持たせない（列の幅は td と同じ min-width の規則、tableColumns.ts）。 */
 #editor-root .cm-table-cell { background-color: rgb(0 0 0 / 6%); display: inline-block; padding: 0 2px 0 8px; vertical-align: top; white-space: pre; }
 #editor-root .cm-table-cell.even { background-color: rgb(0 0 0 / 8%); }
-#editor-root .cm-table-gap { display: inline-block; overflow: hidden; vertical-align: top; width: 0; }
+/* 行頭の 1 字とタブは、箱を inline のまま、字の幅だけを word-spacing と tab-size で 0 にする。幅 0 で
+   overflow: hidden の inline-block にすると、Chromium はセルの先頭で始めた IME の変換中の字をその箱の中へ入れ、
+   selection を次の字の後ろへ置く。CodeMirror は変換中の字の text node を見失って変換の途中で描き直し、
+   変換は 1 字ずれた位置で続く（#325）。inline なら、変換中の字は箱の中で見えたまま、確定後にセルへ移る。 */
+#editor-root .cm-table-gap { tab-size: 0; white-space: pre; word-spacing: calc(-1 * var(--indent-space-width, .25em)); }
 /* 本文の画像（Cosense の .line .image）。CodeMirror が widget の前後に置く buffer の img は除く。 */
 #editor-root img:not(.cm-widgetBuffer) { display: inline-block; margin: 3px 0; max-height: 300px; max-width: 100%; vertical-align: bottom; }
 #editor-root img.strong-image { max-height: none; max-width: 95%; }
