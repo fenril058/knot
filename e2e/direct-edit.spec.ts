@@ -253,6 +253,68 @@ test('click せずキーボードだけで編集を開始し、Escape で抜け�
   ]);
 });
 
+// Escape で本文から抜け、Tab で本文へ戻った直後の入力（#334）。Tab の途中で上部のバーの検索欄を通ると、DOM の選択範囲は
+// 本文の外へ出る。本文へ戻ると、ブラウザは DOM の caret を本文の先頭（タイトルの行）に置く。IME の変換の確定は keydown を
+// 伴わずに届くので、CodeMirror が caret を元の位置へ戻す前に届くと、字がタイトルの行に入ってページがリネームされていた。
+test('Escape で本文から抜けて Tab で戻ると、すぐに確定した字も少し待って確定した字も抜ける前の caret の位置に入り、タイトルは変わらない', async (
+  { page },
+  testInfo,
+) => {
+  await loginE2eAccount(page, 'keyboard-e2e');
+  const title = `direct-edit-tab-return-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createPage(page, title, ['first body', 'second body']);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  const documentTitle = await page.title();
+  const editor = page.locator('#editor-root .cm-content');
+  await page.locator('#editor-root .line-row').nth(2).click({ position: lineRowClickPosition });
+  await expect(editor).toBeFocused();
+  await page.keyboard.press('End');
+  // OS の IME は再現できないので、Chromium の IME 入力（変換中の文字列と確定）を CDP で送る。
+  const cdp = await page.context().newCDPSession(page);
+  const commitIme = async (texts: string[]) => {
+    for (const text of texts) {
+      await cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
+    }
+    await cdp.send('Input.insertText', { text: texts.at(-1)! });
+  };
+  // 本文の前の tab stop（カーソル行のテロメア、#327）まで Tab で進む。途中で検索欄を通り、DOM の選択範囲が本文の外へ出る。
+  const tabToEditor = async () => {
+    await page.keyboard.press('Escape');
+    await expect(editor).not.toBeFocused();
+    const telomere = page.locator('#editor-root .telomere-keyboard');
+    for (let count = 0; count < 20; count += 1) {
+      if (await telomere.evaluate((element) => element === document.activeElement)) break;
+      await page.keyboard.press('Tab');
+    }
+    await expect(telomere).toBeFocused();
+    expect(await editor.evaluate((element) => element.contains(window.getSelection()?.anchorNode ?? null))).toBe(false);
+    await page.keyboard.press('Tab');
+  };
+  const expectSavedWithTitle = async (body: string) => {
+    await expect(page.locator('#editor-root .cm-line')).toHaveText([title, 'first body', body]);
+    await expect(page.locator('#save-status')).toHaveText('保存済み');
+    await expect(page).toHaveURL(`/e2e/${title}`);
+    expect(await page.title()).toBe(documentTitle);
+    const persisted = await page.request.get(`/api/pages/e2e/${title}`);
+    expect((await persisted.json()).lines.map((line: { text: string }) => line.text)).toEqual([title, 'first body', body]);
+  };
+
+  // 待たずに確定する。
+  await tabToEditor();
+  await commitIme(['と', 'とて']);
+  await expectSavedWithTitle('second bodyとて');
+
+  // caret が抜ける前の位置に戻っているのを見てから確定する。
+  await tabToEditor();
+  await expect.poll(async () => {
+    const { text, offset } = await editorCaret(page);
+    return { text, offset };
+  }).toEqual({ text: 'second bodyとて', offset: 'second bodyとて'.length });
+  await commitIme(['も']);
+  await expectSavedWithTitle('second bodyとても');
+});
+
 test('編集開始の前に行が増えても、click した行の内容に caret が入る', async ({ page }, testInfo) => {
   await loginDirectEditE2e(page);
   const title = `direct-edit-stable-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;

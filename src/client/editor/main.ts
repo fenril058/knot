@@ -158,6 +158,7 @@ let statusMessage: string | undefined;
 let storageWarning: string | undefined;
 let ownershipUnavailable = false;
 let suppressChanges = false;
+let restoringCaret = false;
 
 function ownedKey(baseKey: string): string {
   return `${baseKey}/editor:${editorId}`;
@@ -802,6 +803,22 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
         ...historyKeymap,
         { key: 'Escape', run: (target) => { target.contentDOM.blur(); return true; } },
       ]),
+      // Escape で抜けた後、Tab で本文へ戻るとき、DOM の選択範囲が本文の外にあると（上部のバーの検索欄を通ったときなど）、
+      // ブラウザは DOM の caret を本文の先頭（タイトルの行）に置く。CodeMirror はこれを次の selectionchange か keydown で
+      // 編集の caret の位置へ戻すが、IME の変換の確定のように keydown を伴わない入力はその前に届き、タイトルの行に入る（#334）。
+      // focus を受けたその場で、view.focus() に DOM の caret を編集の caret の位置へ書き戻させる。view.focus() は Chrome
+      // Android で focus をやり直すことがあるので、その focus では書き戻しを重ねない。
+      EditorView.domEventHandlers({
+        focus: (_event, target) => {
+          if (restoringCaret) return;
+          restoringCaret = true;
+          try {
+            target.focus();
+          } finally {
+            restoringCaret = false;
+          }
+        },
+      }),
       pasteHandlers({
         uploadFile: (file) => uploadFile(project, file),
         onUploadError: (message) => {

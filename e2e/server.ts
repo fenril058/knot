@@ -26,6 +26,7 @@ const accountNames = [
   'project-e2e',
   'recovery-e2e',
   'direct-edit-e2e',
+  'keyboard-e2e',
   'title-e2e',
   'wrap-e2e',
   'parity-e2e',
