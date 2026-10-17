@@ -56,3 +56,21 @@ export function parseSearchQuery(source: string): SearchQuery {
   // Cosense は除外語だけの入力を、先頭の - を含む通常の検索語として扱う。
   return words.length === 0 && excludes.length > 0 ? { words: tokens, excludes: [] } : { words, excludes };
 }
+
+// 検索語の上限。全文検索の API と、検索の結果ページ（#247）が同じ規則で受け付ける。
+const MAX_SEARCH_QUERY_CODE_POINTS = 1_000;
+const MAX_SEARCH_TERMS = 32;
+
+export type SearchQueryProblem = 'required' | 'too_long' | 'too_many_terms';
+export type CheckedSearchQuery = { ok: true; query: SearchQuery } | { ok: false; problem: SearchQueryProblem; message: string };
+
+export function checkSearchQuery(source: string): CheckedSearchQuery {
+  if (source.trim() === '') return { ok: false, problem: 'required', message: 'q required' };
+  // oxlint-disable-next-line typescript/no-misused-spread -- 上限は code point 数で数える。書記素単位の精度は要らない
+  if ([...source].length > MAX_SEARCH_QUERY_CODE_POINTS) return { ok: false, problem: 'too_long', message: 'q too long' };
+  const query = parseSearchQuery(source);
+  if (query.words.length + query.excludes.length > MAX_SEARCH_TERMS) {
+    return { ok: false, problem: 'too_many_terms', message: 'too many search terms' };
+  }
+  return { ok: true, query };
+}

@@ -43,8 +43,7 @@ void test('login → 一覧 → 閲覧 → 再訪問 → 404 の一気通貫で�
   const notFound = await s.request('/proj/Nope', {}, cookie);
   assert.equal(notFound.status, 404);
   const notFoundBody = await notFound.text();
-  assert.match(notFoundBody, /Nope/);
-  assert.match(notFoundBody, /id="edit-page-button"[^>]*>このタイトルで新規作成する<\/button>/);
+  assert.match(notFoundBody, /<h1 class="line-title">Nope<\/h1>/);
   htmlBodies.push(notFoundBody);
 
   for (const body of htmlBodies) {

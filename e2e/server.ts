@@ -26,6 +26,7 @@ const accountNames = [
   'project-e2e',
   'recovery-e2e',
   'direct-edit-e2e',
+  'keyboard-e2e',
   'title-e2e',
   'wrap-e2e',
   'parity-e2e',
@@ -34,6 +35,30 @@ const accountNames = [
   'scroll-mobile-e2e',
   'link-e2e',
   'link-mobile-e2e',
+  'geometry-e2e',
+  'geometry-mobile-e2e',
+  'line-e2e',
+  'line-mobile-e2e',
+  'cards-e2e',
+  'cards-mobile-e2e',
+  'telomere-e2e',
+  'telomere-edit-e2e',
+  'telomere-mobile-e2e',
+  'active-line-e2e',
+  'caret-e2e',
+  'caret-mobile-e2e',
+  'search-e2e',
+  'search-mobile-e2e',
+  'page-menu-e2e',
+  'page-menu-cancel-e2e',
+  'selection-e2e',
+  'table-e2e',
+  'related-e2e',
+  'related-mobile-e2e',
+  'bar-e2e',
+  'covered-mobile-e2e',
+  'image-e2e',
+  'image-mobile-e2e',
 ];
 for (const name of accountNames) {
   await storage.addAccount(
@@ -48,6 +73,48 @@ for (const name of accountNames) {
   );
 }
 await storage.ensureProject('e2e', now);
+
+// タイトルと本文の行を 1 コミットで書き、ページを作る。at がページの作成・更新の日時になる。
+async function seedPage(projectId: string, lines: string[], at: number): Promise<string> {
+  const pageId = ulid();
+  let after = '_head';
+  const ops = lines.map((text) => {
+    const id = ulid();
+    const op = { type: 'insert' as const, id, after, text };
+    after = id;
+    return op;
+  });
+  await storage.commit({ projectId, pageId, commitId: ulid(), baseVersion: 0, ops, actorId: 'e2e', now: at });
+  return pageId;
+}
+
+// ピン留めは HTTP API から設定できないので、カードの e2e（e2e/cards.spec.ts）が使う
+// ピン留めのページをここで用意する。
+const pinnedProject = await storage.ensureProject('e2e-pinned', now);
+for (const [title, pinned] of [['pinned card', true], ['plain card', false]] as const) {
+  const pageId = await seedPage(pinnedProject.id, [title, `${title} の説明`], now);
+  if (pinned) await storage.setPinned(pageId, true);
+}
+
+// 関連ページの並び替えと絞り込みの e2e（e2e/related.spec.ts と e2e/mobile.spec.ts）が使うページ。
+// 札の更新日時を決めておくため、HTTP API ではなくここで作る。rel-base から見た関連度の順は
+// bravo（rel-base にリンクする）・alpha・charlie、更新日時の順は alpha・charlie・bravo。
+// 2-hop の rel-alpha の行は、関連度と更新日時の順が zulu・yankee、タイトルの順が yankee・zulu。
+// rel-new の nowhere の 2 つは、ページが無く、ほかのページからもリンクされない（「New Links」の行に入る）。
+// rel-new は rel-base と関連しないよう、rel-base のリンク先にはリンクしない。
+const relatedProject = await storage.ensureProject('e2e-related', now);
+for (const [lines, at] of [
+  [['rel-alpha', 'alpha の説明'], now - 100],
+  [['rel-bravo', '[rel-base] へ戻る', 'bravo の説明'], now - 300],
+  [['rel-charlie', 'needle を含む説明'], now - 200],
+  [['rel-two-zulu', '[rel-alpha] を共有する'], now - 50],
+  [['rel-two-yankee', '[rel-alpha] を共有する'], now - 400],
+  [['rel-base', '[rel-alpha] [rel-bravo] [rel-charlie]'], now],
+  [['rel-solo', 'solo の説明'], now - 500],
+  [['rel-new', '[rel-nowhere-one] と [rel-solo] と [rel-nowhere-two]'], now],
+] as const) {
+  await seedPage(relatedProject.id, [...lines], at);
+}
 
 const port = Number(process.env.E2E_PORT ?? 4173);
 serve({ fetch: createApp({ storage, config }).fetch, port, hostname: '127.0.0.1' });

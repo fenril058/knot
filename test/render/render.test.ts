@@ -46,12 +46,26 @@ void test('ブラケットリンク: 既存ページは通常リンク、存在�
   assert.match(red, /href="\/proj\/Bar"/);
 });
 
+void test('行へのリンクは、Cosense と同じく字を「リンク先#行 ID の末尾 6 字」にし、href に行 ID を残す（#297）', () => {
+  assert.match(renderOne('[Foo#5b630aae9dc7d80000931bc3]', [['foo', 'Foo']]), /<a href="\/proj\/Foo#5b630aae9dc7d80000931bc3" class="page-link">Foo#931bc3<\/a>/);
+  // knot の行 ID（ULID）も同じ。ページの無いリンク先は空リンク。
+  assert.match(renderOne('[Bar#01M4CS1XG8662KTX9GW7P4DZDD]'), /<a href="\/proj\/Bar#01M4CS1XG8662KTX9GW7P4DZDD" class="empty-link">Bar#P4DZDD<\/a>/);
+  // 行 ID でない # は、リンクの表（core/links.ts）と同じくタイトルの一部。
+  assert.match(renderOne('[C#]', [['c#', 'C#']]), /<a href="\/proj\/C%23" class="page-link">C#<\/a>/);
+  // 別のプロジェクトの行へのリンクも同じ。
+  assert.match(
+    renderOne('[/villagepump/2023/02/04#63dd8578b8bbfc0000d3b61d]'),
+    /<a href="\/villagepump\/2023%2F02%2F04#63dd8578b8bbfc0000d3b61d" class="page-link" target="_blank" rel="noopener noreferrer">\/villagepump\/2023\/02\/04#d3b61d<\/a>/,
+  );
+});
+
 void test('ハッシュタグは title_lc で解決しブラケットリンクと同じ扱い', () => {
   assert.match(renderOne('#Foo', [['foo', 'Foo']]), /<a href="\/proj\/Foo"/);
 });
 
 void test('外部リンクは http/https のみリンク化、他スキームは平文', () => {
-  assert.match(renderOne('[https://example.com Ex]'), /<a href="https:\/\/example\.com"[^>]*>Ex<\/a>/);
+  // Cosense と同じく、外部リンクは新しいタブで開く（#287）。
+  assert.match(renderOne('[https://example.com Ex]'), /<a href="https:\/\/example\.com" target="_blank" rel="noopener noreferrer">Ex<\/a>/);
   const js = renderOne('[javascript:alert(1) Ex]');
   assert.doesNotMatch(js, /<a /);
   assert.match(js, /javascript:alert\(1\)/);
@@ -71,7 +85,7 @@ void test('インラインコードはエスケープされたまま code タグ
 });
 
 void test('数式は out of scope につき code として描画', () => {
-  assert.match(renderOne('[$ x^2]'), /<code>/);
+  assert.match(renderOne('[$ x^2]'), /<code class="formula">x\^2<\/code>/);
 });
 
 void test('画像リンクの alt にイベントハンドラを注入しようとしても属性値としてエスケープされる', () => {
@@ -79,9 +93,27 @@ void test('画像リンクの alt にイベントハンドラを注入しよう�
   assert.doesNotMatch(html, /onerror=/);
 });
 
+// 本文の画像を包むリンクの開きタグ（#319）。
+function imageLink(href: string): string {
+  return `<a href="${href}" class="image-link" target="_blank" rel="noopener noreferrer">`;
+}
+
+void test('本文の画像は、Cosense と同じく画像を新しいタブで開くリンクに包む（#319）', () => {
+  assert.equal(
+    renderOne('[https://i.gyazo.com/a.png]'),
+    `<div>${imageLink('https://i.gyazo.com/a.png')}<img src="https://i.gyazo.com/a.png" alt="画像" loading="lazy"></a></div>`,
+  );
+  assert.match(
+    renderOne('[[https://i.gyazo.com/a.png]]'),
+    new RegExp(`${imageLink('https://i\\.gyazo\\.com/a\\.png')}<img src="https://i\\.gyazo\\.com/a\\.png" alt="画像" class="strong-image" loading="lazy"></a>`),
+  );
+  // アップロードした画像も、新しいタブで開く。
+  assert.match(renderOne('[/files/01ABC/x.png]'), new RegExp(`${imageLink('/files/01ABC/x\\.png')}<img src="/files/01ABC/x\\.png"`));
+});
+
 void test('引用画像デコレーションに相対リンクを混在させない', () => {
   const output = renderOne('[" https://example.com/a.png [relative.png]]');
-  assert.match(output, /<span><img src="https:\/\/example\.com\/a\.png"/);
+  assert.match(output, /<span><a href="https:\/\/example\.com\/a\.png" class="image-link"[^>]*><img src="https:\/\/example\.com\/a\.png"/);
   assert.doesNotMatch(output, /relative\.png/);
 });
 
@@ -121,7 +153,7 @@ void test('コードブロックの空白のみの本体1行も物理行と対�
   ];
   const out = renderLines(lines, new Map(), 'proj', cfg);
   assert.deepEqual(out.map((line) => line.lineId), ['title', 'l1', 'l2', 'l3']);
-  assert.equal(htmlOf(out[1]!), '<div class="code-header">a.js</div>');
+  assert.equal(htmlOf(out[1]!), '<div class="code-header"><span class="code-block-start">a.js</span></div>');
   assert.equal(htmlOf(out[2]!), '<div class="code-line"></div>');
   assert.equal(htmlOf(out[3]!), '<div>after</div>');
 });
@@ -166,7 +198,9 @@ void test('テーブルも複数物理行を 1 ブロックとして消費する
   ];
   const out = renderLines(lines, new Map(), 'proj', cfg);
   assert.equal(out.length, 4);
-  assert.match(htmlOf(out[2]!), /<table>/);
+  // 同じ表の行は、見出しの行番号を data-table に持つ（列の幅を揃える、#276）。
+  assert.match(htmlOf(out[2]!), /<table data-table="2">/);
+  assert.match(htmlOf(out[3]!), /<table data-table="2">/);
   assert.deepEqual(out.slice(1).map((line) => line.indent), [0, 0, 0]);
 });
 
@@ -195,9 +229,22 @@ void test('/files/ の画像以外のファイルはリンクにする', () => {
   assert.doesNotMatch(renderOne('[/files/01ABC/doc.pdf]'), /<img/);
 });
 
-void test('/files/ 以外のルートパスは従来どおり平文のまま', () => {
-  const out = renderOne('[/elsewhere/x.png]');
-  assert.doesNotMatch(out, /<img|<a /);
+void test('/files/ 以外のルートパスは、Cosense と同じく別のプロジェクトのページを新しいタブで開くリンクにする（#287）', () => {
+  assert.equal(
+    renderOne('[/villagepump/被リンク]'),
+    '<div><a href="/villagepump/%E8%A2%AB%E3%83%AA%E3%83%B3%E3%82%AF" class="page-link" target="_blank" rel="noopener noreferrer">/villagepump/被リンク</a></div>',
+  );
+  // 行 ID の # を保ち（字は Cosense と同じく行 ID の末尾 6 字、#297）、プロジェクトだけのリンクはプロジェクトのトップへ。
+  // タイトルの空白は _ にする。行 ID でない # はタイトルの一部。
+  assert.match(
+    renderOne('[/customize/vlzs#696cf84a0000000000b2b9e4]'),
+    /<a href="\/customize\/vlzs#696cf84a0000000000b2b9e4" class="page-link" target="_blank" rel="noopener noreferrer">\/customize\/vlzs#b2b9e4<\/a>/,
+  );
+  assert.match(renderOne('[/lang/C#]'), /<a href="\/lang\/C%23" class="page-link" target="_blank"/);
+  assert.match(renderOne('[/help]'), /<a href="\/help" class="page-link" target="_blank"/);
+  assert.match(renderOne('[/help/Link ラベル]'), /<a href="\/help\/Link_%E3%83%A9%E3%83%99%E3%83%AB" class="page-link"/);
+  // 画像の拡張子があっても、/files/ 以外は画像にしない。
+  assert.doesNotMatch(renderOne('[/elsewhere/x.png]'), /<img/);
 });
 
 void test('許可ホストの #.png フラグメント付きURLも img にする', () => {
@@ -221,7 +268,7 @@ void test('許可されていないホストの画像URLは通常リンクにす
   assert.doesNotMatch(output, /<img/);
   assert.match(
     output,
-    /<a href="https:\/\/blocked\.example\/a\.png" rel="noopener noreferrer">https:\/\/blocked\.example\/a\.png<\/a>/,
+    /<a href="https:\/\/blocked\.example\/a\.png" target="_blank" rel="noopener noreferrer">https:\/\/blocked\.example\/a\.png<\/a>/,
   );
 });
 
@@ -257,7 +304,7 @@ void test('YouTube等は既定で埋め込まず通常リンク（iframe は生�
   assert.doesNotMatch(out, /<iframe/);
   assert.match(
     out,
-    /<a href="https:\/\/www\.youtube\.com\/watch\?v=abc" rel="noopener noreferrer">https:\/\/www\.youtube\.com\/watch\?v=abc<\/a>/,
+    /<a href="https:\/\/www\.youtube\.com\/watch\?v=abc" target="_blank" rel="noopener noreferrer">https:\/\/www\.youtube\.com\/watch\?v=abc<\/a>/,
   );
 });
 

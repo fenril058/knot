@@ -168,6 +168,8 @@ async function readContract(storage: Storage) {
     page: await storage.getPageById('home'),
     pages: await storage.listPages('project-1'),
     related: normalizedRelated(await storage.getRelatedPages('project-1', 'home', 'home')),
+    // ページの無いタイトル（閲覧画面の空のページ）は、空の pageId でそのタイトルへリンクしているページを得る。
+    relatedForMissingTitle: normalizedRelated(await storage.getRelatedPages('project-1', '', 'shared_topic')),
     summaries,
     visit: await storage.getVisit('account-1', 'home'),
     searches,

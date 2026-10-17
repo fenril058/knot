@@ -5,11 +5,13 @@ export function loginPage(): Html {
   return layout(
     'ログイン',
     html`
+<main>
 <form id="login-form">
   <label>ユーザー名 <input type="text" name="name" required></label>
   <label>パスワード <input type="password" name="password" required></label>
   <button type="submit">ログイン</button>
 </form>
+</main>
 <script src="/assets/login.js" defer></script>`,
   );
 }

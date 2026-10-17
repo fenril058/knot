@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSearchQuery } from '../../src/core/searchQuery.ts';
+import { checkSearchQuery, parseSearchQuery } from '../../src/core/searchQuery.ts';
 
 void test('空白区切り、除外、引用フレーズを Cosense 互換で解析する', () => {
   assert.deepEqual(parseSearchQuery('alpha  beta -gamma -"delta epsilon"'), {
@@ -44,4 +44,13 @@ void test('空または連続する引用符が語に隣接する場合はリテ
   });
   assert.deepEqual(parseSearchQuery('"""'), { words: ['"'], excludes: [] });
   assert.deepEqual(parseSearchQuery('""""'), { words: ['""'], excludes: [] });
+});
+
+void test('検索語の検査は、空・長すぎる・語が多すぎるを区別し、それ以外は解析した検索語を返す', () => {
+  assert.deepEqual(checkSearchQuery('  '), { ok: false, problem: 'required', message: 'q required' });
+  assert.deepEqual(checkSearchQuery('a'.repeat(1_001)), { ok: false, problem: 'too_long', message: 'q too long' });
+  assert.equal(checkSearchQuery('a'.repeat(1_000)).ok, true);
+  const terms = Array.from({ length: 33 }, (_, index) => `w${index}`).join(' ');
+  assert.deepEqual(checkSearchQuery(terms), { ok: false, problem: 'too_many_terms', message: 'too many search terms' });
+  assert.deepEqual(checkSearchQuery('alpha -beta'), { ok: true, query: { words: ['alpha'], excludes: ['beta'] } });
 });

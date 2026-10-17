@@ -804,6 +804,7 @@ export class SqliteStorage implements Storage {
       descriptions: this.#relatedDescriptions(row.id),
       linksLc,
       linked: this.#linkedCount(row.project_id, row.title_lc),
+      created: row.created,
       updated: row.updated,
       accessed: this.#pageVisitMetrics(row.id).accessed,
     };
