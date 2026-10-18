@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 
 // login rate limit は ip と name の組で 10 分 10 回なので（src/server/app.ts の loginLimiter）、
 // seed 済みアカウントは題材ごとに分ける。password は名前から決まる（e2e/server.ts）。
@@ -110,8 +110,138 @@ export async function textStyleOf(target: Page, text: string): Promise<Record<st
       fontSize: style.fontSize,
       fontWeight: style.fontWeight,
       lineHeight: style.lineHeight,
+      color: style.color,
     };
   }, text);
+}
+
+// 行の箱の高さ。閲覧表示の .line-row と CodeMirror の .cm-line を同じ数え方で測る。
+// 文字の無い行（空行）の高さは lineTextBoxes では見えないので、こちらで見る。
+export async function rowHeights(target: Page): Promise<number[]> {
+  return target.evaluate(() => Array.from(
+    document.querySelectorAll('#editor-root .line-row, #editor-root .cm-line'),
+    (row) => Math.round(row.getBoundingClientRect().height),
+  ));
+}
+
+// 行の視覚行ごとの文字の範囲 [left, top, width]。top は #editor-root 上端からの相対値。
+// 同じ高さに並ぶ文字の矩形を 1 つにまとめるので、閲覧表示と CodeMirror で文字の区切り方
+// （text node の分け方）が違っても、折り返した各行がどこから始まりどこまで続くかを比べられる。
+export async function visualLineRects(target: Page): Promise<number[][][]> {
+  return target.evaluate(() => {
+    const root = document.querySelector('#editor-root');
+    if (root === null) throw new Error('editor root is missing');
+    const rootTop = root.getBoundingClientRect().top;
+    return Array.from(root.querySelectorAll('.line-row, .cm-line'), (row) => {
+      const lines = new Map<number, { left: number; right: number }>();
+      const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode() !== null) {
+        const node = walker.currentNode;
+        // 字下げは字ではないので数えない（閲覧表示の全角空白）。
+        if (node.parentElement?.closest('.telomere, .line-indent-prefix') != null) continue;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        // カーソル行の字下げの空白も数えない。IME の変換中の字は空白の後ろの同じ text に入るので、
+        // 空白の後ろからは数える。
+        if (node.parentElement?.closest('.cm-indent-text') != null && node instanceof Text) {
+          const start = node.data.search(/\S/);
+          if (start === -1) continue;
+          range.setStart(node, start);
+        }
+        for (const rect of Array.from(range.getClientRects())) {
+          if (rect.width === 0 || rect.height === 0) continue;
+          const top = Math.round(rect.top - rootTop);
+          const line = lines.get(top);
+          lines.set(top, {
+            left: Math.min(line?.left ?? rect.left, rect.left),
+            right: Math.max(line?.right ?? rect.right, rect.right),
+          });
+        }
+      }
+      return Array.from(lines, ([top, { left, right }]) => [Math.round(left), top, Math.round(right - left)])
+        .toSorted((a, b) => a[1]! - b[1]!);
+    });
+  });
+}
+
+export type IndentMark = {
+  // 字下げした本文の開始位置（0.5px 単位）。
+  textLeft: number;
+  // 行頭の印。位置は本文の開始位置と行の上端からの相対値。印が無ければ null。
+  mark: { x: number; y: number; width: number; height: number; color: string; radius: string } | null;
+};
+
+// 字下げした行の、本文の開始位置と行頭の印。字下げの無い行は null。
+// 印は本文の要素の ::before なので、要素の矩形と computed style から位置を求める。
+export async function indentMarks(target: Page): Promise<(IndentMark | null)[]> {
+  return target.evaluate(() => Array.from(
+    document.querySelectorAll('#editor-root .line-row, #editor-root .cm-line'),
+    (row) => {
+      const content = row.querySelector<HTMLElement>('.line-indent-content, .cm-wysiwyg-indent-content');
+      if (content === null) return null;
+      const box = content.getBoundingClientRect();
+      const before = getComputedStyle(content, '::before');
+      const shown = before.display !== 'none' && before.content !== 'none';
+      return {
+        textLeft: Math.round(box.left * 2) / 2,
+        mark: shown
+          ? {
+            x: Number.parseFloat(before.left),
+            y: Math.round((box.top - row.getBoundingClientRect().top + Number.parseFloat(before.top)) * 2) / 2,
+            width: Number.parseFloat(before.width),
+            height: Number.parseFloat(before.height),
+            color: before.backgroundColor,
+            radius: before.borderRadius,
+          }
+          : null,
+      };
+    },
+  ));
+}
+
+export type PageGeometry = {
+  bodyBackground: string;
+  bar: { height: number; background: string };
+  // y は document 上の位置。scroll に依らず比べられるようにする。
+  paper: { x: number; y: number; width: number; background: string; padding: number[] };
+  telomereLeft: number;
+};
+
+// 紙面（本文を載せる白い領域、.page）と、その周りの観測値。
+// テロメアは閲覧表示では行の中、編集表示では gutter にあり、どちらも先頭行のものを測る。
+export async function pageGeometry(target: Page): Promise<PageGeometry> {
+  return target.evaluate(() => {
+    const paper = document.querySelector<HTMLElement>('.page');
+    const bar = document.querySelector<HTMLElement>('.page-nav');
+    const telomere = document.querySelector<HTMLElement>('#editor-root .telomere');
+    if (paper === null || bar === null || telomere === null) throw new Error('page layout element is missing');
+    const paperBox = paper.getBoundingClientRect();
+    const paperStyle = getComputedStyle(paper);
+    return {
+      bodyBackground: getComputedStyle(document.body).backgroundColor,
+      bar: {
+        height: Math.round(bar.getBoundingClientRect().height),
+        background: getComputedStyle(bar).backgroundColor,
+      },
+      paper: {
+        x: Math.round(paperBox.left),
+        y: Math.round(paperBox.top + window.scrollY),
+        width: Math.round(paperBox.width),
+        background: paperStyle.backgroundColor,
+        padding: [paperStyle.paddingTop, paperStyle.paddingRight, paperStyle.paddingBottom, paperStyle.paddingLeft]
+          .map((value) => Math.round(Number.parseFloat(value))),
+      },
+      telomereLeft: Math.round(telomere.getBoundingClientRect().left),
+    };
+  });
+}
+
+// 長いページの途中を表示した状態を作る。scroll 量を固定値にすると、行の高さが変わったときに
+// 対象の行が画面の外へ出る。行そのものを画面の上端から top の位置へ置く。
+export async function scrollRowTo(target: Page, rowIndex: number, top: number): Promise<void> {
+  await target.locator('#editor-root .line-row').nth(rowIndex).evaluate((row, offset) => {
+    window.scrollTo(0, row.getBoundingClientRect().top + window.scrollY - offset);
+  }, top);
 }
 
 export function deferred(): { promise: Promise<void>; resolve: () => void } {
@@ -128,9 +258,11 @@ export function deferred(): { promise: Promise<void>; resolve: () => void } {
   };
 }
 
-// テロメアは行の左端 4px と margin 0.5rem を占め、click しても編集は始まらない。
-// x = 20 はそれを外して行の文字列先頭を押す位置。
-export const lineRowClickPosition = { x: 20, y: 8 };
+// 行の左端には紙面の左 padding と同じ幅の余白があり、その先頭がテロメアになる（hover できる
+// 環境では 20px、touch では 10px）。テロメアの click では編集は始まらない。x = 30 はテロメアを
+// 外して余白を押す位置で、余白も行の一部なので、その行から編集が始まる。mobile の余白（21px）
+// では本文の先頭の字に当たるが、その行から編集が始まることは変わらない。
+export const lineRowClickPosition = { x: 30, y: 8 };
 
 // タイトルが画面上に何個見えているかを数える。閲覧時の見出しも Editor のタイトル行も、
 // タイトル文字列だけを持つ葉要素として現れるので、表現が変わっても同じ数え方で観測できる。
@@ -147,14 +279,9 @@ export async function visibleTitleCount(target: Page, title: string): Promise<nu
 }
 
 // SSR 本文の行を click して編集を開始する。
-// 未作成ページには行が無く、作成ボタンだけが編集開始の面になる。
+// 未作成ページはタイトルの行だけなので、その行を click する（#289）。
 // 回復ダイアログが挟まる経路ではエディタがすぐ現れないので、待たずに戻る。
 export async function startEditing(target: Page, lineIndex = 1): Promise<void> {
-  const creationButton = target.locator('#edit-page-button');
-  if (await creationButton.count() > 0) {
-    await creationButton.click();
-    return;
-  }
   const rows = target.locator('#editor-root .line-row');
   const count = await rows.count();
   if (count === 0) throw new Error('SSR editor row is missing');
@@ -263,4 +390,140 @@ export async function firstRectCenter(target: Page, selector: string): Promise<{
     if (rect === undefined) throw new Error(`${value} has no rect`);
     return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
   }, selector);
+}
+
+// 行の中で描いた字 char の occurrence 番目（0 始まり）の字の箱の、左端から fraction の位置。
+// caret を押した字の位置に置く（#243）規則を、字の左半分・右半分を押して確かめるのに使う。
+export async function charPoint(
+  row: Locator,
+  char: string,
+  occurrence: number,
+  fraction: number,
+): Promise<{ x: number; y: number }> {
+  return row.evaluate((element, [target, nth, ratio]) => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    let seen = 0;
+    while (walker.nextNode() !== null) {
+      const node = walker.currentNode;
+      if (!(node instanceof Text)) continue;
+      for (let index = node.data.indexOf(target); index !== -1; index = node.data.indexOf(target, index + 1)) {
+        if (seen === nth) {
+          const range = document.createRange();
+          range.setStart(node, index);
+          range.setEnd(node, index + target.length);
+          const rect = range.getClientRects()[0];
+          if (rect === undefined) throw new Error(`char ${target} has no box`);
+          return { x: rect.left + rect.width * ratio, y: rect.top + rect.height / 2 };
+        }
+        seen += 1;
+      }
+    }
+    throw new Error(`char ${target} #${nth} is missing`);
+  }, [char, occurrence, fraction] as const);
+}
+
+// 閲覧表示の行の、本文の先頭の字の箱の上端。
+export async function firstCharTop(row: Locator): Promise<number> {
+  return row.evaluate((element) => {
+    const content = element.lastElementChild;
+    const node = content === null ? null : document.createTreeWalker(content, NodeFilter.SHOW_TEXT).nextNode();
+    if (!(node instanceof Text) || node.length === 0) throw new Error('the row has no text');
+    const range = document.createRange();
+    range.setStart(node, 0);
+    range.setEnd(node, 1);
+    return range.getBoundingClientRect().top;
+  });
+}
+
+// 編集表示の caret（selection の先端）がある行の原文、行の中での位置、caret の字の箱の上端、行の箱の上端。
+// caret の字は caret の後ろの字で、後ろに字が無ければ前の字を使う。CodeMirror が caret を画面へ入れる
+// scroll は次の描画の前に行うので、2 フレーム待ってから測る。
+export type EditorCaret = { text: string; offset: number; top: number; lineTop: number };
+
+export async function editorCaret(target: Page): Promise<EditorCaret> {
+  await target.evaluate(() => new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  }));
+  return target.evaluate(() => {
+    const selection = window.getSelection();
+    const node = selection?.focusNode;
+    const line = node?.parentElement?.closest('.cm-line');
+    if (selection === null || !(node instanceof Text) || node.length === 0 || line == null) {
+      throw new Error('caret is not in a text');
+    }
+    const before = document.createRange();
+    before.setStart(line, 0);
+    before.setEnd(node, selection.focusOffset);
+    const from = Math.min(selection.focusOffset, node.length - 1);
+    const char = document.createRange();
+    char.setStart(node, from);
+    char.setEnd(node, from + 1);
+    return {
+      text: line.textContent ?? '',
+      offset: before.toString().length,
+      top: char.getBoundingClientRect().top,
+      lineTop: line.getBoundingClientRect().top,
+    };
+  });
+}
+
+export type BlockLook = {
+  height: number;
+  label: { x: number; background: string; fontSize: string; color: string } | null;
+  band: { x: number; right: number; background: string; borderLeft: string; paddingLeft: string } | null;
+  textX: number | null;
+  cells: { x: number; background: string; padding: string }[];
+};
+
+// 引用・コードブロック・表の行の見た目。札（見出しの名前）、帯（背景を持つ要素）、
+// 帯の中の字の開始位置、表のセルを、閲覧表示と CodeMirror で同じ数え方で測る。
+export async function blockLooks(target: Page): Promise<BlockLook[]> {
+  return target.evaluate(() => Array.from(
+    document.querySelectorAll('#editor-root .line-row, #editor-root .cm-line'),
+    (row) => {
+      const label = row.querySelector<HTMLElement>('.code-block-start, .table-block-start');
+      const band = row.querySelector<HTMLElement>('.code-line, blockquote');
+      let textX: number | null = null;
+      if (band !== null) {
+        const walker = document.createTreeWalker(band, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode() !== null && textX === null) {
+          const range = document.createRange();
+          range.selectNodeContents(walker.currentNode);
+          const rect = Array.from(range.getClientRects()).find((candidate) => candidate.width > 0);
+          if (rect !== undefined) textX = Math.round(rect.left * 2) / 2;
+        }
+      }
+      const labelStyle = label === null ? null : getComputedStyle(label);
+      const bandStyle = band === null ? null : getComputedStyle(band);
+      return {
+        height: Math.round(row.getBoundingClientRect().height * 2) / 2,
+        label: label === null || labelStyle === null
+          ? null
+          : {
+            x: Math.round(label.getBoundingClientRect().left * 2) / 2,
+            background: labelStyle.backgroundColor,
+            fontSize: labelStyle.fontSize,
+            color: labelStyle.color,
+          },
+        band: band === null || bandStyle === null
+          ? null
+          : {
+            x: Math.round(band.getBoundingClientRect().left * 2) / 2,
+            right: Math.round(band.getBoundingClientRect().right * 2) / 2,
+            background: bandStyle.backgroundColor,
+            borderLeft: bandStyle.borderLeft,
+            paddingLeft: bandStyle.paddingLeft,
+          },
+        textX,
+        cells: Array.from(row.querySelectorAll('td'), (cell) => {
+          const style = getComputedStyle(cell);
+          return {
+            x: Math.round(cell.getBoundingClientRect().left * 2) / 2,
+            background: style.backgroundColor,
+            padding: style.padding,
+          };
+        }),
+      };
+    },
+  ));
 }

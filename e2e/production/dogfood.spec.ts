@@ -90,10 +90,23 @@ test('authenticated browser creates, edits, reloads and searches persistent cont
   expect(edited.texts).toEqual([title, 'edited before deploy']);
   await page.reload();
   await expect(page.locator('.page-body')).toContainText('edited before deploy');
+  // 検索は上部のバーの検索欄で行う。入力でタイトルの候補が出て、Enter で全文検索の結果ページへ移る（#247）。
+  // 767px 以下では、検索欄は検索ボタンで開くまで隠れている。
   await page.goto(`/${project}`);
-  const search = page.getByRole('searchbox');
+  if (isMobile) await page.locator('.nav-search-toggle').tap();
+  const search = page.locator('.nav-search-input');
+  await expect(search).toBeVisible();
   await search.fill(title);
-  await expect(page.locator(`#search-results a.search-hit[href="/${project}/${title}"]`)).toBeVisible();
+  await expect(page.locator(`.nav-search-candidates a[href="/${project}/${title}"]`)).toHaveText(title);
+  await search.press('Enter');
+  await expect(page).toHaveURL(`/${project}/search/page?q=${title}`);
+  await expect(page.locator(`.search-result a[href="/${project}/${title}"]`)).toBeVisible();
+  // 編集で入れた語でも、全文検索の結果に sentinel とその行が出る。
+  await search.fill('edited before deploy');
+  await search.press('Enter');
+  await expect(page).toHaveURL(`/${project}/search/page?q=edited+before+deploy`);
+  const editedHit = page.locator('.search-result', { has: page.locator(`a[href="/${project}/${title}"]`) });
+  await expect(editedHit.locator('.search-result-lines')).toContainText('edited before deploy');
   console.log(JSON.stringify({ project, title, id: edited.id, version: edited.version, text: 'edited before deploy' }));
 });
 

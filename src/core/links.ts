@@ -9,10 +9,16 @@ export type PageRefs = { linkTargets: LinkTarget[]; image: string | null };
 
 const HASHTAG_UNSAFE_RE = /[\s[\]#`]/;
 
-function stripLineId(href: string): string {
+// リンク先と、末尾の行 ID（Cosense の 24 字の 16 進か、knot の 26 字の ULID）。行 ID でない # は、
+// C# のようにタイトルの一部として残す。閲覧表示と編集表示の行へのリンク（#297）も、この 1 つの規則を使う。
+export function splitLineId(href: string): { target: string; lineId: string | null } {
   const i = href.lastIndexOf('#');
-  if (i > 0 && LINE_ID_RE.test(href.slice(i + 1))) return href.slice(0, i);
-  return href;
+  if (i > 0 && LINE_ID_RE.test(href.slice(i + 1))) return { target: href.slice(0, i), lineId: href.slice(i + 1) };
+  return { target: href, lineId: null };
+}
+
+function stripLineId(href: string): string {
+  return splitLineId(href).target;
 }
 
 export function extractRefs(text: string): PageRefs {

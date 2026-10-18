@@ -33,7 +33,7 @@ void test('既存ページの正規 URL は SSR 本文と直接編集用の要�
   const nonce = dataAttribute(body, 'csp-nonce');
   assert.match(nonce, /^[A-Za-z0-9+/]{22}==$/);
   assert.equal(res.headers.get('content-security-policy'), `${BASE_CSP}; style-src 'self' 'nonce-${nonce}'`);
-  assert.match(body, /<nav class="page-nav"><a href="\/proj">proj<\/a><\/nav>/);
+  assert.match(body, /<nav class="page-nav with-page-menu">\n<div class="page-nav-start"><a href="\/proj">proj<\/a><\/div>/);
   assert.match(body, /<div id="save-status"/);
   assert.match(body, /<section id="edit-conflict"[^>]*hidden>/);
   assert.match(body, /id="edit-conflict-list"/);
@@ -52,7 +52,7 @@ void test('既存ページの見出しはタイトル行そのもので、本文
   assert.equal(body.match(/<h1[\s>]/g)?.length, 1);
   assert.match(
     body,
-    /<div class="line-row" id="L[^"]+">\s*<span class="telomere[^"]*"[^>]*><\/span>\s*<h1 class="line-title">Alpha<\/h1>/,
+    /<div class="line-row" id="L[^"]+">\s*<button type="button" class="telomere[^"]*"[^>]*><\/button>\s*<h1 class="line-title">Alpha<\/h1>/,
   );
 });
 
@@ -65,7 +65,9 @@ void test('不在ページの正規 URL は同じ場所で作成を始める SSR
 
   assert.equal(res.status, 404);
   const body = await res.text();
-  assert.match(body, /id="edit-page-button"[^>]*>このタイトルで新規作成する<\/button>/);
+  // 作成ボタンではなく、ページのあるときと同じく、タイトルの行を押して編集を始める（#289）。
+  assert.match(body, /<div class="line-row" id="Lnew-title">\s*<span class="telomere unread w-10" aria-hidden="true"><\/span>\s*<h1 class="line-title">New Page<\/h1>/);
+  assert.doesNotMatch(body, /edit-page-button/);
   assert.equal(dataAttribute(body, 'title'), 'New Page');
   assert.equal(dataAttribute(body, 'last-seen-version'), '0');
   assert.match(body, /<section id="edit-conflict"[^>]*hidden>/);

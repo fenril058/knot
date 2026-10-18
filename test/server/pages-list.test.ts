@@ -30,7 +30,7 @@ void test('プロジェクトトップにプロジェクト一覧へ戻る導線
 
   const body = await (await s.request('/proj', {}, cookie)).text();
 
-  assert.match(body, /<nav class="page-nav"><a href="\/">プロジェクト一覧<\/a><\/nav>/);
+  assert.match(body, /<nav class="page-nav">\n<div class="page-nav-start"><a href="\/">プロジェクト一覧<\/a><\/div>/);
 });
 
 void test('アップロード画像(/files/)はカードのサムネイルになる', async () => {
@@ -47,7 +47,7 @@ void test('アップロード画像(/files/)はカードのサムネイルにな
   );
 });
 
-void test('カードの冒頭行は記法を剥がした平文で出す', async () => {
+void test('カードの冒頭行は記法の括弧を外して出す', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
@@ -55,7 +55,9 @@ void test('カードの冒頭行は記法を剥がした平文で出す', async 
 
   const body = await (await s.request('/proj', {}, cookie)).text();
 
-  assert.match(body, /Foo Bar と #tag を含む行/);
+  // リンクは色を付ける span に入る（#256）が、字は記法を外した平文と同じ。
+  const paragraph = /<p>(.*)<\/p>/.exec(body.slice(body.indexOf('href="/proj/Page"')))?.[1] ?? '';
+  assert.equal(paragraph.replaceAll(/<[^>]+>/g, ''), 'Foo Bar と #tag を含む行');
   assert.doesNotMatch(body, /\[Foo Bar\]/);
 });
 
@@ -70,8 +72,48 @@ void test('もっと見るリンク: count が limit を超えたら次ページ
   const res = await s.request('/proj?limit=2', {}, cookie);
   const body = await res.text();
 
-  assert.match(body, /href="\/proj\?skip=2&limit=2"/);
+  assert.match(body, /href="\/proj\?skip=2&limit=2&sort=updated"/);
   assert.match(body, /もっと見る/);
+});
+
+function cardTitles(body: string): (string | undefined)[] {
+  return [...body.matchAll(/<a class="card[^"]*" href="\/proj\/[^"]+">\s*<h2>([^<]+)<\/h2>/g)].map((match) => match[1]);
+}
+
+void test('並び替えを選ぶと、すべてのページをその順に並べ、選んだ並び替えをそのプロジェクトの cookie に残す（#291）', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(s.storage, project.id, 'Bravo', ['x'], s.clock.t + 1);
+  await seedPage(s.storage, project.id, 'alpha', ['x'], s.clock.t + 2);
+  await seedPage(s.storage, project.id, 'Charlie', ['x'], s.clock.t + 3);
+
+  const byDefault = await (await s.request('/proj', {}, cookie)).text();
+  assert.deepEqual(cardTitles(byDefault), ['Charlie', 'alpha', 'Bravo']);
+  // 展開ボタンには、いまの並び替えの名前を出す。項目は、その並び替えで描き直すリンク。
+  assert.match(byDefault, /<span class="sort-menu-current">更新日時<\/span>/);
+  const items = byDefault.slice(byDefault.indexOf('<div class="sort-menu-options">'), byDefault.indexOf('</details>'));
+  assert.deepEqual([...items.matchAll(/<a href="\?sort=(\w+)"( aria-current="true")?>([^<]+)<\/a>/g)].map((match) => [match[1], match[2] !== undefined, match[3]]), [
+    ['updated', true, '更新日時'],
+    ['created', false, '作成日時'],
+    ['accessed', false, '最終アクセス'],
+    ['linked', false, '被リンク数'],
+    ['views', false, '閲覧数'],
+    ['title', false, 'タイトル'],
+  ]);
+
+  const chosen = await s.request('/proj?sort=title', {}, cookie);
+  assert.deepEqual(cardTitles(await chosen.text()), ['alpha', 'Bravo', 'Charlie']);
+  assert.match(chosen.headers.get('set-cookie') ?? '', /^knot_page_sort=title; Max-Age=31536000; Path=\/proj; HttpOnly; SameSite=Lax$/);
+
+  // 並び替えを指定せずに開いても、cookie に残した並び替えで描く。知らない並び替えは無視する。
+  for (const path of ['/proj', '/proj?sort=bogus']) {
+    const res = await s.request(path, {}, `${cookie}; knot_page_sort=title`);
+    const body = await res.text();
+    assert.deepEqual(cardTitles(body), ['alpha', 'Bravo', 'Charlie'], path);
+    assert.match(body, /<span class="sort-menu-current">タイトル<\/span>/);
+    assert.equal(res.headers.get('set-cookie'), null);
+  }
 });
 
 void test('未ログインは /login へリダイレクト', async () => {
@@ -97,16 +139,18 @@ void test('GET /:project: 存在しないプロジェクトは layout を使っ�
   assert.match(body, /missing/);
 });
 
-void test('検索ボックスと script タグが一覧ページに含まれる', async () => {
+void test('一覧ページの検索欄は上部のバーにあり、全文検索の結果ページへ GET で送る（#247）', async () => {
   const s = await makeServer();
   const cookie = await loginAs(s);
   const project = await s.storage.ensureProject('proj', s.clock.t);
   await seedPage(s.storage, project.id, 'A', ['x'], s.clock.t);
   const res = await s.request('/proj', {}, cookie);
   const body = await res.text();
-  assert.match(body, /id="search-box"/);
-  assert.match(body, /id="search-root"[^>]*data-project="proj"/);
+  assert.match(body, /<nav class="page-nav">[\s\S]*<form class="nav-search" role="search" action="\/proj\/search\/page" method="get"/);
+  assert.match(body, /<input class="nav-search-input" type="search" name="q" value=""/);
+  assert.doesNotMatch(body, /id="search-box"/);
   assert.match(body, /<script type="module" src="\/assets\/build\/search\.js"><\/script>/);
+  assert.match(body, /<script type="module" src="\/assets\/build\/page-list\.js"><\/script>/);
   assert.doesNotMatch(body, /<script>/);
 });
 
@@ -119,6 +163,10 @@ void test('一覧ページに新規作成ボタンとタイトル入力 dialog �
   const body = await res.text();
 
   assert.match(body, /<button[^>]*id="create-page-button"[^>]*>新規作成<\/button>/);
+  // 見出しは画面に出さず、新規作成は札の上の toolbar に置き、ページ数を右下に出す（#253）。
+  assert.match(body, /<h1 class="visually-hidden">proj<\/h1>/);
+  assert.match(body, /<div id="page-list-root" class="page-list-toolbar" data-project="proj">\n<button type="button" id="create-page-button" class="tool-button">新規作成<\/button>/);
+  assert.match(body, /<div class="page-list-status">0 pages<\/div>/);
   assert.match(body, /<dialog[^>]*id="create-page-dialog"/);
   assert.match(body, /<input[^>]*id="create-page-title"[^>]*required/);
   assert.doesNotMatch(body, /\son[a-z]+\s*=/i);
@@ -136,4 +184,28 @@ void test('カード画像は allowedImageHosts で許可したホストだけ�
 
   assert.match(body, /<img class="card-image" src="https:\/\/allowed\.example\/a\.png"/);
   assert.doesNotMatch(body, /<img class="card-image" src="https:\/\/blocked\.example\/b\.png"/);
+});
+
+void test('札の説明文は、リンク・URL・コードを Cosense と同じ印で描き、装飾は付けない（#256）', async () => {
+  const s = await makeServer();
+  const cookie = await loginAs(s);
+  const project = await s.storage.ensureProject('proj', s.clock.t);
+  await seedPage(
+    s.storage,
+    project.id,
+    'Alpha',
+    ['[Beta] と #tag と https://example.com/ と `code` と [* bold] と [Gamma.icon]'],
+    s.clock.t,
+  );
+
+  const body = await (await s.request('/proj', {}, cookie)).text();
+  const card = body.slice(body.indexOf('<a class="card" href="/proj/Alpha">'), body.indexOf('</a></li>', body.indexOf('href="/proj/Alpha"')));
+  assert.equal(
+    card.slice(card.indexOf('<p>')),
+    '<p><span class="card-link">Beta</span> と <span class="card-link">#tag</span> と '
+      + '<span class="card-url">https://example.com/</span> と <code>code</code> と bold と '
+      + '<span class="card-link">Gamma</span></p>\n',
+  );
+  // 札全体が 1 つのリンクなので、説明文の中に a 要素を入れない。
+  assert.doesNotMatch(card.slice(card.indexOf('<p>')), /<a /);
 });

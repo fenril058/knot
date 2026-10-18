@@ -4,13 +4,26 @@ import { keymap, EditorView } from '@codemirror/view';
 import { applyOps } from '../../core/apply.ts';
 import type { RebaseConflict, RebaseLineState } from '../../core/rebase.ts';
 import { titleLc, pageHref } from '../../core/title.ts';
-import type { KnownPage } from '../../render/presentation.ts';
+import { knownPageMap, presentationLines, type KnownPage, type PresentedLine } from '../../render/presentation.ts';
 import { fetchPage, postCommit, uploadFile } from './api.ts';
+import {
+  clickTarget,
+  lineElements,
+  matchesLine,
+  selectionPoint,
+  sourcePosition,
+  type ClickTarget,
+  type LineElements,
+  type SelectionPoint,
+} from './caretPosition.ts';
+import { answerSettleEdits, type SettledPage } from '../editSession.ts';
+import { telomereTapEditsLine } from '../telomereInfo.ts';
 import { mapSelectionByLineId } from './documentChanges.ts';
 import { titleAutocompletion } from './cm/complete.ts';
+import { doubleClickWordSelection, wordRange } from './cm/wordSelection.ts';
 import { syntaxHighlighting } from './cm/decorations.ts';
 import { editorKeymap } from './cm/keymap.ts';
-import { lineWysiwyg, type ImageSize } from './cm/lineWysiwyg.ts';
+import { editStartPosition, imageSizeKey, keepCursorLineHeight, lineWysiwyg, type ImageSize } from './cm/lineWysiwyg.ts';
 import { pasteHandlers } from './cm/paste.ts';
 import { refreshTelomereGutter, telomereGutter } from './cm/telomere.ts';
 import {
@@ -30,7 +43,6 @@ const RECOVERY_WARNING = '再読み込み後に未保存内容を自動復元で
 
 const root = document.querySelector<HTMLElement>('#editor-root');
 const statusElement = document.querySelector<HTMLElement>('#save-status');
-const editButtonElement = document.querySelector<HTMLButtonElement>('#edit-page-button');
 const conflictPanelElement = document.querySelector<HTMLElement>('#edit-conflict');
 const conflictListElement = document.querySelector<HTMLOListElement>('#edit-conflict-list');
 const resolveConflictButtonElement = document.querySelector<HTMLButtonElement>('#resolve-edit-conflict');
@@ -51,7 +63,6 @@ if (
 }
 const editorRoot = root;
 const saveStatus = statusElement;
-const editButton = editButtonElement;
 const conflictPanel = conflictPanelElement;
 const conflictList = conflictListElement;
 const resolveConflictButton = resolveConflictButtonElement;
@@ -102,6 +113,16 @@ function unixTime(): number {
   return Math.floor(Date.now() / 1000);
 }
 
+// テロメアの線の太さを、閲覧表示と同じ時刻で決める。閲覧表示はサーバの時刻で描かれているので、
+// その時刻に、ページを読み込んでからの経過時間を足す。端末の時計がずれていても編集開始で変わらない。
+const renderedAt = Number(data.renderedAt);
+const loadedAt = performance.now();
+
+function telomereTime(): number {
+  if (!Number.isFinite(renderedAt)) return unixTime();
+  return renderedAt + Math.floor((performance.now() - loadedAt) / 1000);
+}
+
 function pendingKey(value: string, pageId?: string): string {
   return pageId === undefined
     ? `knot:pending:${project}/title:${titleLc(value)}`
@@ -137,6 +158,7 @@ let statusMessage: string | undefined;
 let storageWarning: string | undefined;
 let ownershipUnavailable = false;
 let suppressChanges = false;
+let restoringCaret = false;
 
 function ownedKey(baseKey: string): string {
   return `${baseKey}/editor:${editorId}`;
@@ -579,26 +601,133 @@ async function restorePending(record: EditorRecord): Promise<Recovery | null> {
   return { engine: restored, effects, texts: textsAfterEffects(result.page, effects) };
 }
 
+// 画面の上に固定した UI（上部のバー #303 と、767px 以下で開いた検索欄 #247）が本文を覆う下端。覆われた部分は、
+// 画面に見えていないものとして扱う。ブラウザが focus や scrollIntoView で要素を置く位置と同じにするため、
+// その高さを持つ html の scroll-padding-top（app.css）を読み、CSS と別に数を持たない（#331）。
+function coveredTop(): number {
+  const padding = Number.parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop);
+  return Number.isFinite(padding) ? padding : 0;
+}
+
+// CodeMirror が caret を画面へ入れるときの既定の余白（EditorView.scrollIntoView の yMargin）。
+const CARET_REVEAL_MARGIN = 5;
+
+// caret が固定した UI の下（か画面の上の外）に隠れているときだけ、隠れている分と余白だけ scroll して caret を
+// 見せる。行全体は見せない。scroll 位置は整数の px に丸められ、丸め方はブラウザで違う（Playwright の mobile
+// WebKit は切り捨て、Chromium は四捨五入）。動かす量を整数に切り上げ、丸めで余白を削らない。
+function revealCoveredCaret(target: EditorView): void {
+  const caret = target.coordsAtPos(target.state.selection.main.head);
+  if (caret === null) return;
+  const hidden = coveredTop() - caret.top;
+  if (hidden <= 0) return;
+  window.scrollBy(0, -Math.ceil(hidden + CARET_REVEAL_MARGIN));
+  target.requestMeasure();
+}
+
 // SSR 行の画面上の位置。画面に掛かっている行は、上端がはみ出していてもその位置へ戻す。
-// 完全に画面の外にある行は、そこへ戻しても編集対象が見えないので対象にしない。
+// 完全に画面の外にある行（固定した UI に隠れた行も含む）は、そこへ戻しても編集対象が見えないので対象にしない。
 function visibleRowTop(lineId: string): number | undefined {
   const row = document.getElementById(`L${lineId}`);
   if (row === null) return undefined;
   const box = row.getBoundingClientRect();
-  return box.bottom > 0 && box.top < window.innerHeight ? box.top : undefined;
+  return box.bottom > coveredTop() && box.top < window.innerHeight ? box.top : undefined;
 }
 
+// 閲覧表示で読み込み済みの画像が、描かれている大きさ。
 function loadedImageSizes(): Map<string, ImageSize> {
   const sizes = new Map<string, ImageSize>();
   for (const image of editorRoot.querySelectorAll('img')) {
     const src = image.getAttribute('src');
     if (src === null || !image.complete || image.naturalWidth === 0) continue;
-    sizes.set(src, { width: image.naturalWidth, height: image.naturalHeight });
+    const box = image.getBoundingClientRect();
+    sizes.set(imageSizeKey(src, image.className), { width: box.width, height: box.height });
   }
   return sizes;
 }
 
-type InitialEditTarget = { lineId: string; lineNumber: number };
+// click は閲覧表示の行を押した位置。編集を始める前（本文を差し替える前）に、取得した本文の
+// 原文の位置へ直す。
+type InitialEditTarget = { lineId: string; lineNumber: number; click?: { elements: LineElements; target: ClickTarget } };
+
+// 押した位置や選んでいた範囲を原文の位置へ直せないときは、その位置を使わずに編集を始める。
+// 直す途中で例外が出ても、編集の開始は止めない。
+function unlessThrows<T>(compute: () => T | undefined): T | undefined {
+  try {
+    return compute();
+  } catch {
+    return undefined;
+  }
+}
+
+function presentedLines(doc: string): PresentedLine[] {
+  return presentationLines(doc, knownPageMap(knownPages), project, { allowedImageHosts, allowedMediaHosts });
+}
+
+function clickedSourcePosition(
+  lines: readonly PresentedLine[],
+  lineNumber: number,
+  click: NonNullable<InitialEditTarget['click']>,
+): number | undefined {
+  const line = lines.find((candidate) => candidate.number === lineNumber);
+  return line === undefined ? undefined : sourcePosition(line, click.elements, click.target);
+}
+
+// 編集を始める行の、閲覧表示での高さ（#305）。閲覧表示を描いた後で本文が変わり、行の字と画像の並びが
+// 合わないときは返さない。
+function initialRowHeight(lines: readonly PresentedLine[], lineNumber: number, lineId: string): number | undefined {
+  const row = document.getElementById(`L${lineId}`);
+  const line = lines.find((candidate) => candidate.number === lineNumber);
+  const elements = row === null ? undefined : lineElements(row);
+  if (row === null || line === undefined || elements === undefined || !matchesLine(line, elements)) return undefined;
+  return row.getBoundingClientRect().height;
+}
+
+type SourceRange = { anchor: number; head: number };
+type RowPosition = { row: HTMLElement; node: Node; offset: number };
+
+// selection の端がある行。最後の行を triple click で選ぶと、終わりの端は本文より後ろ（関連ページ
+// など）に来るので、最後の行の終わりとして扱う。
+function selectionRow(rows: readonly HTMLElement[], node: Node, offset: number): RowPosition | undefined {
+  const row = (node instanceof Element ? node : node.parentElement)?.closest<HTMLElement>('.line-row');
+  if (row !== null && row !== undefined && row.parentElement === editorRoot) return { row, node, offset };
+  const last = rows.at(-1);
+  if (last === undefined) return undefined;
+  const range = document.createRange();
+  range.setStart(node, offset);
+  const end = last.childNodes.length;
+  return range.comparePoint(last, end) < 0 ? { row: last, node: last, offset: end } : undefined;
+}
+
+// 閲覧表示で選んでいた範囲（double click の単語、triple click の行など）。本文を差し替えると消えるので、
+// その前に原文の位置へ直し、編集表示でも同じ範囲を選んだまま始める（#194）。端が行の本文の外に
+// あるのは triple click で次の行の頭まで選んだときで、CodeMirror の triple click と同じく、
+// 前の端を行頭に寄せて行ごと選ぶ。
+function selectedSourceRange(lines: readonly PresentedLine[]): SourceRange | undefined {
+  const selection = window.getSelection();
+  if (selection === null || selection.isCollapsed || selection.anchorNode === null || selection.focusNode === null) {
+    return undefined;
+  }
+  const rows = Array.from(editorRoot.querySelectorAll<HTMLElement>(':scope > .line-row'));
+  const pointOf = (node: Node, offset: number): (SelectionPoint & { lineFrom: number }) | undefined => {
+    const end = selectionRow(rows, node, offset);
+    if (end === undefined) return undefined;
+    // 行番号は、編集開始の行と同じく行 ID から引く。
+    const confirmedIndex = engine.confirmedLines.findIndex(({ id }) => `L${id}` === end.row.id);
+    const lineNumber = confirmedIndex === -1 ? rows.indexOf(end.row) + 1 : confirmedIndex + 1;
+    const line = lines.find((candidate) => candidate.number === lineNumber);
+    const elements = lineElements(end.row);
+    if (line === undefined || elements === undefined) return undefined;
+    const point = selectionPoint(line, elements, end.node, end.offset);
+    return point === undefined ? undefined : { ...point, lineFrom: line.from };
+  };
+  const anchor = pointOf(selection.anchorNode, selection.anchorOffset);
+  const head = pointOf(selection.focusNode, selection.focusOffset);
+  if (anchor === undefined || head === undefined || anchor.position === head.position) return undefined;
+  if (anchor.inLine && head.inLine) return { anchor: anchor.position, head: head.position };
+  return anchor.position < head.position
+    ? { anchor: anchor.lineFrom, head: head.position }
+    : { anchor: anchor.position, head: head.lineFrom };
+}
 
 async function start(initialTarget?: InitialEditTarget): Promise<void> {
   initializeStorage();
@@ -633,10 +762,26 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
   const anchorTop = initialTarget === undefined ? undefined : visibleRowTop(initialTarget.lineId);
   // 閲覧表示で読み込み済みの画像の大きさも、差し替えで img が消える前に覚える。
   const imageSizes = loadedImageSizes();
+  // 押した位置と選んでいた範囲も、閲覧表示の行が消える前に原文の位置へ直す。
+  const initialPresentation = initialLineNumber === undefined
+    ? undefined
+    : unlessThrows(() => presentedLines(initialLines.join('\n')));
+  const click = initialTarget?.click;
+  const clickedPosition = click === undefined || initialLineNumber === undefined || initialPresentation === undefined
+    ? undefined
+    : unlessThrows(() => clickedSourcePosition(initialPresentation, initialLineNumber, click));
+  const selectedRange = initialPresentation === undefined
+    ? undefined
+    : unlessThrows(() => selectedSourceRange(initialPresentation));
+  // 編集を始める行の高さも、閲覧表示の行が消える前に測る。CodeMirror は caret から遠い行を描かないので、
+  // 編集を始めた時点では、その行の整形表示の高さを測れないことがある。
+  const rowHeight = initialTarget === undefined || initialLineNumber === undefined || initialPresentation === undefined
+    ? undefined
+    : initialRowHeight(initialPresentation, initialLineNumber, initialTarget.lineId);
 
   editorRoot.replaceChildren();
-  if (editButton !== null) editButton.hidden = true;
-  document.querySelector<HTMLElement>('#page-menu-root')?.setAttribute('hidden', '');
+  // ページメニューは編集中も出したままにする（#192）。ページ操作の前には、メニューが
+  // answerSettleEdits の約束事で手元の編集を保存し終えるのを待つ。
   view = new EditorView({
     doc: initialLines.join('\n'),
     parent: editorRoot,
@@ -645,8 +790,11 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
       // 閲覧表示は通常の block として折り返る。これを入れないと CodeMirror の既定の
       // white-space: pre のままで、編集を開始した瞬間に長い行が横スクロールへ変わる。
       EditorView.lineWrapping,
+      // caret を画面へ入れるときと、drag で選びながら scroll するときに、固定した UI に隠れた部分を画面の外として扱う。
+      EditorView.scrollMargins.of(() => ({ top: coveredTop() })),
       historyExtension(),
-      lineWysiwyg({ project, allowedImageHosts, allowedMediaHosts, knownPages, imageSizes }),
+      lineWysiwyg({ project, allowedImageHosts, allowedMediaHosts, knownPages, imageSizes, cspNonce }),
+      doubleClickWordSelection,
       // blur は defaultKeymap より後ろに置く。補完の Escape は Prec.highest で先に処理され、
       // 選択の simplifySelection も先に試されて、どちらも該当しないときだけ抜ける。
       keymap.of([
@@ -655,6 +803,22 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
         ...historyKeymap,
         { key: 'Escape', run: (target) => { target.contentDOM.blur(); return true; } },
       ]),
+      // Escape で抜けた後、Tab で本文へ戻るとき、DOM の選択範囲が本文の外にあると（上部のバーの検索欄を通ったときなど）、
+      // ブラウザは DOM の caret を本文の先頭（タイトルの行）に置く。CodeMirror はこれを次の selectionchange か keydown で
+      // 編集の caret の位置へ戻すが、IME の変換の確定のように keydown を伴わない入力はその前に届き、タイトルの行に入る（#334）。
+      // focus を受けたその場で、view.focus() に DOM の caret を編集の caret の位置へ書き戻させる。view.focus() は Chrome
+      // Android で focus をやり直すことがあるので、その focus では書き戻しを重ねない。
+      EditorView.domEventHandlers({
+        focus: (_event, target) => {
+          if (restoringCaret) return;
+          restoringCaret = true;
+          try {
+            target.focus();
+          } finally {
+            restoringCaret = false;
+          }
+        },
+      }),
       pasteHandlers({
         uploadFile: (file) => uploadFile(project, file),
         onUploadError: (message) => {
@@ -663,12 +827,13 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
         },
       }),
       titleAutocompletion(project),
-      syntaxHighlighting,
+      syntaxHighlighting(knownPages),
       telomereGutter({
         confirmedLines: () => engine.confirmedLines,
         userId: userName,
         lastSeenVersion,
-        now: unixTime,
+        title: () => engine.currentTitle,
+        now: telomereTime,
       }),
       EditorView.updateListener.of((update) => {
         if (!update.docChanged || suppressChanges) return;
@@ -685,10 +850,33 @@ async function start(initialTarget?: InitialEditTarget): Promise<void> {
     const selectedLine = view.state.doc.line(Math.min(initialLineNumber, view.state.doc.lines));
     // 画面に見えていた行から始めたなら同じ位置へ戻す。見えていない行（ショートカットの
     // 最終行など）から始めたときは、caret のほうを画面へ入れる。
-    view.dispatch({ selection: { anchor: selectedLine.from }, scrollIntoView: anchorTop === undefined });
+    // caret は押した字の位置に置く。押した位置が分からないとき（ショートカットで始めたとき、
+    // 閲覧表示を描いた後で本文が変わったとき）は本文の先頭に置く。
+    const clickedAnchor = clickedPosition !== undefined && clickedPosition >= selectedLine.from && clickedPosition <= selectedLine.to
+      ? clickedPosition
+      : undefined;
+    // カーソル行は、閲覧表示での行の高さを最小の高さとして保つ（#305）。
+    view.dispatch({
+      selection: selectedRange ?? { anchor: clickedAnchor ?? editStartPosition(view.state, selectedLine.number) },
+      effects: rowHeight === undefined ? [] : keepCursorLineHeight.of({ from: selectedLine.from, height: rowHeight }),
+      scrollIntoView: anchorTop === undefined,
+    });
+    // coordsAtPos は保留中の計測を済ませてから位置を返すので、そのあとの lineBlockAt は
+    // 計測済みの行の箱になる。比べるのは caret の矩形（字の高さ）ではなく、SSR 行と同じ
+    // 行の箱の上端にする。行送りが字より高いと、caret の矩形との差だけ画面が動く。
+    // scroll した先の画面の行は、まだ実測していない見積もりの高さで置かれていることがある。scroll の後に
+    // 計測を済ませ、実測した高さでずれた分をもう一度合わせる（#313）。
     if (anchorTop !== undefined) {
-      const coords = view.coordsAtPos(selectedLine.from);
-      if (coords !== null) window.scrollBy(0, coords.top - anchorTop);
+      for (let attempt = 0; attempt < 3 && view.coordsAtPos(selectedLine.from) !== null; attempt += 1) {
+        const drift = view.documentTop + view.lineBlockAt(selectedLine.from).top - anchorTop;
+        if (Math.abs(drift) < 1) break;
+        window.scrollBy(0, drift);
+        view.requestMeasure();
+      }
+      // 行を戻した後も、押した位置ではなく行頭に置いた caret（テロメアの tap、行の余白の click、ctrl + e など）は、
+      // 行の隠れた部分にあることがある。そのときだけ caret が見えるところまで動かす。押した字に置いた caret は
+      // 見えているので動かない（#333）。
+      revealCoveredCaret(view);
     }
   }
   renderStatus();
@@ -708,6 +896,36 @@ function flushOnExit(): void {
 function handleVisibilityChange(): void {
   if (document.visibilityState === 'hidden') flushOnExit();
 }
+
+// ページ操作（複製・リネーム・削除）の前に、手元の編集を保存し終えるのを待つ（#192）。
+// 自動保存の待ち時間を飛ばして送り、送信中のコミットが返るまで待つ。保存できない状態
+// （競合中・送信の失敗）では待たずに断り、ページ操作を止めてもらう。
+// ページ操作をやめたら（signal）、待つのをやめる。やめた後の編集を、やめた操作のために急いで送らない。
+const SETTLE_TIMEOUT_MS = 10_000;
+const SETTLE_POLL_MS = 100;
+
+async function settleEdits(signal: AbortSignal): Promise<SettledPage> {
+  const deadline = Date.now() + SETTLE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    signal.throwIfAborted();
+    if (engine.status === 'conflict' || engine.status === 'error') {
+      throw new Error('手元に保存できていない編集があります。保存し終えてから、もう一度操作してください');
+    }
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      timer = undefined;
+    }
+    await executeEffects(engine.flush());
+    renderStatus();
+    if (engine.status === 'saved') return { version: engine.confirmedVersion, title: engine.currentTitle };
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, SETTLE_POLL_MS);
+    });
+  }
+  throw new Error('編集の保存が終わりません。保存し終えてから、もう一度操作してください');
+}
+
+answerSettleEdits((signal) => (editorRoot.classList.contains('editor-active') ? settleEdits(signal) : undefined));
 
 resolveConflictButton.addEventListener('click', () => {
   resolveConflictButton.disabled = true;
@@ -743,18 +961,14 @@ function blocksEditorActivation(target: Element): boolean {
 function beginEditing(initialTarget?: InitialEditTarget): void {
   if (starting) return;
   starting = true;
-  if (editButton !== null) editButton.disabled = true;
   void start(initialTarget).catch((error: unknown) => {
     console.error(error);
     starting = false;
-    if (editButton !== null) editButton.disabled = false;
     saveStatus.hidden = false;
     saveStatus.textContent = 'エラー';
     saveStatus.dataset.status = 'error';
   });
 }
-
-editButton?.addEventListener('click', () => beginEditing());
 
 const typingTargetSelector = 'input, select, textarea, [contenteditable="true"]';
 
@@ -765,8 +979,8 @@ document.addEventListener('keydown', (event) => {
   if (!event.ctrlKey && !event.metaKey) return;
   // 入力欄と CodeMirror 本体の中では素通りさせる（macOS の ctrl+e は行末移動）。
   if (event.target instanceof Element && event.target.closest(typingTargetSelector) !== null) return;
-  // 操作メニューのダイアログは #page-menu-root の子で、start() がその親を hidden にする。
-  // 開いたまま起動すると、modal が画面から消えても open のまま残り、文書全体が inert になる。
+  // ページ操作などの modal なダイアログを開いている間は、エディタを起動も focus もしない。
+  // focus が modal の後ろへ移り、ダイアログの入力が届かなくなる。
   if (document.querySelector('dialog[open]') !== null) return;
   event.preventDefault();
   if (editorRoot.classList.contains('editor-active')) {
@@ -782,17 +996,39 @@ document.addEventListener('keydown', (event) => {
     : { lineId: lastRow.id.slice(1), lineNumber: rows.length });
 });
 
-if (initialPageId !== undefined) {
-  editorRoot.addEventListener('click', (event) => {
-    if (starting || !(event.target instanceof Element)) return;
-    const selection = window.getSelection();
-    if (selection !== null && !selection.isCollapsed) return;
-    if (blocksEditorActivation(event.target)) return;
-    const row = event.target.closest<HTMLElement>('.line-row');
-    if (row === null || row.parentElement !== editorRoot || !row.id.startsWith('L')) return;
-    const rows = Array.from(editorRoot.querySelectorAll<HTMLElement>('.line-row'));
-    const index = rows.indexOf(row);
-    if (index < 0) return;
-    beginEditing({ lineId: row.id.slice(1), lineNumber: index + 1 });
+// 本文の行を押すと、その位置から編集を始める。ページの無いタイトル（#289）でも、タイトルの行を押して始める。
+editorRoot.addEventListener('click', (event) => {
+  if (starting || !(event.target instanceof Element)) return;
+  const selection = window.getSelection();
+  if (selection !== null && !selection.isCollapsed) return;
+  // touch の端末では、Cosense と同じく行の左の余白（テロメアを含む）の tap でその行の編集を始め、caret は
+  // 本文の先頭に置く（#319）。テロメアのボタンはこの tap ではメニューを出さない（lineUi/main.ts）。
+  const telomereTap = event.target.closest('.line-row > .telomere') !== null && telomereTapEditsLine(event);
+  if (!telomereTap && blocksEditorActivation(event.target)) return;
+  const row = event.target.closest<HTMLElement>('.line-row');
+  if (row === null || row.parentElement !== editorRoot || !row.id.startsWith('L')) return;
+  const rows = Array.from(editorRoot.querySelectorAll<HTMLElement>('.line-row'));
+  const index = rows.indexOf(row);
+  if (index < 0) return;
+  const elements = lineElements(row);
+  const target = elements === undefined || telomereTap ? undefined : clickTarget(elements, event.clientX, event.clientY);
+  beginEditing({
+    lineId: row.id.slice(1),
+    lineNumber: index + 1,
+    ...(elements === undefined || target === undefined ? {} : { click: { elements, target } }),
   });
-}
+});
+
+// 閲覧表示の double click も、編集表示と同じ区切りの語を選ぶ（#261）。ブラウザの区切りは Cosense と
+// 違う（ICU は漢字とかなの続く語や、. や : でつながる英数字をまとめる）。選んだ範囲は、編集を始める
+// ときに編集表示へ持ち越す（#194）。編集表示に替わった後は CodeMirror が扱う。
+editorRoot.addEventListener('dblclick', (event) => {
+  if (editorRoot.classList.contains('editor-active') || !(event.target instanceof Element)) return;
+  if (blocksEditorActivation(event.target)) return;
+  const row = event.target.closest<HTMLElement>('.line-row');
+  const elements = row === null || row.parentElement !== editorRoot ? undefined : lineElements(row);
+  const target = elements === undefined ? undefined : clickTarget(elements, event.clientX, event.clientY);
+  if (!(target?.node instanceof Text)) return;
+  const { from, to } = wordRange(target.node.data, target.offset);
+  window.getSelection()?.setBaseAndExtent(target.node, from, target.node, to);
+});
