@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+      - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
       - run: nix develop .#workflow --command actionlint -color .github/workflows/*.yml
       - run: nix develop .#workflow --command zizmor --strict-collection .
       - run: nix develop .#workflow --command ghalint run
@@ -62,7 +62,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+      # nix-quick-install-action は max-jobs を設定しないので、Nix の既定値の 1 になる。
+      # devShell の npm 依存は tarball ごとに derivation をビルドするため、並列にする。
+      - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
+        with:
+          nix_conf: |
+            max-jobs = auto
       - run: nix develop . --command node -e 'if (process.versions.node.split(".")[0] !== "26") process.exit(1)'
       - id: e2e
         run: nix develop . --command npm run test:e2e
