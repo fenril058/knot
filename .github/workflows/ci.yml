@@ -68,6 +68,13 @@ jobs:
         with:
           nix_conf: |
             max-jobs = auto
+      # /nix をキャッシュする。保存は main だけで、PR は main のキャッシュを復元するだけにする。
+      # GC しないので、古いキャッシュへのフォールバックもしない。
+      # フォールバックで復元してから保存し直すと、もう使わない path がキャッシュに溜まり続けるため。
+      - uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7.0.2
+        with:
+          primary-key: nix-${{ runner.os }}-${{ runner.arch }}-e2e-${{ hashFiles('flake.nix', 'flake.lock', 'package.json', 'package-lock.json') }}
+          save: ${{ github.ref == 'refs/heads/main' }}
       - run: nix develop . --command node -e 'if (process.versions.node.split(".")[0] !== "26") process.exit(1)'
       - id: e2e
         run: nix develop . --command npm run test:e2e
