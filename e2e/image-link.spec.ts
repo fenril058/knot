@@ -60,11 +60,18 @@ test('本文の画像を押すと、Cosense と同じく画像を大きく出す
   await (await popup).waitForURL('https://i.gyazo.com/wide.png');
   await expect(dialog).toBeHidden();
 
-  // ctrl（cmd）を押しながらの click は、dialog を開かずに新しいタブで開く。headless の Chromium は
-  // 後ろに開いたタブを読み込まないので、タブが開いたことだけを見る。
-  const modified = page.context().waitForEvent('page');
+  // ctrl（cmd）を押しながらの click は、dialog を開かずに新しいタブで開く。
+  // Chromium の背景タブは読み込み前だと Playwright の page イベントが届かないので、
+  // CDP のページ target が増えたことを見る。
+  const cdp = await page.context().newCDPSession(page);
+  const { targetInfos: before } = await cdp.send('Target.getTargets');
+  const previousPageIds = new Set(before.filter((target) => target.type === 'page').map((target) => target.targetId));
   await bodyImage.click({ modifiers: ['ControlOrMeta'] });
-  await modified;
+  await expect.poll(async () => {
+    const { targetInfos } = await cdp.send('Target.getTargets');
+    return targetInfos.filter((target) => target.type === 'page' && !previousPageIds.has(target.targetId)).length;
+  }).toBe(1);
+  await cdp.detach();
   await expect(dialog).toBeHidden();
   await expect(page.locator('#editor-root .cm-editor')).toHaveCount(0);
 });
