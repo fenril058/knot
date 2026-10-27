@@ -66,6 +66,28 @@ void test('装飾の中のリンクにも、装飾の見た目を重ねる', () 
   ]);
 });
 
+void test('繰り返しアイコンのハイライトは原文の範囲に1つだけ付ける', () => {
+  notationCase('[a.icon*3]', 'icon');
+  notationCase('[[a.icon*3]]', 'icon');
+  notationCase('[a.icon][b.icon*3][b.icon*2]', 'icon');
+});
+
+void test('強調内の繰り返しアイコンに、同じ強調のハイライトを重ねない', () => {
+  assert.deepEqual(highlightSpans('Title\n[** [a.icon*3]]'), [
+    { from: 0, to: 5, kind: 'title' },
+    { from: 6, to: 10, kind: 'strong', styles: ['strong', 'level-2'] },
+    { from: 10, to: 20, kind: 'icon', styles: ['strong', 'level-2'] },
+    { from: 20, to: 21, kind: 'strong', styles: ['strong', 'level-2'] },
+  ]);
+  // 直前のアイコンと範囲を結合した後も、繰り返しの範囲を重ねない。
+  assert.deepEqual(highlightSpans('Title\n[** [a.icon][a.icon*3][a.icon*2]]'), [
+    { from: 0, to: 5, kind: 'title' },
+    { from: 6, to: 10, kind: 'strong', styles: ['strong', 'level-2'] },
+    { from: 10, to: 38, kind: 'icon', styles: ['strong', 'level-2'] },
+    { from: 38, to: 39, kind: 'strong', styles: ['strong', 'level-2'] },
+  ]);
+});
+
 void test('複数行コードブロックを行単位で装飾し、後続行の位置を保つ', () => {
   const docText = 'Title\ncode:name\n line one\n line two\n#after';
 
@@ -122,6 +144,7 @@ void test('複合ドキュメントの全スパンは範囲内にあり、同一
     'Title\n[* outer [/ inner]] and [- removed]\n[name.icon] https://example.com',
     'Title\ncode:ts\n const value = 1\n\n[$ value^2]',
     'Title\ntable:data\n a\tb\n c\td\n#after',
+    'Title\n[a.icon*3][a.icon*2]\n[** [a.icon][a.icon*3][a.icon*2]]\n[[a.icon*2]][[a.icon*2]]',
   ];
 
   for (const docText of documents) assertValidSpans(docText, highlightSpans(docText));

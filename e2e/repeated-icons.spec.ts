@@ -20,7 +20,7 @@ test('繰り返しアイコンを表示・編集・保存し、再読み込み�
     original,
     `連続 [${target}.icon*2][${target}.icon*2] 後`,
     `強調 [[${target}.icon*2]] 後`,
-    `装飾 [* [${target}.icon*3]] 後`,
+    `装飾 [** [${target}.icon*3]] 後`,
     'other [* bold] content',
   ];
   await createE2ePage(page, title, body);
@@ -38,6 +38,16 @@ test('繰り返しアイコンを表示・編集・保存し、再読み込み�
   await expect(root.locator('.cm-content')).toBeFocused();
   await expect(root.locator('.cm-wysiwyg-line .icon-img')).toHaveCount(12);
   await expect(root.locator('.cm-wysiwyg-line strong')).toContainText(['bold']);
+
+  const decorated = root.locator('.cm-wysiwyg-line[data-line-number="5"]');
+  const emphasisSize = await decorated.locator('strong').evaluate((element) => getComputedStyle(element).fontSize);
+  await decorated.click({ position: { x: 4, y: 8 } });
+  const decoratedRaw = root.locator('.cm-line').nth(4);
+  await expect(decoratedRaw).toContainText(body[3]!);
+  // 同じ範囲の装飾が入れ子になると、相対的な文字サイズ指定が重なって増幅する（#353）。
+  await expect(decoratedRaw.locator('.cm-sb-icon').last()).toHaveCSS('font-size', emphasisSize);
+  await root.locator('.cm-line').first().click();
+  await expect(root.locator('.cm-wysiwyg-line .icon-img')).toHaveCount(12);
 
   await root.locator('.cm-wysiwyg-line[data-line-number="2"]').click({ position: { x: 4, y: 8 } });
   const raw = root.locator('.cm-line').nth(1);
