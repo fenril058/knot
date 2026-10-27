@@ -94,11 +94,15 @@ function appendSpan(
 ): void {
   if (kind === undefined || from >= to) return;
   const previous = spans.at(-1);
-  if (previous?.to === from && previous.kind === kind && (previous.styles ?? []).join() === styles.join()) {
-    previous.to = to;
-  } else {
-    spans.push(styles.length === 0 ? { from, to, kind } : { from, to, kind, styles });
+  if (previous !== undefined && previous.kind === kind && (previous.styles ?? []).join() === styles.join()) {
+    // 繰り返しアイコンは原文の範囲を共有する。隣接範囲と結合済みの場合も、同じ装飾を重ねない。
+    if (previous.from <= from && to <= previous.to) return;
+    if (previous.to === from) {
+      previous.to = to;
+      return;
+    }
   }
+  spans.push(styles.length === 0 ? { from, to, kind } : { from, to, kind, styles });
 }
 
 function appendNodeSpans(
