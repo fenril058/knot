@@ -1,4 +1,4 @@
-import { EditorState, RangeSetBuilder, type Extension } from '@codemirror/state';
+import { EditorState, RangeSetBuilder, StateEffect, type Extension } from '@codemirror/state';
 import {
   Decoration,
   EditorView,
@@ -8,27 +8,42 @@ import {
   type DecorationSet,
   type ViewUpdate,
 } from '@codemirror/view';
+import { splitLineId } from '../../../core/links.ts';
+import { isAttachmentUrl } from '../../../core/media.ts';
 import { parsePageSyntax, type SyntaxNode } from '../../../core/syntax.ts';
 import { pageHref, titleLc } from '../../../core/title.ts';
 import {
+  indentMark,
+  isLinkOnlyLine,
+  isQuoteLine,
   knownPageMap,
   presentationLines,
+  projectPathHref,
   type KnownPage,
   type PresentedLine,
   type PresentedNode,
 } from '../../../render/presentation.ts';
+import { clickTarget, lineElements, sourcePosition } from '../caretPosition.ts';
+import { currentTableColumns, measureTableColumns, writeTableColumns, type MeasuredTables, type TableColumns } from '../../tableColumns.ts';
 
 export type LineWysiwygConfig = {
   project: string;
+  // 表の列の幅を書く style に付ける CSP の nonce（#276）。
+  cspNonce?: string;
   allowedImageHosts: string[];
   allowedMediaHosts: string[];
   knownPages: KnownPage[];
-  // src ごとの画像の大きさ。編集表示は img を作り直すので、ブラウザがキャッシュから
-  // 同期的に再利用できないと、読み込みが終わるまで画像の行が縮む (#211)。
+  // 閲覧表示で描かれた画像の大きさ（imageSizeKey ごと）。編集表示は img を作り直すので、
+  // ブラウザがキャッシュから同期的に再利用できないと、読み込みが終わるまで画像の行が縮む (#211)。
   imageSizes?: ReadonlyMap<string, ImageSize>;
 };
 
 export type ImageSize = { width: number; height: number };
+
+// 同じ画像でも、本文の画像とアイコンでは描かれる大きさが違うので、class と組にして引く。
+export function imageSizeKey(src: string, className: string): string {
+  return `${className}\n${src}`;
+}
 
 export function editingLineNumbers(state: EditorState): Set<number> {
   const numbers = new Set<number>();
@@ -38,6 +53,63 @@ export function editingLineNumbers(state: EditorState): Set<number> {
     for (let number = first; number <= last; number += 1) numbers.add(number);
   }
   return numbers;
+}
+
+// 編集を始める行の、閲覧表示で測った高さ（#305）。from は行の開始位置。CodeMirror は caret から遠い行を
+// 描かないので、編集を始めるときには、その行の整形表示の高さを測れないことがある。
+export const keepCursorLineHeight = StateEffect.define<{ from: number; height: number }>();
+
+// カーソル行の高さ（#305）。Cosense と同じく、カーソル行になる前の行の高さを最小の高さとして保つので、
+// 画像を隠して原文を描いても下の行は動かない。行の開始位置ごとに持ち、カーソルが離れた行の分は捨てる。
+function keepCursorLineHeights(update: ViewUpdate, previous: ReadonlyMap<number, number>): Map<number, number> {
+  const { state, view } = update;
+  const editing = editingLineNumbers(state);
+  const kept = new Map<number, number>();
+  const given = new Map<number, number>();
+  for (const transaction of update.transactions) {
+    for (const effect of transaction.effects) {
+      if (effect.is(keepCursorLineHeight)) given.set(effect.value.from, effect.value.height);
+    }
+  }
+  // 前からカーソル行だった行は、文書の変更をまたいで高さを引き継ぐ。行頭に字を足したときは変更の前、
+  // 行頭で改行したときは変更の後ろの位置が、同じ行の開始位置になる。
+  for (const [from, height] of previous) {
+    for (const assoc of [-1, 1]) {
+      const mapped = update.changes.mapPos(from, assoc);
+      const line = state.doc.lineAt(mapped);
+      if (line.from === mapped && editing.has(line.number)) {
+        kept.set(mapped, height);
+        break;
+      }
+    }
+  }
+  // 新しくカーソル行になった行は、渡された高さか、整形表示で測った高さを保つ。文書が変わったときの行の
+  // 高さは、測り直す前の見積もりなので使わない。描いていない行の高さも見積もりなので使わない。
+  const before = editingLineNumbers(update.startState);
+  for (const number of editing) {
+    const line = state.doc.line(number);
+    const height = given.get(line.from);
+    if (height !== undefined) {
+      kept.set(line.from, height);
+      continue;
+    }
+    if (update.docChanged || before.has(number) || line.from < view.viewport.from || line.to > view.viewport.to) continue;
+    kept.set(line.from, view.lineBlockAt(line.from).height);
+  }
+  return kept;
+}
+
+function includesImage(nodes: readonly PresentedNode[]): boolean {
+  return nodes.some((node) => (
+    node.type === 'image' || ((node.type === 'container' || node.type === 'link') && includesImage(node.children))
+  ));
+}
+
+// 画像（アイコンを含む）を描く行。Cosense はこの行のカーソル行（.cursor-line.with-image）で、画像を描いていた
+// 場所を薄い灰色で示す（#305）。
+function hasImage(line: PresentedLine): boolean {
+  if (line.role === 'line') return includesImage(line.nodes);
+  return line.role === 'tableRow' && line.cells.some((cell) => includesImage(cell));
 }
 
 function isHttpUrl(value: string): boolean {
@@ -56,6 +128,7 @@ function appendNode(parent: ParentNode, node: PresentedNode, imageSizes: Readonl
       return;
     case 'code': {
       const code = document.createElement('code');
+      if (node.className !== undefined) code.className = node.className;
       code.textContent = node.text;
       parent.append(code);
       return;
@@ -73,7 +146,10 @@ function appendNode(parent: ParentNode, node: PresentedNode, imageSizes: Readonl
       const anchor = document.createElement('a');
       anchor.href = node.href;
       if (node.className !== undefined) anchor.className = node.className;
-      if (node.external) anchor.rel = 'noopener noreferrer';
+      // 閲覧表示（src/render/render.ts）と同じく、新しいタブで開くリンク（#287）と外部リンクは
+      // 開いた先にこのページを渡さない。
+      if (node.newTab) anchor.target = '_blank';
+      if (node.newTab || node.external) anchor.rel = 'noopener noreferrer';
       for (const child of node.children) appendNode(anchor, child, imageSizes);
       parent.append(anchor);
       return;
@@ -83,15 +159,18 @@ function appendNode(parent: ParentNode, node: PresentedNode, imageSizes: Readonl
       image.src = node.src;
       image.alt = node.alt;
       if (node.className !== undefined) image.className = node.className;
-      const size = imageSizes.get(node.src);
+      const size = imageSizes.get(imageSizeKey(node.src, node.className ?? ''));
       if (size !== undefined) {
-        image.width = size.width;
-        image.height = size.height;
-        // 属性は読み込みまでの場所取りにだけ使う。取り直した画像の大きさが閲覧時と違っても、
-        // 読み込み後は画像そのものの大きさに従わせる。
+        // 閲覧表示で描かれた大きさで場所を取る。原寸ではなく描かれた大きさにするのは、本文の
+        // 画像には CSS の上限（高さ 300px など）があり、原寸と上限の組み合わせでは横長の画像の
+        // 高さが閲覧時と変わるため。小数の大きさを保つよう属性ではなく style に置く。
+        image.style.width = `${size.width}px`;
+        image.style.height = `${size.height}px`;
+        // 場所取りは読み込みまで。取り直した画像の大きさが閲覧時と違っても、
+        // 読み込み後は画像そのものの大きさと CSS の規則に従わせる。
         const release = (): void => {
-          image.removeAttribute('width');
-          image.removeAttribute('height');
+          image.style.removeProperty('width');
+          image.style.removeProperty('height');
         };
         image.addEventListener('load', release, { once: true });
         image.addEventListener('error', release, { once: true });
@@ -129,11 +208,14 @@ function linkNodeAt(nodes: readonly SyntaxNode[], position: number): SyntaxNode 
   return null;
 }
 
-function linkHrefAt(
+// caret のあるリンクの行き先。newTab は、押したときと同じく新しいタブで開くリンク（#287）。
+type LinkTarget = { href: string; newTab: boolean };
+
+function linkTargetAt(
   state: EditorState,
   project: string,
   knownPages: ReadonlyMap<string, KnownPage>,
-): string | null {
+): LinkTarget | null {
   const selection = state.selection.main;
   if (!selection.empty) return null;
   const position = selection.head;
@@ -146,14 +228,19 @@ function linkHrefAt(
         : null;
     if (node?.type === 'hashTag') {
       const target = knownPages.get(titleLc(node.href))?.title ?? node.href;
-      return pageHref(project, target);
+      return { href: pageHref(project, target), newTab: false };
     }
     if (node?.type === 'link' && node.pathType === 'relative') {
-      const rawTarget = node.href.split('#')[0]!;
+      // 行へのリンクは、その行へ移る（#297）。
+      const { target: rawTarget, lineId } = splitLineId(node.href);
       const target = knownPages.get(titleLc(rawTarget))?.title ?? rawTarget;
-      return pageHref(project, target);
+      return { href: `${pageHref(project, target)}${lineId === null ? '' : `#${lineId}`}`, newTab: false };
     }
-    if (node?.type === 'link' && isHttpUrl(node.href)) return node.href;
+    if (node?.type === 'link' && isHttpUrl(node.href)) return { href: node.href, newTab: true };
+    if (node?.type === 'link' && node.pathType === 'root' && !isAttachmentUrl(node.href)) {
+      const href = projectPathHref(node.href);
+      if (href !== null) return { href, newTab: true };
+    }
   }
   return null;
 }
@@ -161,11 +248,30 @@ function linkHrefAt(
 function openLinkAtCursor(config: LineWysiwygConfig): (view: EditorView) => boolean {
   const knownPages = knownPageMap(config.knownPages);
   return (view) => {
-    const href = linkHrefAt(view.state, config.project, knownPages);
-    if (href === null) return false;
-    window.location.assign(href);
+    const target = linkTargetAt(view.state, config.project, knownPages);
+    if (target === null) return false;
+    if (target.newTab) window.open(target.href, '_blank', 'noopener,noreferrer');
+    else window.location.assign(target.href);
     return true;
   };
+}
+
+// 字下げした行の caret を置く位置。字下げの後ろ（本文の先頭）に置き、入力で字下げを崩さない。
+function textStart(line: PresentedLine): number {
+  return line.role === 'line' ? line.from + line.indent : line.from;
+}
+
+// 編集を始めるときに caret を置く位置。閲覧表示の行を押したときも、整形表示の行を押したときと
+// 同じく、字下げした行では本文の先頭に置く。
+export function editStartPosition(state: EditorState, lineNumber: number): number {
+  const line = state.doc.line(lineNumber);
+  try {
+    const block = parsePageSyntax(state.doc.toString(), { hasTitle: true })
+      .find((candidate) => candidate.range.from === line.from);
+    return block?.type === 'line' ? line.from + block.indent : line.from;
+  } catch {
+    return line.from;
+  }
 }
 
 class FormattedLineWidget extends WidgetType {
@@ -193,6 +299,8 @@ class FormattedLineWidget extends WidgetType {
     root.className = 'cm-wysiwyg-line';
     root.dataset.lineNumber = String(this.line.number);
     if (this.line.indent > 0) {
+      // \u95b2\u89a7\u8868\u793a\u306e .line-row \u3068\u540c\u3058\u304f\u3001\u5b57\u4e0b\u3052\u3068\u672c\u6587\u3092\u4e26\u3079\u3066\u672c\u6587\u3092\u5b57\u4e0b\u3052\u306e\u4f4d\u7f6e\u3067\u6298\u308a\u8fd4\u3059\u3002
+      root.classList.add('cm-wysiwyg-indented');
       const prefix = document.createElement('span');
       prefix.className = 'line-indent-prefix cm-wysiwyg-indent-prefix';
       prefix.ariaHidden = 'true';
@@ -200,25 +308,39 @@ class FormattedLineWidget extends WidgetType {
       root.append(prefix);
     }
     const content = document.createElement('span');
-    if (this.line.indent > 0) content.classList.add('cm-wysiwyg-indent-content');
+    if (this.line.indent > 0) {
+      content.classList.add('cm-wysiwyg-indent-content');
+      const mark = indentMark(this.line);
+      if (mark !== 'dot') content.classList.add(`mark-${mark}`);
+    }
     if (this.line.role === 'title') {
-      const title = document.createElement('strong');
-      title.textContent = this.line.text;
-      content.append(title);
+      // 閲覧表示の h1 と同じく太字にしない。字の大きさと行送りは行（.cm-title-line）が持つ。
+      content.textContent = this.line.text;
     } else if (this.line.role === 'line') {
+      // 引用の帯も、閲覧表示と同じく行の幅いっぱいに引けるようにする。
+      if (isQuoteLine(this.line)) root.classList.add('cm-wysiwyg-quote-line');
       for (const node of this.line.nodes) appendNode(content, node, this.imageSizes);
     } else if (this.line.role === 'codeHeader' || this.line.role === 'tableHeader') {
+      // 閲覧表示と同じく、見出しは名前だけを札にする。
+      const kind = this.line.role === 'codeHeader' ? 'code' : 'table';
       const header = document.createElement('span');
-      header.className = this.line.role === 'codeHeader' ? 'code-header' : 'table-header';
-      header.textContent = this.line.text;
+      header.className = `${kind}-header`;
+      const label = document.createElement('span');
+      label.className = `${kind}-block-start`;
+      label.textContent = this.line.text;
+      header.append(label);
       content.append(header);
     } else if (this.line.role === 'codeLine') {
+      // 閲覧表示の block の帯と同じく、行の幅いっぱいに帯を引けるようにする。
+      root.classList.add('cm-wysiwyg-code-line');
       const code = document.createElement('code');
       code.className = 'code-line';
       code.textContent = this.line.text;
       content.append(code);
     } else if (this.line.role === 'tableRow') {
       const table = document.createElement('table');
+      // 閲覧表示と同じく、同じ表の行の列の幅を揃える（#276）。
+      table.dataset.table = String(this.line.table);
       const tr = document.createElement('tr');
       for (const cell of this.line.cells) {
         const td = document.createElement('td');
@@ -235,14 +357,89 @@ class FormattedLineWidget extends WidgetType {
       const target = event.target;
       if (target instanceof Element && target.closest('a') !== null) return;
       event.preventDefault();
-      view.dispatch({ selection: { anchor: this.line.from }, scrollIntoView: true });
+      // 押した字の位置に caret を置く。DOM と行の対応が取れないときは本文の先頭に置く。
+      const elements = lineElements(root);
+      const click = elements === undefined ? undefined : clickTarget(elements, event.clientX, event.clientY);
+      const anchor = elements === undefined || click === undefined ? undefined : sourcePosition(this.line, elements, click);
+      view.dispatch({ selection: { anchor: anchor ?? textStart(this.line) }, scrollIntoView: true });
       view.focus();
     });
     return root;
   }
 }
 
-function buildDecorations(view: EditorView, config: LineWysiwygConfig): DecorationSet {
+// カーソル行の原文表示。字下げの空白は整形表示の 1 段と同じ幅で描き（#241）、引用の枠と、
+// コードブロックの帯・札も整形表示と同じに描く（#269）。記法の字（> や code:）は見せる。
+//
+// 字下げの空白は widget に替えず、字のまま 1 字を 1 段の幅にする（#271）。widget（と CodeMirror が
+// 前後に置く buffer の img）の後ろではブラウザが行を折り返せるので、字下げした行が長い 1 語で
+// 始まると、語が 1 行目に入らず次の行から始まってしまう。空白は本文と同じ font のまま、空白だけを
+// 広げる word-spacing で 1 段にし、空白の後ろでは折り返さない（CSS の .cm-indent-text）。
+// CodeMirror は本文の先頭の caret を DOM ではこの空白の text の末尾に置くので、そこで始めた IME の
+// 変換中の字もこの span に入る。font を変えず、空白以外は広げないので、変換中の字も本文と同じに描く。
+// 空白は文書に残るので、Tab / Backspace / Enter / undo / IME による編集の意味は変わらず、caret も
+// 字下げの中を 1 段ずつ動く。行頭の印は、行の ::before で整形表示と同じ位置に描く。
+function addActiveLineDecorations(builder: RangeSetBuilder<Decoration>, line: PresentedLine): void {
+  const quote = isQuoteLine(line);
+  // コードブロックの本文の行は、ブロックの字下げに 1 字足した空白から字が始まる。整形表示と同じく、
+  // 帯はブロックの字下げの位置から引き、字は帯の中の 1 段深い位置から始める。
+  const prefix = line.role === 'codeLine' ? line.textSpan.from - line.from : line.indent;
+  const classes: string[] = [];
+  const properties: string[] = [];
+  const indented = prefix > 0 && line.role !== 'title';
+  if (indented) {
+    classes.push('cm-active-indent');
+    properties.push(`--indent-level: ${prefix}`);
+    const mark = indentMark(line);
+    if (mark !== 'none') classes.push(`mark-${mark}`);
+  }
+  // 枠と帯は、ブロック（引用は行）の字下げの位置から引く。
+  if (quote) classes.push('cm-active-quote');
+  if (line.role === 'codeLine') classes.push('cm-active-code-line');
+  if (quote || line.role === 'codeLine') properties.push(`--block-indent: ${line.indent}`);
+  if (classes.length > 0) {
+    // 段数は custom property で渡す。CodeMirror は line decoration の style を
+    // style.cssText（CSSOM）で書くので、style 属性と違って CSP の style-src に止められない。
+    builder.add(line.from, line.from, Decoration.line({
+      class: classes.join(' '),
+      attributes: { style: properties.join('; ') },
+    }));
+  }
+  if (indented) builder.add(line.from, line.from + prefix, Decoration.mark({ class: 'cm-indent-text' }));
+  // 引用の > は、整形表示で見えない > が占める位置（枠の線と余白の後ろ）に置く。
+  if (quote) builder.add(line.from + line.indent, line.from + line.indent + 1, Decoration.mark({ class: 'cm-quote-mark' }));
+  // コードブロックと表の見出しは、code: と table: も札の中に見せる（表は #293）。
+  if ((line.role === 'codeHeader' || line.role === 'tableHeader') && line.from + line.indent < line.to) {
+    const label = line.role === 'codeHeader' ? 'code-block-start' : 'table-block-start';
+    builder.add(line.from + line.indent, line.to, Decoration.mark({ class: label }));
+  }
+  if (line.role === 'tableRow') addTableCellDecorations(builder, line);
+}
+
+// 表の行のカーソル行（#293）。Cosense のカーソル行と同じく、閲覧表示と同じセルの箱（交互の背景・列の幅）を保ち、
+// 背景だけを少し濃くする。列の幅は、閲覧表示の td と同じ規則（tableColumns.ts）が data-table と data-col で決める。
+// 表の行の字は、見出しの字下げ（line.indent）より 1 字深い位置から始まり、セルはタブで区切る。閲覧表示と同じく、
+// その 1 字とタブは幅を持たせないので、セルの箱は td と同じ字の幅で決まる。字の無いセルは、箱を描かない。
+function addTableCellDecorations(builder: RangeSetBuilder<Decoration>, line: PresentedLine & { role: 'tableRow' }): void {
+  const start = line.from + line.indent;
+  if (start >= line.to) return;
+  builder.add(start, start + 1, Decoration.mark({ class: 'cm-table-gap' }));
+  const cells = line.source.slice(line.indent + 1).split('\t');
+  let from = start + 1;
+  cells.forEach((cell, index) => {
+    const to = from + cell.length;
+    if (to > from) {
+      builder.add(from, to, Decoration.mark({
+        class: index % 2 === 0 ? 'cm-table-cell' : 'cm-table-cell even',
+        attributes: { 'data-table': String(line.table), 'data-col': String(index + 1) },
+      }));
+    }
+    if (index < cells.length - 1) builder.add(to, to + 1, Decoration.mark({ class: 'cm-table-gap' }));
+    from = to + 1;
+  });
+}
+
+function buildDecorations(view: EditorView, config: LineWysiwygConfig, keptHeights: ReadonlyMap<number, number>): DecorationSet {
   const editing = editingLineNumbers(view.state);
   const imageSizes = config.imageSizes ?? new Map<string, ImageSize>();
   const builder = new RangeSetBuilder<Decoration>();
@@ -257,7 +454,24 @@ function buildDecorations(view: EditorView, config: LineWysiwygConfig): Decorati
           attributes: { role: 'heading', 'aria-level': '1' },
         }));
       }
-      if (editing.has(line.number)) continue;
+      // コードブロックの行の高さも行に掛ける。カーソルが入って原文表示になっても変わらない。
+      if (line.role === 'codeHeader' || line.role === 'codeLine') {
+        builder.add(line.from, line.from, Decoration.line({ class: 'code-block-line' }));
+      }
+      // 行末の余白も、閲覧表示と同じ行にだけ置く。カーソルが入っても折り返しの幅を変えない。
+      if (isLinkOnlyLine(line)) builder.add(line.from, line.from, Decoration.line({ class: 'link-only' }));
+      if (editing.has(line.number)) {
+        const height = keptHeights.get(line.from);
+        if (height !== undefined) {
+          // title 行は下に padding を持つので、padding を含めた高さで保つ。
+          const style = `box-sizing: border-box; min-height: ${height}px`;
+          builder.add(line.from, line.from, Decoration.line(hasImage(line)
+            ? { class: 'cm-image-cursor-line', attributes: { style } }
+            : { attributes: { style } }));
+        }
+        addActiveLineDecorations(builder, line);
+        continue;
+      }
       const widget = new FormattedLineWidget(line, imageSizes);
       if (line.from === line.to) {
         builder.add(line.from, line.to, Decoration.widget({ widget }));
@@ -271,16 +485,73 @@ function buildDecorations(view: EditorView, config: LineWysiwygConfig): Decorati
   return builder.finish();
 }
 
+// 本文の font の空白の幅。カーソル行の字下げの空白を、この幅に word-spacing を足して 1 段にする。
+// CSS では font の空白の幅を得られないので、canvas で測って custom property に入れる。
+// knot は web font を読み込まないので、測った後で font が替わることはない。
+function measureSpaceWidth(view: EditorView): void {
+  const context = document.createElement('canvas').getContext('2d');
+  if (context === null) return;
+  const style = getComputedStyle(view.contentDOM);
+  context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+  const width = context.measureText(' ').width;
+  if (width > 0) view.dom.style.setProperty('--indent-space-width', `${width}px`);
+}
+
+// 表ごとの行の数（表の見出しの行番号ごと）。
+function tableRowCounts(view: EditorView, config: LineWysiwygConfig): Map<string, number> {
+  const counts = new Map<string, number>();
+  try {
+    for (const line of displayLines(view.state, config)) {
+      if (line.role === 'tableRow') counts.set(String(line.table), (counts.get(String(line.table)) ?? 0) + 1);
+    }
+  } catch {
+    return counts;
+  }
+  return counts;
+}
+
+// 編集表示の表の列の幅（#276）。整形表示の行のセルを測り、閲覧表示と同じ style に書く。CodeMirror は
+// 画面から遠い行やカーソル行のセルを描かないので、表の行をすべて測れたときだけ測った幅をそのまま使い、
+// そうでなければ今の幅より狭くしない（閲覧表示で、描かれていない行の長いセルが決めた幅を保つ）。
+function mergeTableColumns(current: TableColumns, measured: MeasuredTables, rowCounts: ReadonlyMap<string, number>): TableColumns {
+  const merged = new Map(current);
+  for (const [key, { widths, rows }] of measured) {
+    const previous = rows === rowCounts.get(key) ? [] : current.get(key) ?? [];
+    const length = Math.max(widths.length, previous.length);
+    merged.set(key, Array.from({ length }, (_, index) => Math.max(widths[index] ?? 0, previous[index] ?? 0)));
+  }
+  return merged;
+}
+
 export function lineWysiwyg(config: LineWysiwygConfig): Extension {
   const plugin = ViewPlugin.fromClass(class {
     decorations: DecorationSet;
+    keptHeights: Map<number, number>;
 
     constructor(view: EditorView) {
-      this.decorations = buildDecorations(view, config);
+      measureSpaceWidth(view);
+      this.keptHeights = new Map();
+      this.decorations = buildDecorations(view, config, this.keptHeights);
+      this.alignTables(view);
     }
 
     update(update: ViewUpdate): void {
-      if (update.docChanged || update.selectionSet) this.decorations = buildDecorations(update.view, config);
+      if (update.docChanged || update.selectionSet) {
+        this.keptHeights = keepCursorLineHeights(update, this.keptHeights);
+        this.decorations = buildDecorations(update.view, config, this.keptHeights);
+      }
+      if (update.docChanged || update.selectionSet || update.viewportChanged) this.alignTables(update.view);
+    }
+
+    alignTables(view: EditorView): void {
+      view.requestMeasure({
+        key: 'knot-table-columns',
+        read: (current) => measureTableColumns(current.contentDOM),
+        write: (measured, current) => {
+          if (measured.size === 0) return;
+          writeTableColumns(mergeTableColumns(currentTableColumns(), measured, tableRowCounts(current, config)), config.cspNonce);
+        },
+      });
     }
   }, {
     decorations: (value) => value.decorations,

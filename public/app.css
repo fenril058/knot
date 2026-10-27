@@ -1,57 +1,467 @@
-body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem; }
+/* Cosense の既定テーマで観測した値（#228 / #229）。紙面は本文を載せる白い領域（.page）。
+   紙面の左 padding はテロメアを置く余白を兼ねるので、閲覧表示と編集表示が同じ値を使う。 */
+:root {
+  --body-bg: #dcdde0;
+  --page-bg: #fefefe;
+  --page-text-color: #4a4a4a;
+  --dot-color: #555;
+  --link-color: #3d72f5;
+  --link-hover-color: #0d4ff3;
+  --empty-link-color: #fd7373;
+  --empty-link-hover-color: #fc4141;
+  --line-height: 28px;
+  --page-padding-top: 42px;
+  --page-padding-inline: 49px;
+  --page-padding-bottom: 42px;
+}
+@media (max-width: 991px) {
+  :root { --page-padding-inline: 42px; --page-padding-bottom: 35px; }
+}
+@media (max-width: 767px) {
+  :root { --page-padding-top: 28px; --page-padding-inline: 21px; --page-padding-bottom: 42px; }
+}
+body {
+  background-color: var(--body-bg);
+  color: #333;
+  font-family: "Open Sans", Helvetica, Arial, "Hiragino Sans", sans-serif;
+  font-size: 14px;
+  line-height: 20px;
+  margin: 0;
+}
 a { color: #2c6ea3; }
 .empty-link { color: #c0392b; }
-.page-nav { margin-bottom: 0.5rem; font-size: 0.9em; }
-.card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; list-style: none; margin: 0; padding: 0; }
-.card-grid > li { display: flex; min-width: 0; }
+/* 上部のバー。Cosense の navbar と同じ高さと色にする。中も Cosense と同じく、左の導線・真ん中の
+   検索欄・右の空きの 3 列（992px 以上は 2 : 3 : 2、それより狭いと 2 : 3 と幅 0）で、列の間隔は 16px（#247）。
+   Cosense と同じく画面の上に固定し、下を流れる紙面をぼかして透かす（#303）。本文の上に出す部品（z-index 3 まで）
+   より上に重ねる。 */
+.page-nav { align-items: center; backdrop-filter: blur(10px); background-color: rgb(196 197 202 / 70%); box-sizing: border-box; column-gap: 16px; display: grid; grid-template-columns: 2fr 3fr 2fr; grid-template-rows: 40px; height: 41px; inset-block-start: 0; inset-inline: 0; padding-inline: 16px; position: fixed; z-index: 10; }
+/* focus や scrollIntoView で画面へ入れる要素を、バーの下に置く。編集表示も、caret を画面へ入れる余白と、
+   編集を始める行が見えているかの判定にこの値を読む（editor/main.ts の coveredTop、#331）。 */
+html:has(.page-nav) { scroll-padding-top: 41px; }
+.page-nav-start { display: flex; min-width: 0; }
+.page-nav-start a { color: #363c49; font-weight: 600; padding: 6px 8px; text-decoration: none; }
+@media (max-width: 991px) {
+  .page-nav { grid-template-columns: 2fr 3fr auto; padding-inline: 8px; }
+}
+/* 検索欄（Cosense の .search-form）。右端に 32px 四方の検索ボタンを重ねる。focus 中は白くする。 */
+.nav-search { position: relative; }
+.nav-search-input { appearance: none; background-color: rgb(255 255 255 / 50%); border: 1px solid transparent; border-radius: 5px; box-sizing: border-box; color: #555; display: block; font: inherit; height: 32px; margin: 0; padding: 0 32px 0 10px; width: 100%; }
+.nav-search-input:focus { background-color: #fff; outline: none; }
+.nav-search-input::-webkit-search-cancel-button { appearance: none; }
+.nav-search-button, .nav-search-toggle { align-items: center; background: none; border: 0; border-radius: 4px; color: rgb(54 60 73 / 70%); cursor: pointer; display: flex; height: 32px; justify-content: center; padding: 0; width: 32px; }
+.nav-search-button { inset-block-start: 0; inset-inline-end: 0; position: absolute; }
+.nav-search-toggle { display: none; }
+/* タイトルの候補（Cosense の .dropdown-menu）。入力欄の 2px 下に左を揃えて出し、幅は長い候補に
+   合わせて viewport の 55% か入力欄の幅まで広げる。高さを超える候補は中で scroll する。 */
+.nav-search-candidates { background-color: #fff; border-radius: 4px; box-shadow: 0 6px 12px rgb(0 0 0 / 17.6%); box-sizing: border-box; inset-inline-start: 0; list-style: none; margin: 0; max-height: 210px; max-width: max(100%, 55vw); min-width: 160px; overflow: auto; padding: 8px 0; position: absolute; top: calc(100% + 2px); width: max-content; z-index: 3; }
+.nav-search-candidates a { color: #333; display: block; line-height: 28px; overflow: hidden; padding: 0 16px; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+.nav-search-candidates a:focus { box-shadow: 0 0 0 3px rgb(102 175 233 / 60%); outline: none; }
+/* 767px 以下では検索欄を隠し、右の検索ボタンで開く。開いた検索欄は Cosense と同じく、バーの下に
+   重ねて本文を押し下げない（色はバーの色を背景の上に重ねた色）。 */
+@media (max-width: 767px) {
+  /* 下の 1px を除いた 40px の中で上下の中央に置く（992px 以上の grid の行と同じ）。 */
+  .page-nav { display: flex; padding-block-end: 1px; }
+  .page-nav-start { flex: 1; }
+  .nav-search { display: none; }
+  .nav-search-toggle { display: flex; }
+  /* ページの閲覧表示では、バーの右端にページメニューのつまみ（.page-menu、幅 24px）が重なる。Cosense と同じく、
+     その 16px 左に置く（右端の padding 8px の内側から 32px）。 */
+  .page-nav.with-page-menu .nav-search-toggle { margin-inline-end: 32px; }
+  .page-nav.search-open .nav-search { background-color: #cbccd1; display: block; inset-inline: 0; padding: 7px 8px 8px; position: absolute; top: 100%; z-index: 2; }
+  .page-nav.search-open .nav-search-input { background-color: #fff; }
+  .page-nav.search-open .nav-search-button { inset-block-start: 7px; inset-inline-end: 8px; }
+  .page-nav.search-open .nav-search-candidates { inset-inline: 8px; max-width: none; width: auto; }
+  .page-nav.search-open .nav-search-toggle { background-color: rgb(0 0 0 / 10%); }
+  /* 開いた検索欄（バーの下の 47px）も本文に重なるので、focus などで画面へ入れる要素も、編集表示の caret も
+     その下に置く。 */
+  html:has(.page-nav.search-open) { scroll-padding-top: 88px; }
+}
+/* バーの下端から紙面の上端までを Cosense と同じ 31px にする（15px + .page-column の 16px）。
+   padding にするのは、子の margin と相殺させないため。 */
+main { box-sizing: border-box; margin-inline: auto; max-width: 1200px; padding: 15px 8px 20px; }
+/* バーは画面の上に固定して本文の流れから外すので（#303）、バーのあるページでは、バーの高さ（41px）も足して
+   下げる（Cosense の .app の padding-top: 56px）。 */
+.page-nav + main { padding-top: 56px; }
+/* 紙面と、その右のページメニュー列。メニュー列の幅は中身によらず固定し、編集開始で
+   メニューを隠しても紙面が横に動かないようにする。 */
+.page-column { align-items: start; display: grid; gap: 10px; grid-template-areas: "page menu"; grid-template-columns: minmax(200px, 960px) 46px; justify-content: center; margin-top: 16px; }
+.page-main { grid-area: page; min-width: 0; position: relative; }
+/* メニューは左へ開いて紙面に重なる。後に描かれる紙面の下へ潜らないよう、列ごと上に重ねる。
+   scroll すると、Cosense と同じく画面の上に固定したバーの 4px 下で止まる（#303）。 */
+.page-menu { grid-area: menu; position: sticky; top: 45px; z-index: 1; }
+/* Cosense は 767px 以下でページメニューを上部のバーの右端のつまみにたたみ、押すと 3 つのボタンの帯に広げる（#299）。
+   つまみと帯はバーの上に重ね、バーと一緒に画面の上に固定する（#303）。 */
+.page-menu-toggle { display: none; }
+@media (max-width: 767px) {
+  .page-column { display: block; }
+  .page-menu { background-color: rgb(53 59 72 / 60%); border-radius: 4px 0 0 4px; display: flex; height: 40px; inset-inline-end: 0; position: fixed; top: 0; z-index: 11; }
+  .page-menu-toggle { align-items: center; background: none; border: 0; color: #fff; cursor: pointer; display: flex; justify-content: center; order: 1; padding: 0; width: 24px; }
+  .page-menu.open .page-menu-toggle svg { transform: scaleX(-1); }
+  .page-menu:not(.open) #page-menu-root { display: none; }
+}
+.page { background-color: var(--page-bg); border-radius: 4px 4px 3px 3px; box-shadow: 0 4px 0 rgb(0 0 0 / 16%); padding: var(--page-padding-top) var(--page-padding-inline) var(--page-padding-bottom); }
+/* ページの無いタイトルの紙面（#289）。Cosense の .page.not-persistent と同じく、不透明度を下げて描く。 */
+.page.not-persistent { opacity: .7; }
+/* 画面には出さず、支援技術にだけ伝える見出しなど。 */
+.visually-hidden { clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
+.related-pages { margin-top: 24px; }
+/* カード（札）の並び。Cosense の既定テーマと同じ列幅・間隔で、札の縦横比は 1 : 1.1（#233）。 */
+.card-grid { display: grid; gap: clamp(8px, 1.5svw, 16px); grid-template-columns: repeat(auto-fill, minmax(147px, 1fr)); list-style: none; margin: 0; padding: 0; }
+.related-pages .card-grid { grid-template-columns: repeat(auto-fill, minmax(146px, 1fr)); }
+.card-grid > li { aspect-ratio: 1 / 1.1; display: flex; min-width: 0; }
 .card-grid > li > .card { flex: 1; }
-.card { display: block; border: 1px solid #ddd; border-radius: 4px; padding: 0.5rem; text-decoration: none; color: inherit; min-width: 0; overflow: hidden; overflow-wrap: anywhere; }
-.card.pinned { border-color: #f1c40f; }
-.card img.card-image { width: 100%; height: 100px; object-fit: cover; }
+/* 関連ページの行（#249）。行ごとに新しい行から始め、行の間は Cosense と同じ 40px（767px 以下は 32px）。 */
+.related-group { margin-bottom: 40px; }
+@media (max-width: 767px) {
+  .related-group { margin-bottom: 32px; }
+}
+/* 絞り込みで札の残らない行と、残らない札（#281）。.card-grid > li の display より強くする。 */
+.related-group[hidden], .related-group > li[hidden] { display: none; }
+/* 関連ページの絞り込み欄と並び替え（#281）。Cosense の関連ページの toolbar と同じく、行の上に高さ 42px で
+   置き、最初の行はその 16px 下から始める。992px 以上は並び替えをタブと menu に分け、991px 以下は menu だけに
+   し、767px 以下は並び替えの下に絞り込み欄を横幅いっぱいに置く。 */
+.related-toolbar { align-items: flex-start; display: flex; justify-content: space-between; margin-bottom: 16px; }
+.related-filter { align-items: center; background-color: rgb(255 255 255 / 50%); border-radius: 5px; color: #363c49; display: flex; flex: 0 1 400px; height: 32px; min-width: 0; }
+.related-filter:focus-within { background-color: #fff; box-shadow: inset 0 0 0 3px rgb(102 175 233 / 60%); }
+.related-filter-icon { flex-shrink: 0; margin: 0 3px 0 7px; }
+.related-filter-input { appearance: none; background: none; border: 0; color: inherit; flex: 1; font: inherit; font-size: 16px; line-height: 1.42857; margin: 0; min-width: 0; outline: none; padding: 1px 2px; }
+.related-filter-input:focus { color: #000; }
+.related-filter-input::-webkit-search-cancel-button { appearance: none; }
+.related-sort { align-items: center; display: flex; flex-shrink: 0; gap: 4px; height: 42px; white-space: nowrap; }
+/* Cosense の tool-btn と同じく、透明な 1px の枠で高さを 31px（展開ボタンは 35px）にする。.tool-button の border: 0 より強くする。 */
+.related-sort-tabs > .related-sort-tab, .sort-menu > .sort-menu-toggle { border: 1px solid transparent; }
+.related-sort-tabs { display: flex; gap: 2px; }
+.related-sort-tab[aria-pressed="true"] { background-color: #fff; border-radius: 4px; color: #444; }
+/* 並び替えの menu（Cosense の .page-sort-menu）。関連ページ（#281）とプロジェクトのトップ（#291）で同じ部品。
+   展開ボタンの上端は、Cosense では高さ 42px の行の上から 4.8px（Open Sans の字の行に vertical-align: middle で
+   置いた位置）。knot は web font を読まず字の形が違うので、同じ位置を margin で与える。 */
+.sort-menu { height: 42px; position: relative; }
+.sort-menu-toggle { align-items: center; display: flex; list-style: none; margin-top: 4.8px; }
+.sort-menu-toggle::-webkit-details-marker { display: none; }
+.sort-menu[open] > .sort-menu-toggle { background-color: rgb(0 0 0 / 8%); }
+@media (hover: hover) {
+  .related-sort-tab[aria-pressed="false"]:hover, .sort-menu-toggle:hover { background-color: rgb(0 0 0 / 8%); }
+}
+.sort-menu-options { background-color: #fff; border: 1px solid rgb(0 0 0 / 15%); border-radius: 4px; box-shadow: 0 6px 12px rgb(0 0 0 / 17.6%); box-sizing: border-box; display: flex; flex-direction: column; inset-inline-end: 0; min-width: 160px; padding: 8px 0; position: absolute; top: calc(100% + 2px); z-index: 3; }
+.sort-menu-heading { color: #777; font-size: 12px; line-height: 17px; margin: 0; padding: 3px 16px; }
+.sort-menu-options :is(button, a) { background: none; border: 0; color: #333; cursor: pointer; font: inherit; font-size: 14px; line-height: 28px; padding: 0 16px; text-align: start; text-decoration: none; }
+.sort-menu-options :is(button[aria-pressed="true"], a[aria-current="true"]) { color: #3d72f5; }
+.sort-menu-options :is(button, a):focus-visible { background-color: #f5f5f5; color: #262626; outline: none; }
+@media (hover: hover) {
+  .sort-menu-options :is(button, a):hover { background-color: #f5f5f5; color: #262626; }
+}
+@media (min-width: 992px) {
+  .related-sort-menu [data-tab-sort] { display: none; }
+  .related-sort[data-tab-selected="true"] .sort-menu-current { clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
+  .related-sort[data-tab-selected="false"] .sort-menu-toggle { background-color: #fff; border-radius: 4px; color: #444; }
+}
+@media (max-width: 991px) {
+  .related-sort-tabs { display: none; }
+}
+@media (max-width: 767px) {
+  .related-toolbar { align-items: flex-end; flex-direction: column-reverse; }
+  .related-filter { align-self: stretch; flex-basis: auto; }
+}
+/* 行の先頭の見出しの札。1-hop は青い「Links」、2-hop は共有するリンク先の名前で、右端の中央に札の色の
+   右向きの三角を付ける（Cosense の .relation-label）。 */
+.relation-label { position: relative; }
+.relation-label-card { align-items: center; background-color: #3d72f5; border-radius: 3px; box-sizing: border-box; color: #fff; display: flex; flex: 1; flex-direction: column; font-family: Roboto, Helvetica, Arial, "Hiragino Sans", sans-serif; justify-content: center; min-width: 0; padding: 8px 0; text-decoration: none; }
+.relation-label.headword .relation-label-card { background-color: #9babc1; }
+.relation-label-title { font-size: 14px; line-height: 20px; max-width: 100%; overflow-wrap: anywhere; padding-inline: 8px; text-align: center; }
+.relation-label-icon { flex-shrink: 0; margin-block: 8px; }
+.relation-label::after { border: 7px solid transparent; border-inline-start: 5px solid #3d72f5; border-inline-end-width: 5px; content: ""; inset-inline-start: 100%; position: absolute; top: calc(50% - 7px); }
+.relation-label.headword::after { border-inline-start-color: #9babc1; }
+/* 「New Links」の行（#283）。見出しの札は空リンクの色。札は不透明度を半分にし、説明文の代わりに、タイトルの
+   8px 下から高さ 4px の線を 12px おきに 5 本引く（5 本目は 70% の幅）。 */
+.relation-label.empty-links .relation-label-card { background-color: #fd7373; }
+.relation-label.empty-links::after { border-inline-start-color: #fd7373; }
+.related-group > li.new-link { opacity: .5; }
+.card-placeholder { display: grid; gap: 8px; padding: 8px 12px 0; }
+.card-placeholder > span { background-color: #e9eaeb; height: 4px; }
+.card-placeholder > span:last-child { width: 70%; }
+.card { background-color: #fff; border-radius: 2px; box-shadow: 0 2px 0 rgb(0 0 0 / 12%); color: #555; display: block; font-family: Roboto, Helvetica, Arial, "Hiragino Sans", sans-serif; min-width: 0; overflow: hidden; overflow-wrap: anywhere; position: relative; text-decoration: none; }
+.card:focus-visible { box-shadow: 0 0 0 3px rgb(102 175 233 / 60%); outline: none; }
+/* タイトルは 3 行まで。上端の 4px の帯は Cosense と同じくタイトルの border にする。下の 10px は
+   padding ではなく margin にする。padding だと、3 行で切った 4 行目の上の方が padding の中に覗く。 */
+.card h2, .card h3 { -webkit-box-orient: vertical; -webkit-line-clamp: 3; border-top: 4px solid #f2f2f3; color: #363c49; display: -webkit-box; font-size: 13px; font-weight: 700; line-height: 20px; margin: 0 0 10px; overflow: hidden; padding: 10px 12px 0; }
+.card p { color: #808080; font-size: 12px; line-height: 20px; margin: 0; padding: 0 12px; }
+/* 説明文の中のリンク・コード・アイコン（Cosense の札の .description、#256）。札全体が 1 つの
+   リンクなので、中のリンクは押せない span で、色だけで示す。 */
+.card .card-link, .card .card-url { color: #396bdd; }
+.card .card-url { text-decoration: underline; }
+.card p code { background-color: rgb(0 0 0 / 4%); border-radius: 4px; color: #342d9c; font-family: Menlo, Monaco, Consolas, "Courier New", monospace; font-size: 90%; }
+.card img.inline-icon { height: 1.1em; vertical-align: baseline; width: auto; }
+.card img.card-image { border-radius: 2px; display: block; height: auto; margin-inline: 5px; width: calc(100% - 10px); }
+/* ピン留めした札は、右上を 14px の三角に折り返す。 */
+.card.pinned::before { background: linear-gradient(45deg, #aaa 50%, var(--body-bg) 50%); border-radius: 0 0 0 4px; content: ""; height: 14px; inset-inline-end: 0; position: absolute; top: 0; width: 14px; z-index: 2; }
+/* hover と押している間に札へ重ねる色。 */
+.card::after { background-color: transparent; content: ""; inset: 0; pointer-events: none; position: absolute; transition: background-color .1s; z-index: 1; }
+.card:active::after { background-color: rgb(0 0 0 / 10%); }
+@media (hover: hover) {
+  .card:hover { box-shadow: 0 2px 0 rgb(0 0 0 / 23%); }
+  .card:hover:not(:active)::after { background-color: rgb(0 0 0 / 5%); }
+}
+/* プロジェクトのトップ（#253）。札の上の toolbar は Cosense と同じく高さ 42px で、札まで 12px あける。
+   ボタンは Cosense の toolbar の tool-btn と同じ見た目で右端に置く。 */
+.page-list-toolbar { align-items: center; display: flex; height: 42px; justify-content: flex-end; margin-bottom: 12px; }
+.tool-button { background: none; border: 0; border-radius: 3px; color: #363c49; cursor: pointer; font: inherit; font-size: 14px; line-height: 20px; padding: 6px 10px 3px; }
+.tool-button:focus-visible { box-shadow: 0 0 0 3px rgb(102 175 233 / 60%); outline: none; }
+/* ページ数（Cosense の .page-list-status）。画面の右下に固定し、scroll しても動かさない。 */
+.page-list-status { background-color: var(--body-bg); bottom: 0; color: #666874; font-size: 12px; line-height: 20px; padding: 0 4px; position: fixed; right: 0; }
+/* ページの画面の下端の帯（Cosense の .footer .status-bar、#307）。本文の上に重ねるが、押しても下の本文に届く。 */
+.status-bar { bottom: 0; inset-inline: 0; pointer-events: none; position: fixed; z-index: 3; }
+/* 200px を超えて scroll したときに左端に出す、ページのタイトル。幅は字に合わせ、250px を超える分は省略する。 */
+.status-page-title { background-color: var(--body-bg); border-start-end-radius: 3px; box-sizing: border-box; color: #666874; font-size: 12px; line-height: 20px; max-width: 250px; overflow: hidden; padding: 0 2px 0 5px; text-overflow: ellipsis; white-space: nowrap; width: fit-content; }
+/* 全文検索の結果（Cosense の /search/page の .page-list-item、#247）。1 ページ 1 行で、左の 70px に
+   画像、右にタイトル（16px）と語を含む行の抜粋（12px、2 行まで）。語は太字・黄色の背景。 */
+.search-heading { font-size: 14px; font-weight: 700; line-height: 20px; margin: 0 0 16px; }
+.search-count { font-weight: 400; }
+.search-message { margin: 0; }
+.search-results { list-style: none; margin: 0; padding: 0; }
+.search-result { background-color: #fafafa; border-bottom: 1px solid #dcdcdc; box-shadow: 0 2px 2px rgb(0 0 0 / 35%); }
+.search-result > a { color: #333; display: block; font-family: Roboto, Helvetica, Arial, "Hiragino Sans", sans-serif; padding: 10px 30px 10px 18px; position: relative; text-decoration: none; }
+.search-result-image { inset-inline-start: 18px; max-height: 50px; object-fit: contain; position: absolute; top: 10px; width: 50px; }
+.search-result-title, .search-result-lines { margin-inline-start: 70px; }
+.search-result-title { font-size: 16px; line-height: 20px; overflow-wrap: anywhere; }
+.search-result-lines { -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: #666; display: -webkit-box; font-size: 12px; line-height: 14px; margin-block: 13px 10px; overflow: hidden; overflow-wrap: anywhere; }
+.search-result-lines > span { margin-inline-end: 6px; }
+.search-matched { background-color: #ff0; font-weight: 700; }
+/* 抜粋の行送り（14px）は字の高さより低いので、inline のままだと 3 行目の語の背景が 2 行目の下へはみ出す。 */
+.search-result-lines .search-matched { display: inline-block; line-height: 14px; }
+/* 767px 以下では検索の結果ページでも検索欄をバーの下に開いておくので、そのぶん（62px）も本文を下げる。 */
+@media (max-width: 767px) {
+  .page-nav + .search-main { padding-top: 103px; }
+}
 /* 分割できる位置を持たない長いラベル（URL など）でページを横にはみ出させない。
    CodeMirror 側は lineWrapping が同じ折り返しを行うので、両方の表示で同じ位置に折り返る。
    空白の連なりも CodeMirror 側（white-space: break-spaces）に合わせて畳まない。 */
 .line-row { display: flex; align-items: flex-start; overflow-wrap: anywhere; white-space: break-spaces; }
-/* 空行は高さが 0 になり、行クリックで編集を開始できる面が無くなる。 */
-#editor-root:not(.editor-active) > .line-row { min-height: 1.4em; }
-.line-title { margin: 0; }
-.line-indent-prefix, .cm-wysiwyg-indent-prefix { white-space: pre; letter-spacing: .25rem; flex-shrink: 0; }
+/* 行の中身は行の残りの幅いっぱいに広げる。引用とコードブロックの帯を本文の右端まで引くため。 */
+.line-row > :last-child { flex-grow: 1; min-width: 0; }
+/* 空行は高さが 0 になり、行クリックで編集を開始できる面が無くなる。Cosense の空行も 1 行ぶんの高さを持つ。 */
+#editor-root:not(.editor-active) > .line-row { min-height: var(--line-height); }
+.line-title { font-weight: 400; margin: 0; }
+/* 字下げは 1 段 1.5em（Cosense と同じ 22.5px）。全角空白 1 文字（1em）と letter-spacing の
+   0.5em で 1 段を作り、段数ぶんの要素は作らない。 */
+.line-indent-prefix, .cm-wysiwyg-indent-prefix { white-space: pre; letter-spacing: .5em; flex-shrink: 0; }
 .line-indent-content, .cm-wysiwyg-indent-content { position: relative; }
+/* 行頭の点。Cosense の .dot と同じく直径 6px で、中心は本文の開始位置から 12px 左、
+   行の上端から 13px。本文の要素の上端は行の上端と揃っている。 */
 .line-indent-content::before, .cm-wysiwyg-indent-content::before {
-  content: "•";
-  inset-inline-start: -0.9rem;
+  background-color: var(--dot-color);
+  border-radius: 50%;
+  content: "";
+  height: 6px;
+  inset-inline-start: -15px;
   position: absolute;
+  top: 10px;
+  width: 6px;
 }
-.telomere { width: 4px; align-self: stretch; margin-right: 0.5rem; flex-shrink: 0; background: #ccc; cursor: pointer; }
-.telomere.unread { background: #3498db; }
-.telomere.age-1 { opacity: 1; }
-.telomere.age-2 { opacity: 0.6; }
-.telomere.age-3 { opacity: 0.3; }
-.line-row.highlight { background: #fff8dc; }
-.code-line { font-family: monospace; white-space: pre; }
-/* 編集表示の img は読み込み前から場所を取れるよう width / height 属性を持つ。
-   width を属性から取らず、属性の縦横比と CSS の高さから決める。 */
-.icon-img { height: 1.2em; width: auto; vertical-align: middle; }
+/* 引用行と番号付きの行は横線、コードブロックの本文行と表の行には印を付けない（presentation.ts の indentMark）。 */
+.line-indent-content.mark-dash::before, .cm-wysiwyg-indent-content.mark-dash::before { border-radius: 0; height: 2px; top: 12.5px; }
+.line-indent-content.mark-none::before, .cm-wysiwyg-indent-content.mark-none::before { content: none; }
+/* 編集表示の整形表示 widget は inline なので、字下げした行の本文が折り返すと 2 行目以降が
+   行の左端へ戻る。閲覧表示の .line-row と同じく字下げと本文を flex で並べ、本文を字下げの
+   位置で折り返す。inline-flex にするのは、CodeMirror が widget の前後に置く inline の buffer と
+   同じ行に収め、匿名の行を作らないため。行の上端に揃えるので、本文の要素の上端も行の上端になる。 */
+.cm-wysiwyg-line.cm-wysiwyg-indented { align-items: flex-start; display: inline-flex; max-width: 100%; vertical-align: top; }
+/* カーソルのある字下げした行（#241）。行の padding と負の text-indent で、折り返した 2 行目以降も
+   字下げの位置から始める。段数は lineWysiwyg.ts が行の --indent-level に入れる。 */
+#editor-root .cm-line.cm-active-indent { padding-inline-start: calc(var(--indent-level) * 22.5px); position: relative; text-indent: calc(var(--indent-level) * -22.5px); }
+/* 字下げの空白は字のまま、1 字を 1 段（22.5px）の幅にする（#271）。font は本文のまま、空白だけを広げる
+   word-spacing で 1 段にし（本文の font の空白の幅は lineWysiwyg.ts が --indent-space-width に入れる）、
+   タブは tab-size で 1 段にする。空白の後ろで折り返さないので、長い 1 語で始まる行も 1 行目から字が
+   始まる。変換中の IME の字もこの span に入ることがあるが、空白以外は広げないので本文と同じに描く。 */
+#editor-root .cm-indent-text { tab-size: 22.5px; white-space: pre; word-spacing: calc(22.5px - var(--indent-space-width, .25em)); }
+/* カーソル行の引用（#269）。閲覧表示の blockquote と同じく、字下げの位置（--block-indent 段）から
+   本文の右端まで枠を引く。> は、閲覧表示で見えない > が占める位置（左線 1px と余白 3px の後ろ）に
+   置き、折り返した行も同じ位置から始める。 */
+#editor-root .cm-line.cm-active-quote {
+  --quote-left: calc(var(--block-indent) * 22.5px);
+  background: linear-gradient(to right, transparent var(--quote-left), #a0a0a0 var(--quote-left) calc(var(--quote-left) + 1px), rgb(0 0 0 / 5%) calc(var(--quote-left) + 1px));
+  padding-inline-start: calc(var(--quote-left) + 4px);
+  text-indent: calc(-1 * var(--quote-left) - 4px);
+}
+#editor-root .cm-quote-mark { margin-inline-start: 4px; }
+/* 行頭の印は、整形表示の .line-indent-content::before と同じ位置（本文の開始位置から 15px 左、上から 10px）。 */
+#editor-root .cm-line.cm-active-indent.mark-dot::before, #editor-root .cm-line.cm-active-indent.mark-dash::before { background-color: var(--dot-color); border-radius: 50%; content: ""; height: 6px; inset-inline-start: calc(var(--indent-level) * 22.5px - 15px); position: absolute; top: 10px; width: 6px; }
+#editor-root .cm-line.cm-active-indent.mark-dash::before { border-radius: 0; height: 2px; top: 12.5px; }
+/* 画像かアイコンのある行のカーソル行（#305）。カーソル行は画像を隠して原文を描き、行の高さは保つ（lineWysiwyg.ts）。
+   Cosense の .cursor-line.with-image と同じく、画像を描いていた場所を薄い灰色で示し、3 秒で消す。 */
+#editor-root .cm-line.cm-image-cursor-line { animation: cursor-line-image 3s ease-out; }
+@keyframes cursor-line-image {
+  from { background-color: #efefef; }
+  to { background-color: transparent; }
+}
+/* 本文の選択範囲（#301）。Cosense の .selection と同じ緑で、字の色は変えない。編集表示の CodeMirror も
+   ブラウザの選択をそのまま使うので、閲覧表示と同じ規則で描く。 */
+#editor-root ::selection { background-color: rgb(0 128 0 / 40%); }
+/* 本文のリンク。ページへのリンク（内部リンク・空リンク・ハッシュタグ・アイコン）は下線なし、
+   URL のリンクは下線ありで、どちらも Cosense の既定テーマと同じ色にする。 */
+#editor-root a { color: var(--link-color); }
+#editor-root a.page-link, #editor-root a.empty-link, #editor-root a.icon-link, #editor-root a.image-link { text-decoration: none; }
+#editor-root a.empty-link { color: var(--empty-link-color); }
+@media (hover: hover) {
+  #editor-root a:hover { color: var(--link-hover-color); }
+  #editor-root a.empty-link:hover { color: var(--empty-link-hover-color); }
+}
+/* テロメアは紙面の左端に置き、紙面の左 padding の残りを本文までの余白にする。
+   Cosense と同じく左の border で線を描き、線の太さ（w-1〜w-10、render/telomere.ts）で新しさを表す。
+   押せる幅は線の太さによらず最大の太さぶん取る。閲覧表示では button なので、既定の見た目を外す（#173）。 */
+.telomere { align-self: stretch; appearance: none; background: none; border: 0 solid #e2e2e2; border-left-width: 1px; box-sizing: border-box; cursor: pointer; flex-shrink: 0; margin: 0; margin-inline-end: calc(var(--page-padding-inline) - 10px); padding: 0; width: 10px; }
+.telomere:focus-visible { outline: 2px solid rgb(102 175 233 / 60%); outline-offset: -2px; }
+/* hover できる環境では、押せる幅を Cosense と同じ 20px にする。touch では本文の左端を tap したときに
+   テロメアへ吸い寄せられやすくなるので広げない。 */
+@media (hover: hover) {
+  .telomere { margin-inline-end: calc(var(--page-padding-inline) - 20px); width: 20px; }
+}
+.telomere.unread { border-left-color: #89a3ff; }
+/* ページの無いタイトルの行のテロメアは、行がまだ無いので押せない（#289）。 */
+span.telomere { cursor: auto; }
+.telomere.w-1 { border-left-width: 1px; }
+.telomere.w-2 { border-left-width: 2px; }
+.telomere.w-3 { border-left-width: 3px; }
+.telomere.w-4 { border-left-width: 4px; }
+.telomere.w-5 { border-left-width: 5px; }
+.telomere.w-6 { border-left-width: 6px; }
+.telomere.w-7 { border-left-width: 7px; }
+.telomere.w-8 { border-left-width: 8px; }
+.telomere.w-9 { border-left-width: 9px; }
+.telomere.w-10 { border-left-width: 10px; }
+/* 行へのリンクで開いた行と、テロメアを押した行（Cosense の .line.permalink）。本文の左端から塗る。
+   編集表示の行は本文の左端から始まるので、行をそのまま塗る。 */
+.line-row.highlight { background: linear-gradient(to right, transparent var(--page-padding-inline), rgb(234 218 74 / 75%) var(--page-padding-inline)); }
+#editor-root .cm-line.highlight { background-color: rgb(234 218 74 / 75%); }
+/* テロメアの更新日時とメニュー（Cosense の .telomere .description / .menu-item、#173）。テロメアの
+   左端から 2px 右に、幅 160px の帯で出す（位置は telomereInfo.ts が決める）。 */
+.telomere-info { position: absolute; width: 160px; z-index: 3; }
+.telomere-updated, .telomere-menu-item { background-color: #808b8c; box-sizing: border-box; color: #fff; display: block; font: inherit; font-size: 12px; line-height: 28px; margin: 0; overflow: hidden; padding: 0 7px; text-align: start; text-overflow: ellipsis; white-space: nowrap; width: 100%; }
+.telomere-menu-item { border: 0; cursor: pointer; }
+.telomere-menu-item:focus-visible { outline: 2px solid rgb(102 175 233 / 60%); outline-offset: -2px; }
+/* コードブロックの行（見出しと本文）の行送りは Cosense と同じ 1.7em（25.5px）。行に掛けるので、
+   カーソルが入って原文表示になっても行の高さは変わらない。 */
+#editor-root .line-row.code-block-line, #editor-root .cm-line.code-block-line { line-height: 1.7em; }
+#editor-root:not(.editor-active) > .line-row.code-block-line { min-height: 1.7em; }
+/* コードブロックの本文の行は、見出しの段から右へ帯を引き、字は 1 段（22.5px）深い位置から始める。
+   Cosense と同じく長い行は折り返す。 */
+.code-line { background-color: rgb(0 0 0 / 4%); color: #342d9c; display: block; font-family: Menlo, Monaco, Consolas, "Courier New", monospace; font-size: 90%; padding-inline-start: 22.5px; white-space: pre-wrap; }
+/* カーソル行のコードブロックの本文（#269）。帯は .code-line と同じく見出しの段から引き、字は帯の中の
+   1 段深い位置から始める（行頭の空白がブロックの字下げより 1 字多い）。
+   字の大きさを 90% にしても、行送りは閲覧表示と同じ 25.5px に保つ。 */
+#editor-root .cm-line.cm-active-code-line {
+  background: linear-gradient(to right, transparent calc(var(--block-indent) * 22.5px), rgb(0 0 0 / 4%) calc(var(--block-indent) * 22.5px));
+  color: #342d9c;
+  font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+  font-size: 90%;
+  line-height: 25.5px;
+}
+/* コードの字は等幅の font なので、行頭の空白の幅は 1ch。 */
+#editor-root .cm-active-code-line .cm-indent-text { word-spacing: calc(22.5px - 1ch); }
+/* コードブロックと表の見出しは、名前だけを淡い赤の札にする（Cosense の .code-block-start / .table-block-start）。
+   札の字は本文と font が違い、行送りを本文と同じにすると ascent と descent の比の違いで行が 1px ほど
+   伸びる。札の行送りを字の高さにして、行の高さを font によらず保つ（字はベースラインに揃ったまま）。 */
+.code-block-start, .table-block-start { background-color: #ffcfc6; line-height: 1; padding: 1px 2px; }
+.code-block-start { color: #342d9c; font-family: Menlo, Monaco, Consolas, "Courier New", monospace; font-size: 85.5%; }
+.table-block-start { font-size: 90%; }
+/* 引用（Cosense の .line .quote）。行の本文の位置から右へ帯を引き、左に線を置く。
+   行頭の > は見えないが幅は残す。 */
+.line-row blockquote, .cm-wysiwyg-line blockquote { background-color: rgb(0 0 0 / 5%); border-left: 1px solid #a0a0a0; box-sizing: border-box; margin: 0; padding-left: 3px; width: 100%; }
+.line-row blockquote::before, .cm-wysiwyg-line blockquote::before { content: ">"; visibility: hidden; }
+/* 表の行（Cosense の .table-block .cell）。セルは交互の背景を持ち、行の高さは本文と同じ。 */
+.line-row table, .cm-wysiwyg-line table { border-collapse: collapse; }
+.line-row td, .cm-wysiwyg-line td { padding: 0 2px 0 8px; vertical-align: top; white-space: pre; }
+.line-row td:nth-child(odd), .cm-wysiwyg-line td:nth-child(odd) { background-color: rgb(0 0 0 / 4%); }
+.line-row td:nth-child(even), .cm-wysiwyg-line td:nth-child(even) { background-color: rgb(0 0 0 / 6%); }
+/* 表の行のカーソル行（#293）。Cosense のカーソル行と同じく、td と同じ箱で、背景だけを少し濃くする。
+   行頭の 1 字とセルを区切るタブは幅を持たせない（列の幅は td と同じ min-width の規則、tableColumns.ts）。 */
+#editor-root .cm-table-cell { background-color: rgb(0 0 0 / 6%); display: inline-block; padding: 0 2px 0 8px; vertical-align: top; white-space: pre; }
+#editor-root .cm-table-cell.even { background-color: rgb(0 0 0 / 8%); }
+/* 行頭の 1 字とタブは、箱を inline のまま、字の幅だけを word-spacing と tab-size で 0 にする。幅 0 で
+   overflow: hidden の inline-block にすると、Chromium はセルの先頭で始めた IME の変換中の字をその箱の中へ入れ、
+   selection を次の字の後ろへ置く。CodeMirror は変換中の字の text node を見失って変換の途中で描き直し、
+   変換は 1 字ずれた位置で続く（#325）。inline なら、変換中の字は箱の中で見えたまま、確定後にセルへ移る。 */
+#editor-root .cm-table-gap { tab-size: 0; white-space: pre; word-spacing: calc(-1 * var(--indent-space-width, .25em)); }
+/* 本文の画像（Cosense の .line .image）。CodeMirror が widget の前後に置く buffer の img は除く。 */
+#editor-root img:not(.cm-widgetBuffer) { display: inline-block; margin: 3px 0; max-height: 300px; max-width: 100%; vertical-align: bottom; }
+#editor-root img.strong-image { max-height: none; max-width: 95%; }
+/* アイコン（Cosense の .line img.icon）。高さを CSS が決め、幅は画像の縦横比から決まる。 */
+#editor-root img.icon-img { height: 1.3em; margin: 0; position: relative; top: -0.3em; vertical-align: middle; width: auto; }
+#editor-root img.icon-img.strong-icon { height: 3.9em; top: 0; vertical-align: bottom; }
+/* インラインコード（Cosense の .line code）。コードブロックの行（.code-line）は別に扱う。
+   本文と font が違うので、本文の行送り 28px をそのまま継ぐと、font の組み合わせによって行が
+   1px 伸びる（#245）。行送りを字の大きさにして、行の高さを本文の字だけで決める。背景は字の
+   高さに引かれるので見た目は変わらない。カーソル行の .cm-sb-code-inline も同じにする。 */
+#editor-root code:not(.code-line) { background-color: rgb(0 0 0 / 4%); border-radius: 4px; color: #342d9c; font-family: Menlo, Monaco, Consolas, "Courier New", monospace; font-size: 90%; line-height: 1; }
+/* バッククオートは消さずに薄く残す。コマンドラインと数式には付かない。 */
+#editor-root code:not(.code-line, .cli, .formula)::before,
+#editor-root code:not(.code-line, .cli, .formula)::after { content: "`"; opacity: .1; }
+/* 強調の段階（Cosense の .line strong.level-N）。行送りも段階に合わせて広げる。
+   カーソル行の原文表示も、Cosense と同じく記法の字ごと同じ大きさで描き、行の高さを変えない（#267）。 */
+#editor-root strong.level-2, #editor-root .cm-sb-level-2 { font-size: 1.2em; line-height: 28px; }
+#editor-root strong.level-3, #editor-root .cm-sb-level-3 { font-size: 1.44em; line-height: 35px; }
+#editor-root strong.level-4, #editor-root .cm-sb-level-4 { font-size: 1.73em; line-height: 42px; }
+#editor-root strong.level-5, #editor-root .cm-sb-level-5 { font-size: 2.07em; line-height: 49px; }
 .error { color: #c0392b; }
 .create-project { border: 1px solid #ddd; border-radius: 6px; max-width: 28rem; padding: 1rem; }
 .create-project h2 { margin-top: 0; }
 .create-project form { display: grid; gap: 0.75rem; }
 .create-project input { box-sizing: border-box; font-size: 1rem; min-height: 2.75rem; padding: 0.5rem; width: 100%; }
 .create-project p { margin: 0; }
-.page-actions { display: inline-block; margin-left: 0.5rem; position: relative; }
-.page-actions-menu { background: white; border: 1px solid #ddd; border-radius: 4px; display: grid; gap: 0.25rem; padding: 0.5rem; position: absolute; z-index: 1; }
-.page-actions-menu button { text-align: left; white-space: nowrap; }
+.page-actions { position: relative; }
+/* ページメニューのボタン（Cosense の .page-menu .tool-btn、#251）。46px 四方で、印は 24px・#848484。
+   hover と開いている間は、直径 46px の円の背景を付ける。 */
+.page-actions > summary, .page-menu-link { align-items: center; border-radius: 50%; box-sizing: border-box; color: #848484; cursor: pointer; display: flex; height: 46px; justify-content: center; list-style: none; width: 46px; }
+.page-actions > summary::-webkit-details-marker { display: none; }
+.page-actions[open] > summary { background-color: #ccc; }
+@media (hover: hover) {
+  .page-actions > summary:hover, .page-menu-link:hover { background-color: #ccc; }
+}
+/* 767px 以下では、広げた帯の中にボタンを横に並べ、印を白にする（#299）。 */
+@media (max-width: 767px) {
+  #page-menu-root { display: flex; }
+  .page-actions { position: static; }
+  .page-actions > summary, .page-menu-link { border-radius: 0; color: #fff; height: 40px; }
+}
+/* メニューはボタンの左に、上端を 2px 下げて開く（Cosense の .dropdown-menu-right）。 */
+.page-actions-menu { background-color: #fff; border: 1px solid rgb(0 0 0 / 15%); border-radius: 4px; box-shadow: 0 6px 12px rgb(0 0 0 / 17.6%); box-sizing: border-box; display: grid; inset-inline-end: 46px; margin-top: 2px; min-width: 160px; padding: 8px 0 4px; position: absolute; top: 0; z-index: 1; }
+.page-actions-menu button { background: none; border: 0; color: #333; cursor: pointer; font: inherit; line-height: 28px; padding: 0 16px; text-align: start; white-space: nowrap; }
+.page-actions-menu button:focus-visible { background-color: #f5f5f5; color: #262626; outline: none; }
+@media (hover: hover) {
+  .page-actions-menu button:hover { background-color: #f5f5f5; color: #262626; }
+}
+/* 767px 以下では、menu は Cosense と同じく帯の 2px 下に、画面の右端から 10px のところに右を揃えて開く（#299）。
+   .page-actions を基準にしない（position: static）ので、帯（.page-menu）が基準になる。 */
+@media (max-width: 767px) {
+  .page-actions-menu { inset-inline-end: 10px; margin-top: 0; top: calc(100% + 2px); }
+}
+.page-info-row { line-height: 27px; margin: 0; padding: 0 16px; white-space: nowrap; }
 dialog { border: 1px solid #ccc; border-radius: 6px; max-width: min(28rem, calc(100% - 2rem)); }
 dialog::backdrop { background: rgb(0 0 0 / 35%); }
 dialog form { display: grid; gap: 1rem; }
+/* 本文の画像を押して開く dialog（Cosense の .full-content-modal、#319）。画像を画面の中央に実寸で出し、幅は
+   95vw から余白（15px × 2）を引いた幅まで、高さは制限せず、画面より高い画像は dialog の中で scroll する。
+   背景は黒の 80%。 */
+.image-modal { background: none; border: 0; border-radius: 0; box-sizing: border-box; max-width: 95vw; padding: 15px; }
+.image-modal::backdrop { background: rgb(0 0 0 / 80%); }
+.image-modal-link { display: block; }
+.image-modal-image { background-color: #fff; display: block; max-width: 100%; }
 .dialog-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
 .danger { color: #c0392b; }
 
-/* 行送りは両方の表示で同じ数値に固定する。line-height: normal のままだと、閲覧表示の
-   .line-row（flex container）は 22.39px、CodeMirror の .cm-line は 22px になり、行ごとに
-   0.39px ずつずれが積み上がる。閲覧表示の行は 22.39px から 22.4px になるだけで、
-   見た目は変わらない。 */
-#editor-root { line-height: 1.4; }
+/* 本文の字と行送り。行送りは両方の表示で同じ数値に固定する。line-height: normal のままだと、
+   閲覧表示の .line-row（flex container）と CodeMirror の .cm-line で端数が違い、行ごとに
+   ずれが積み上がる。値は Cosense の .editor と同じ 15px / 28px。
+   紙面の左 padding へ食い込ませるのは、そこにテロメアを置くため。閲覧表示では行の中の
+   テロメア、編集表示では gutter がその幅を占めるので、本文の左端は両方で紙面の padding の内側に揃う。 */
+#editor-root {
+  color: var(--page-text-color);
+  font-family: Roboto, Helvetica, Arial, "Hiragino Sans", sans-serif;
+  font-size: 15px;
+  line-height: var(--line-height);
+  margin-inline-start: calc(-1 * var(--page-padding-inline));
+}
+/* 未作成ページの案内文は行ではないので、テロメアの余白を持たない。本文の左端に揃える。 */
+#editor-root > p { margin-inline-start: var(--page-padding-inline); }
 /* 閲覧表示を canonical として、編集表示をそれに合わせる。
    CodeMirror の base theme は .cm-scroller に monospace を指定する。font-size の指定が
    無いまま monospace になると、ブラウザは既定の monospace サイズ（13px）を使う。 */
@@ -63,16 +473,21 @@ dialog form { display: grid; gap: 1rem; }
 #editor-root .cm-content { padding: 0; min-width: 0; }
 #editor-root .cm-line { padding: 0; }
 /* タイトルの字の大きさと行送りは、閲覧表示でも編集表示でも「行」に掛ける。
-   行の高さがこれで決まるので、片方だけ変えると起動前後で行の高さがずれる。値は 1 か所に置く。 */
-.line-title, #editor-root .cm-title-line { font-size: 1.25em; }
-/* 行末の余白。ここが無いと、リンクだけの行はラベルの長さ次第で行末までリンクが占め、
-   その行を編集し始める面が残らない。閲覧表示と編集表示で必ず同じ幅にする。
+   行の高さがこれで決まるので、片方だけ変えると起動前後で行の高さがずれる。値は 1 か所に置く。
+   Cosense のタイトル行は 1.73em / 42px の太字でない字で、下に 21px の余白を持つ（行の高さ 63px）。 */
+.line-title, #editor-root .cm-title-line { color: #000; font-size: 1.73em; line-height: 42px; padding-bottom: 21px; }
+/* 行末の余白。リンクと埋め込みだけの行（presentation.ts の isLinkOnlyLine）は、ラベルの長さ次第で
+   行末までリンクが占め、その行を編集し始める面が残らないので、その行にだけ置く。ほかの行は
+   Cosense と同じく本文の幅いっぱいで折り返す（#245）。閲覧表示と編集表示で必ず同じ幅にする。
    2.5rem あるのは touch adjustment のため。ブラウザは tap をリンクへ吸い寄せるので、
    リンク寄りの約 14px は tap しても遷移する。実用になる幅はそこを引いた残りになる。 */
-#editor-root .line-row, #editor-root .cm-line { padding-inline-end: 2.5rem; }
-/* outline は箱の外に描かれ、行の位置を動かさない。 */
-#editor-root .cm-focused { outline: 2px solid #2c6ea3; outline-offset: 2px; }
-#save-status { min-height: 1.5em; margin-bottom: 0.5rem; color: #555; text-align: right; }
+#editor-root .line-row.link-only, #editor-root .cm-line.link-only { padding-inline-end: 2.5rem; }
+/* 編集を始めても紙面に枠を出さない。本文は紙面そのものなので、Cosense と同じく
+   caret だけで編集中であることを示す。CodeMirror の base theme が付ける点線も消す。 */
+#editor-root .cm-editor.cm-focused { outline: none; }
+/* 保存状態は紙面の上の余白に出す。文書の流れに置くと、編集開始で現れたときに紙面ごと
+   本文を押し下げる。長い文言は上へ折り返す。 */
+#save-status { bottom: 100%; color: #555; font-size: 12px; inset-inline-end: 0; line-height: 16px; margin-bottom: 4px; position: absolute; text-align: right; }
 #save-status[data-status="error"] { color: #c0392b; }
 #save-status[data-status="conflict"] { color: #9a6700; font-weight: 700; }
 .edit-conflict { border: 2px solid #9a6700; border-radius: 4px; margin-block: 0.75rem; max-width: 960px; padding: 1rem; }
@@ -90,24 +505,38 @@ dialog form { display: grid; gap: 1rem; }
 /* 既定テーマの gutter は境界線と背景を持つ。閲覧表示のテロメアには無いので消す。 */
 #editor-root .cm-gutters { border-right: 0; background: transparent; }
 #editor-root .cm-telomere-gutter .cm-gutterElement { display: flex; align-items: stretch; }
-/* 閲覧表示のテロメアと同じ 4px + 0.5rem を占め、本文の左端を揃える。 */
-#editor-root .cm-telomere-gutter .telomere { display: block; min-height: 1.4em; }
-.cm-sb-title { font-weight: 700; }
+/* 閲覧表示のテロメアと同じ幅（4px + 紙面の左 padding の残り）を占め、本文の左端を揃える。 */
+#editor-root .cm-telomere-gutter .telomere { display: block; }
+/* 編集表示のカーソル行のテロメアを指す button（#327）。キーボードと読み上げのためのもので、カーソル行の gutter の
+   テロメアに重ね（位置は cm/telomere.ts が決める）、focus したときだけ閲覧表示のテロメアと同じ枠を描く。
+   押す・hover は、下の gutter のテロメアがこれまでどおり受ける。 */
+#editor-root .telomere-keyboard { appearance: none; background: none; border: 0; box-sizing: border-box; margin: 0; padding: 0; pointer-events: none; position: absolute; width: 10px; z-index: 1; }
+@media (hover: hover) {
+  #editor-root .telomere-keyboard { width: 20px; }
+}
+#editor-root .telomere-keyboard:focus-visible { outline: 2px solid rgb(102 175 233 / 60%); outline-offset: -2px; }
 .cm-sb-indent { color: #aaa; }
-.cm-sb-link, .cm-sb-hashtag { color: #2c6ea3; }
-.cm-sb-external-link, .cm-sb-url { color: #287c3c; }
-.cm-sb-icon { color: #8e44ad; }
+/* カーソル行の原文表示の、記法の字の色（Cosense の既定テーマのカーソル行と同じ、#273）。ページへの
+   リンクとハッシュタグは整形表示と同じ色（ページが無ければ空リンクの色）。外部リンクと URL は、整形表示
+   と違って紫で下線を引かない。アイコンは本文の色。 */
+.cm-sb-link, .cm-sb-hashtag { color: var(--link-color); }
+.cm-sb-empty-link { color: var(--empty-link-color); }
+.cm-sb-external-link, .cm-sb-url { color: #781e7a; }
 .cm-sb-strong { font-weight: 700; }
 .cm-sb-italic { font-style: italic; }
 .cm-sb-strike { text-decoration: line-through; }
-.cm-sb-code-inline, .cm-sb-code-block, .cm-sb-formula { font-family: monospace; }
-.cm-sb-code-block { background: #f5f5f5; }
-.cm-sb-quote { color: #666; }
-.cm-wysiwyg-line { display: inline; min-height: 1.4em; }
+/* カーソル行の原文表示でも、コードは整形表示と同じ見た目のまま記法だけを見せる。 */
+.cm-sb-code-inline, .cm-sb-formula { background-color: rgb(0 0 0 / 4%); border-radius: 4px; color: #342d9c; font-family: Menlo, Monaco, Consolas, "Courier New", monospace; font-size: 90%; line-height: 1; }
+.cm-wysiwyg-line { display: inline; }
 /* 引用行は blockquote。整形表示の widget は inline で、CodeMirror が widget の前後へ
    置く buffer も inline なので、block のままだと匿名の行が 1 本増えて閲覧表示より
-   1 行ぶん下がる。inline-block にして、閲覧表示の block と同じ字下げと上下の余白を持たせる。 */
-.cm-wysiwyg-line blockquote { display: inline-block; margin: 1em 40px; }
+   1 行ぶん下がる。inline-block にして、閲覧表示の block と同じ幅と高さを持たせる。 */
+.cm-wysiwyg-line blockquote { display: inline-block; vertical-align: top; }
 /* 整形表示の widget は inline なので、その中の表は inline-table にしないと
-   閲覧表示の block の表と高さが揃わない。枠や padding は閲覧表示に合わせて持たせない。 */
+   閲覧表示の block の表と高さが揃わない。 */
 .cm-wysiwyg-line table { display: inline-table; vertical-align: top; }
+/* コードブロックの本文の行と引用の行は、閲覧表示と同じく本文の右端まで帯を引く。字下げした行と
+   同じく inline-flex にして、CodeMirror の inline の buffer と同じ行に収める。行の幅いっぱいが
+   widget になるが、帯の上の click も押した字の位置への caret になる（#243）。 */
+.cm-wysiwyg-line.cm-wysiwyg-code-line, .cm-wysiwyg-line.cm-wysiwyg-quote-line { display: inline-flex; vertical-align: top; width: 100%; }
+.cm-wysiwyg-code-line > :last-child, .cm-wysiwyg-quote-line > :last-child { flex: 1; min-width: 0; }

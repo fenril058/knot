@@ -1,16 +1,27 @@
 import { test, expect, type Page, type Response } from '@playwright/test';
 import {
+  blockLooks,
+  charPoint,
   createE2ePage,
+  deferred,
+  editorCaret,
   expectSameTextBox,
+  firstCharTop,
   firstRectCenter,
   firstVisualLineLength,
+  indentMarks,
   lineTextBoxes,
   linkRowTargets,
   loginE2eAccount,
   loginProjectE2e,
   loginTitleE2e,
+  pageGeometry,
+  rowHeights,
+  scrollRowTo,
   textStyleOf,
   visibleTitleCount,
+  visualLineRects,
+  type EditorCaret,
 } from './helpers.ts';
 
 const expectedViewportWidths: Record<string, number> = {
@@ -97,16 +108,14 @@ test('mobile browser でページを探して編集し、再読み込み後も�
   await page.waitForLoadState();
   await expectMobileLayout(page, expectedWidth);
 
+  // 検索欄は上部のバーにあり、767px 以下では検索ボタンで開く（#247）。
+  await page.locator('.nav-search-toggle').tap();
   const search = page.getByRole('searchbox');
+  await expect(search).toBeFocused();
   await expect(search).toBeInViewport();
-  const fullTextSearch = page.waitForResponse((response) =>
-    response.url().includes(`/api/pages/e2e/search/query?q=${title}`)
-    && response.ok()
-  );
   await search.fill(title);
-  await fullTextSearch;
-  const searchHit = page.locator(`#search-results a.search-hit[href="/e2e/${title}"]`);
-  await expect(searchHit).toHaveText(`${title}: ${title}`);
+  const searchHit = page.locator(`.nav-search-candidates a[href="/e2e/${title}"]`);
+  await expect(searchHit).toHaveText(title);
   await expect(searchHit).toBeVisible();
   await expect(searchHit).toBeInViewport();
   await searchHit.tap();
@@ -199,13 +208,13 @@ test('mobile browser は見えているタイトルの tap から title 行の�
   await expect(heading).toBeInViewport();
   expect(await visibleTitleCount(page, title)).toBe(1);
 
-  await heading.tap();
+  // タイトルの 1 字目の左端を tap する。caret は押した字の位置に入る（#243）ので、タイトル行の先頭に入る。
+  await heading.tap({ position: { x: 2, y: 21 } });
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);
   await expect(page.locator('#editor-root .cm-line').first()).toHaveText(title);
   expect(await visibleTitleCount(page, title)).toBe(1);
-  // 行が折り返すと End は視覚行の末尾へ移る。tap 直後の caret はタイトル行の先頭なので、
-  // 折り返しの有無に依らない位置として、そこへ挿入する。
+  // 行が折り返すと End は視覚行の末尾へ移る。折り返しの有無に依らない位置として、先頭へ挿入する。
   await page.keyboard.insertText('edited-');
   await expect(page.locator('#editor-root .cm-line')).toHaveText([`edited-${title}`, 'mobile の本文']);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(`edited-${title}`);
@@ -309,7 +318,7 @@ test('mobile browser でも引用行が編集開始の前後で同じ位置・�
   const beforeColor = await quoteColor();
   const beforeBoxes = await lineTextBoxes(page);
   for (const box of beforeBoxes) expect(box.width).toBeGreaterThan(0);
-  // 閲覧表示の blockquote は左に字下げがある。
+  // 引用の字は、帯の左の線と見えない > のぶん右から始まる。
   expect(beforeBoxes[1]!.x).toBeGreaterThan(beforeBoxes[3]!.x);
   await expect(page.locator('#editor-root .line-row').nth(2).locator('a')).toHaveCount(1);
 
@@ -333,7 +342,7 @@ test('mobile browser は長いページの途中から編集を始めても scro
   await createE2ePage(page, title, Array.from({ length: 100 }, (_, index) => `body line ${index}`));
 
   await page.goto(`/e2e/${title}`);
-  await page.evaluate(() => window.scrollTo(0, 1200));
+  await scrollRowTo(page, 70, 300);
   const tappedRowTop = async (): Promise<{ top: number; viewportHeight: number }> => page.evaluate(() => {
     const rows = document.querySelectorAll('#editor-root .line-row, #editor-root .cm-line');
     const row = Array.from(rows).find((candidate) => candidate.textContent?.trim() === 'body line 69');
@@ -348,10 +357,11 @@ test('mobile browser は長いページの途中から編集を始めても scro
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
   await expectMobileLayout(page, expectedWidth);
 
+  // desktop と同じく 1px も動かない（#313）。scroll した先の行を測り直した後にも動かないことを見るため、
+  // CodeMirror の次の計測を待つ。
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const after = await tappedRowTop();
-  expect(after.top).toBeGreaterThanOrEqual(0);
-  expect(after.top).toBeLessThan(after.viewportHeight);
-  expect(Math.abs(after.top - before.top)).toBeLessThan(22);
+  expect(after.top).toBe(before.top);
 });
 
 test('mobile browser は link だけの行を、遷移と編集のどちらにも tap で到達できる', async ({ page }, testInfo) => {
@@ -406,4 +416,858 @@ test('mobile browser は link だけの行を、遷移と編集のどちらに�
   const linkPoint = await firstRectCenter(page, '#editor-root .line-row:nth-of-type(2) a');
   await page.touchscreen.tap(linkPoint.x, linkPoint.y);
   await expect(page).toHaveURL(new RegExp(`/e2e/${target}$`));
+});
+
+// 1 行に収まる長さにする。折り返すと行の高さが変わり、比べたい値ではなくなる。
+const GEOMETRY_BODY = ['紙面の位置を合わせる本文', '', 'last body'];
+
+// WebKit は font-family の引用符を省き、font-size を 25.950001px のように直列化する。
+// 比べたいのは指定された値なので、表記の違いを揃える。
+function normalizedTextStyle(style: Record<string, string>): Record<string, string> {
+  const fontSize = Number.parseFloat(style.fontSize ?? '');
+  return {
+    ...style,
+    fontFamily: (style.fontFamily ?? '').replaceAll('"', ''),
+    fontSize: `${Math.round(fontSize * 100) / 100}px`,
+  };
+}
+
+test('mobile browser でも紙面と本文を Cosense と同じ位置と字で描き、編集を始めても動かさない', async (
+  { page },
+  testInfo,
+) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'geometry-mobile-e2e');
+
+  // タイトルも 1 行に収める。
+  const title = `mg-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, GEOMETRY_BODY);
+
+  await page.goto(`/e2e/${title}`);
+  await expectMobileLayout(page, expectedWidth);
+  // Cosense の 767px 以下の値。紙面は左右 8px を残して広がり、本文は紙面の左 21px から始まる。
+  const expected = {
+    bodyBackground: 'rgb(220, 221, 224)',
+    bar: { height: 41, background: 'rgba(196, 197, 202, 0.7)' },
+    paper: { x: 8, y: 72, width: expectedWidth - 16, background: 'rgb(254, 254, 254)', padding: [28, 21, 42, 21] },
+    telomereLeft: 8,
+  };
+  expect(await pageGeometry(page)).toEqual(expected);
+  const textLefts = (await lineTextBoxes(page)).map((box) => box.x);
+  expect(textLefts).toEqual([29, 29, 0, 29]);
+  const font = 'Roboto, Helvetica, Arial, Hiragino Sans, sans-serif';
+  const titleStyle = { fontFamily: font, fontSize: '25.95px', fontWeight: '400', lineHeight: '42px', color: 'rgb(0, 0, 0)' };
+  const bodyStyle = { fontFamily: font, fontSize: '15px', fontWeight: '400', lineHeight: '28px', color: 'rgb(74, 74, 74)' };
+  expect(normalizedTextStyle(await textStyleOf(page, title))).toEqual(titleStyle);
+  expect(normalizedTextStyle(await textStyleOf(page, GEOMETRY_BODY[0]!))).toEqual(bodyStyle);
+  expect(await rowHeights(page)).toEqual([63, 28, 28, 28]);
+
+  // Cosense は 767px 以下でページメニューを上部のバーの右端のつまみにたたむ（#299）。つまみは幅 24px・高さ 40px で、
+  // 検索ボタンはその 16px 左。つまみを押すと、3 つのボタン（46 × 40px）が並ぶ帯に広がる。
+  const boxOf = async (selector: string): Promise<{ x: number; y: number; width: number; height: number }> =>
+    (await page.locator(selector).boundingBox())!;
+  const toggle = page.locator('.page-menu-toggle');
+  expect(await boxOf('.nav-search-toggle')).toEqual({ x: expectedWidth - 72, y: 4, width: 32, height: 32 });
+  expect(await boxOf('.page-menu')).toEqual({ x: expectedWidth - 24, y: 0, width: 24, height: 40 });
+  await expect(page.locator('.page-actions > summary, .page-menu-link')).toHaveCount(3);
+  await expect(page.locator('.page-actions > summary:visible, .page-menu-link:visible')).toHaveCount(0);
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await toggle.tap();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  expect(await boxOf('.page-menu')).toEqual({ x: expectedWidth - 162, y: 0, width: 162, height: 40 });
+  const buttons = await page.locator('.page-actions > summary, .page-menu-link').evaluateAll((elements) =>
+    elements.map((element) => { const { x, y, width, height } = element.getBoundingClientRect(); return { x, y, width, height }; }));
+  expect(buttons).toEqual([0, 1, 2].map((index) => ({ x: expectedWidth - 162 + 46 * index, y: 0, width: 46, height: 40 })));
+  await expect(page.locator('.page-menu-link')).toHaveCSS('color', 'rgb(255, 255, 255)');
+  // ボタンの menu は、Cosense と同じく帯の 2px 下に、画面の右端から 10px のところに右を揃えて開く。
+  await page.locator('#page-info > summary').tap();
+  const infoMenu = await boxOf('#page-info .page-actions-menu');
+  expect({ right: infoMenu.x + infoMenu.width, y: infoMenu.y }).toEqual({ right: expectedWidth - 10, y: 42 });
+  await page.locator('#page-info > summary').tap();
+  await toggle.tap();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('.page-actions > summary:visible, .page-menu-link:visible')).toHaveCount(0);
+
+  await page.locator('#editor-root .line-row').nth(GEOMETRY_BODY.length).tap();
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expectMobileLayout(page, expectedWidth);
+  expect(await pageGeometry(page)).toEqual(expected);
+  expect((await lineTextBoxes(page)).map((box) => box.x)).toEqual(textLefts);
+  expect(normalizedTextStyle(await textStyleOf(page, title))).toEqual(titleStyle);
+  expect(normalizedTextStyle(await textStyleOf(page, GEOMETRY_BODY[0]!))).toEqual(bodyStyle);
+  expect(await rowHeights(page)).toEqual([63, 28, 28, 28]);
+});
+
+test('mobile browser でも scroll できるページの上の方から編集を始めて、画面が動かない', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'geometry-mobile-e2e');
+
+  const title = `mgs-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, Array.from({ length: 40 }, (_, index) => `line ${index}`));
+
+  await page.goto(`/e2e/${title}`);
+  const rowTop = async (): Promise<number> => page.evaluate(() => {
+    const rows = document.querySelectorAll('#editor-root .line-row, #editor-root .cm-line');
+    const row = Array.from(rows).find((candidate) => candidate.textContent?.trim() === 'line 2');
+    if (row === undefined) throw new Error('the tapped line is not rendered');
+    return row.getBoundingClientRect().top;
+  });
+  const before = await rowTop();
+
+  await page.locator('#editor-root .line-row').nth(3).tap();
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  expect(await rowTop()).toBe(before);
+});
+
+test('mobile browser でも scroll した後、上部のバーとページメニューのつまみが画面の上に残り、そこで開ける', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'geometry-mobile-e2e');
+
+  const title = `mgb-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, Array.from({ length: 40 }, (_, index) => `line ${index}`));
+
+  await page.goto(`/e2e/${title}`);
+  await page.evaluate(() => window.scrollTo(0, 300));
+  const scrolled = await page.evaluate(() => window.scrollY);
+  expect(scrolled).toBe(300);
+  // Cosense のバー（#303）とつまみ（.expandable-menu）は画面の上に固定され、scroll しても動かない。
+  const boxOf = async (selector: string): Promise<{ x: number; y: number; width: number; height: number }> =>
+    (await page.locator(selector).boundingBox())!;
+  expect(await boxOf('.page-nav')).toEqual({ x: 0, y: 0, width: expectedWidth, height: 41 });
+  expect(await boxOf('.nav-search-toggle')).toEqual({ x: expectedWidth - 72, y: 4, width: 32, height: 32 });
+  expect(await boxOf('.page-menu')).toEqual({ x: expectedWidth - 24, y: 0, width: 24, height: 40 });
+  // つまみで帯を広げ、帯のボタンの menu も、scroll したまま帯の 2px 下に開く。
+  await page.locator('.page-menu-toggle').tap();
+  expect(await boxOf('.page-menu')).toEqual({ x: expectedWidth - 162, y: 0, width: 162, height: 40 });
+  await page.locator('#page-info > summary').tap();
+  const infoMenu = await boxOf('#page-info .page-actions-menu');
+  expect({ right: infoMenu.x + infoMenu.width, y: infoMenu.y }).toEqual({ right: expectedWidth - 10, y: 42 });
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrolled);
+});
+
+// 360px でも確実に折り返す長さ。字下げの段は Cosense と同じ 22.5px（#231）。
+const MOBILE_INDENT_BODY = [
+  ` ${'字下げした長い行が mobile でも同じ位置で折り返すことを確かめる。'.repeat(2)}`,
+  `  ${'二段目の長い行も同じ位置で折り返す。'.repeat(3)}`,
+  ' > 字下げした引用',
+  'last body',
+];
+
+test('mobile browser でも字下げの段・行頭の印・折り返しを閲覧表示と編集表示で揃える', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'line-mobile-e2e');
+
+  const title = `mi-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, MOBILE_INDENT_BODY);
+
+  await page.goto(`/e2e/${title}`);
+  await expectMobileLayout(page, expectedWidth);
+  const dot = { x: -15, y: 10, width: 6, height: 6, color: 'rgb(85, 85, 85)', radius: '50%' };
+  const dash = { x: -15, y: 12.5, width: 6, height: 2, color: 'rgb(85, 85, 85)', radius: '0px' };
+  const marks = [
+    null,
+    { textLeft: 29 + 22.5, mark: dot },
+    { textLeft: 29 + 45, mark: dot },
+    { textLeft: 29 + 22.5, mark: dash },
+    null,
+  ];
+  expect(await indentMarks(page)).toEqual(marks);
+  const lines = await visualLineRects(page);
+  // 折り返した 2 本目以降は本文の開始位置から始まる。
+  expect(lines[1]!.slice(1).map(([left]) => left)).toEqual(lines[1]!.slice(1).map(() => Math.round(29 + 22.5)));
+  expect(lines[2]!.slice(1).map(([left]) => left)).toEqual(lines[2]!.slice(1).map(() => 29 + 45));
+  expect(lines[1]!.length).toBeGreaterThan(2);
+  expect(lines[2]!.length).toBeGreaterThan(2);
+
+  await page.locator('#editor-root .line-row').nth(MOBILE_INDENT_BODY.length).tap();
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expectMobileLayout(page, expectedWidth);
+  expect(await indentMarks(page)).toEqual(marks);
+  expect(await visualLineRects(page)).toEqual(lines);
+});
+
+test('mobile browser でも一覧の札を Cosense と同じ 2 列・同じ縦横比で並べる', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'cards-mobile-e2e');
+
+  const project = `cards-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  const created = await page.request.post(`/api/knot/projects/${project}`, { headers: { 'X-Knot-Client': 'e2e' } });
+  expect(created.ok()).toBe(true);
+  for (const title of ['first card', 'second card']) {
+    const response = await page.request.post(`/api/knot/pages/${project}/${encodeURIComponent(title)}/commits`, {
+      headers: { 'X-Knot-Client': 'e2e' },
+      data: {
+        commitId: `${project}-${title}`,
+        baseVersion: 0,
+        ops: [{ type: 'insert', id: `${project}-${title}-0`, after: '_head', text: title }],
+      },
+    });
+    expect(response.ok()).toBe(true);
+  }
+
+  await page.goto(`/${project}`);
+  await expectMobileLayout(page, expectedWidth);
+  const boxes = await page.locator('main > .card-grid > li').evaluateAll((items) => items.map((item) => {
+    const box = item.getBoundingClientRect();
+    return { x: box.left, width: box.width, height: box.height };
+  }));
+  // 767px 以下でも札の最小幅は 147px で、間隔は 8px。紙面と同じ左右 8px の余白の内側に 2 列並ぶ。
+  const columnWidth = (expectedWidth - 16 - 8) / 2;
+  expect(boxes).toHaveLength(2);
+  for (const [index, box] of boxes.entries()) {
+    expect(box.x).toBeCloseTo(8 + index * (columnWidth + 8), 1);
+    expect(box.width).toBeCloseTo(columnWidth, 1);
+    expect(box.height).toBeCloseTo(columnWidth * 1.1, 1);
+  }
+});
+
+const MOBILE_BLOCK_BODY = [
+  ' code:sample.js',
+  `  ${'mobile_code_line_'.repeat(30)}`,
+  '> quoted line',
+  ' table:sample',
+  '  a\tbb',
+  'last body',
+];
+
+test('mobile browser でも引用・コードブロック・表を閲覧表示と編集表示で同じに描き、はみ出さない', async (
+  { page },
+  testInfo,
+) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'line-mobile-e2e');
+
+  const title = `mb-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, MOBILE_BLOCK_BODY);
+
+  await page.goto(`/e2e/${title}`);
+  // 長いコードの行も折り返し、紙面を横にはみ出さない。
+  await expectMobileLayout(page, expectedWidth);
+  const looks = await blockLooks(page);
+  expect(looks[1]!.label).not.toBeNull();
+  expect(looks[2]!.height).toBeGreaterThan(25.5 * 2);
+  expect(looks[3]!.band?.background).toBe('rgba(0, 0, 0, 0.05)');
+  expect(looks[5]!.cells).toHaveLength(2);
+  const rects = await visualLineRects(page);
+
+  await page.locator('#editor-root .line-row').nth(MOBILE_BLOCK_BODY.length).tap();
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expectMobileLayout(page, expectedWidth);
+  expect(await blockLooks(page)).toEqual(looks);
+  expect(await visualLineRects(page)).toEqual(rects);
+});
+
+test('mobile browser でも字下げした行を tap すると、字の位置と点を保ったまま本文の先頭から書ける', async (
+  { page },
+  testInfo,
+) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'line-mobile-e2e');
+
+  const title = `ma-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, [' 一段目の行', 'last body']);
+
+  await page.goto(`/e2e/${title}`);
+  const formatted = (await indentMarks(page))[1]!;
+  expect(formatted.textLeft).toBe(29 + 22.5);
+
+  // 本文の 1 字目の左半分を tap する。caret は押した字の位置（#243）、つまり本文の先頭に入る。
+  const rowBox = (await page.locator('#editor-root .line-row').nth(1).boundingBox())!;
+  await page.touchscreen.tap(formatted.textLeft + 3, rowBox.y + 14);
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await page.keyboard.insertText('X');
+  const row = page.locator('#editor-root .cm-line').nth(1);
+  await expect(row).toHaveText(' X一段目の行');
+  const active = await row.evaluate((element) => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    let textLeft = 0;
+    while (walker.nextNode() !== null && textLeft === 0) {
+      const node = walker.currentNode;
+      // 字下げの空白（#271）は字ではないので、空白の後ろから測る。
+      const start = node instanceof Text && node.parentElement?.closest('.cm-indent-text') != null
+        ? node.data.search(/\S/)
+        : 0;
+      if (start === -1) continue;
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      range.setStart(node, start);
+      const rect = Array.from(range.getClientRects()).find((candidate) => candidate.width > 0);
+      if (rect !== undefined) textLeft = rect.left;
+    }
+    // 行頭の印は、カーソル行の ::before（#271）。
+    const mark = getComputedStyle(element, '::before');
+    return {
+      textLeft: Math.round(textLeft * 2) / 2,
+      markLeft: mark.content === 'none' ? null : element.getBoundingClientRect().left + Number.parseFloat(mark.left),
+    };
+  });
+  expect(active).toEqual({ textLeft: formatted.textLeft, markLeft: formatted.textLeft + formatted.mark!.x });
+  await expectMobileLayout(page, expectedWidth);
+});
+
+test('mobile browser でも、閲覧表示と整形表示の行を tap した字の位置に caret が入る', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'caret-mobile-e2e');
+
+  const title = `mc-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  const body = ['テキストを`[`と`]`で囲む', ' [* 強調] の行', 'last body'];
+  await createE2ePage(page, title, body);
+  await page.goto(`/e2e/${title}`);
+
+  // 閲覧表示の行の「ス」の右半分を tap して編集を始める（#243）。
+  const first = await charPoint(page.locator('#editor-root .line-row').nth(1), 'ス', 0, 0.75);
+  await page.touchscreen.tap(first.x, first.y);
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await page.keyboard.insertText('|');
+
+  // 編集表示の整形表示の行では、太字の「強」の左半分を tap する。
+  const second = await charPoint(page.locator('#editor-root .cm-line').nth(2), '強', 0, 0.25);
+  await page.touchscreen.tap(second.x, second.y);
+  await page.keyboard.insertText('|');
+
+  await expect(page.locator('#save-status')).toHaveText('保存済み');
+  const persisted = await page.request.get(`/api/pages/e2e/${title}`);
+  expect((await persisted.json()).lines.map((line: { text: string }) => line.text))
+    .toEqual([title, 'テキス|トを`[`と`]`で囲む', ' [* |強調] の行', 'last body']);
+  await expectMobileLayout(page, expectedWidth);
+});
+
+test('mobile browser でも本文の行は本文の右端まで字を並べて折り返し、インラインコードの行も 28px にする', async (
+  { page },
+  testInfo,
+) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'geometry-mobile-e2e');
+
+  const title = `mr-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, ['あ'.repeat(80), '前 `code` 後', `[${'い'.repeat(80)}]`, 'last body']);
+  await page.goto(`/e2e/${title}`);
+
+  // 本文の右端は、紙面の右端から右の padding を除いた位置（#245）。
+  const { paper } = await pageGeometry(page);
+  const textRight = paper.x + paper.width - paper.padding[1]!;
+  const firstLineRight = async (rowIndex: number): Promise<number> => {
+    const [left, , width] = (await visualLineRects(page))[rowIndex]![0]!;
+    return left! + width!;
+  };
+  const look = async (): Promise<{ wrap: number; link: number; heights: number[] }> => ({
+    wrap: await firstLineRight(1),
+    link: await firstLineRight(3),
+    heights: await rowHeights(page),
+  });
+  const ssr = await look();
+  // 長い行は本文の右端から全角 1 字（15px）以内まで字が並び、リンクだけの行は行末の余白（#186）を残す。
+  expect(ssr.wrap).toBeGreaterThan(textRight - 15);
+  expect(ssr.wrap).toBeLessThanOrEqual(textRight);
+  expect(ssr.link).toBeLessThanOrEqual(textRight - 40);
+  expect(ssr.link).toBeGreaterThan(textRight - 40 - 15);
+  expect(ssr.heights[2]).toBe(28);
+
+  // 最後の行の字を tap して編集を始め、測った行はすべて整形表示のまま比べる。行頭の字を tap すると、
+  // mobile WebKit の touch adjustment がテロメアへ吸い寄せるので、行頭から離れた字を tap する。
+  const lastRow = await charPoint(page.locator('#editor-root .line-row').nth(4), 'y', 0, 0.5);
+  await page.touchscreen.tap(lastRow.x, lastRow.y);
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  expect(await look()).toEqual(ssr);
+  await expectMobileLayout(page, expectedWidth);
+});
+
+test('mobile browser では検索ボタンでバーの下に検索欄を開き、本文を押し下げずに候補と結果ページへ移れる', async (
+  { page },
+  testInfo,
+) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'search-mobile-e2e');
+
+  // 候補は語の字を順に含むタイトルに合うので、ほかのテストのページに無い字（q・z・x）で始める。
+  const title = `qzx-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, ['検索ボタンから探すページ']);
+  await page.goto(`/e2e/${title}`);
+  const input = page.locator('.nav-search-input');
+  await expect(input).toBeHidden();
+  const paperBefore = (await page.locator('.page').boundingBox())!;
+
+  // Cosense と同じく、バーの下（y=48）に左右 8px を残して検索欄が開き、入力欄に focus が移る（#247）。
+  await page.locator('.nav-search-toggle').tap();
+  await expect(input).toBeFocused();
+  const box = (await input.boundingBox())!;
+  expect([box.x, box.y, box.width, box.height].map(Math.round)).toEqual([8, 48, expectedWidth - 16, 32]);
+  expect((await page.locator('.page').boundingBox())!.y).toBe(paperBefore.y);
+
+  await input.pressSequentially(title);
+  await expect(page.locator('.nav-search-candidates a')).toHaveText([title]);
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(`/e2e/search/page?q=${title}`);
+  // 結果ページでは検索欄を開いたまま、見出しと結果をその下に並べる。
+  const form = (await page.locator('.nav-search').boundingBox())!;
+  const heading = (await page.locator('.search-heading').boundingBox())!;
+  expect(heading.y).toBeGreaterThanOrEqual(form.y + form.height);
+  await expect(page.locator('.search-result a')).toHaveAttribute('href', `/e2e/${title}`);
+  await expectMobileLayout(page, expectedWidth);
+});
+
+test('mobile browser で検索欄を開いたままでも、隠れた行から編集を始めても、caret を動かしても、選択を広げても、caret を検索欄の下に置く', async (
+  { page },
+  testInfo,
+) => {
+  await loginE2eAccount(page, 'covered-mobile-e2e');
+  const title = `covered-${testInfo.project.name}-${testInfo.repeatEachIndex}`;
+  const body = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`);
+  await createE2ePage(page, title, body);
+  // このページへリンクするページを作り、本文の下に関連ページを並べる。最後の行を画面の上の方まで scroll できる。
+  for (let index = 0; index < 6; index += 1) await createE2ePage(page, `${title}-from-${index}`, [`[${title}]`]);
+  await page.goto(`/e2e/${title}`);
+  const coveredTop = (): Promise<number> => page.evaluate(() =>
+    Number.parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop));
+
+  // 本文を覆う固定した UI の下端は、閉じているときは上部のバーの下端、検索欄を開くと検索欄の下端（#331）。
+  // focus や scrollIntoView に使う CSS の scroll-padding-top も、それと同じ値。
+  expect(await coveredTop()).toBe(await page.locator('.page-nav').evaluate((nav) => nav.getBoundingClientRect().bottom));
+  await page.locator('.nav-search-toggle').tap();
+  await expect(page.locator('.nav-search-input')).toBeFocused();
+  const formBottom = await page.locator('.nav-search').evaluate((form) => form.getBoundingClientRect().bottom);
+  expect(formBottom).toBe(88);
+  expect(await coveredTop()).toBe(formBottom);
+
+  // 最後の行を、バーの下で検索欄に隠れる位置へ置き、検索欄から抜けて（検索欄は開いたまま）、ctrl + e で
+  // 最後の行から編集を始める。隠れた行は元の位置へ戻さず、caret を検索欄の下へ入れる。
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.nav-search-input')).not.toBeFocused();
+  await scrollRowTo(page, body.length, 50);
+  const lastRow = (await page.locator('#editor-root .line-row').nth(body.length).boundingBox())!;
+  expect(lastRow.y + lastRow.height).toBeLessThanOrEqual(formBottom);
+  await page.keyboard.press('Control+e');
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expect(page.locator('.nav-search')).toBeVisible();
+  expect.soft((await editorCaret(page)).top).toBeGreaterThanOrEqual(formBottom);
+
+  // caret を上の行へ動かすと、画面の外の行へ移るたびに scroll し、caret を検索欄の下に置く。
+  for (let count = 0; count < 4; count += 1) {
+    await page.keyboard.press('ArrowUp');
+    expect.soft((await editorCaret(page)).top).toBeGreaterThanOrEqual(formBottom);
+  }
+  // 選択を上へ広げても、選択の先端を検索欄の下に置く。
+  for (let count = 0; count < 4; count += 1) {
+    await page.keyboard.press('Shift+ArrowUp');
+    expect.soft((await editorCaret(page)).top).toBeGreaterThanOrEqual(formBottom);
+  }
+  expect(await page.evaluate(() => window.getSelection()?.isCollapsed)).toBe(false);
+});
+
+test('mobile browser で検索欄を開いたまま編集を始めると、押した字に caret を置くときは動かず、行頭に置いた caret が隠れるときだけ caret が見えるところまで scroll する', async (
+  { page },
+  testInfo,
+) => {
+  await loginE2eAccount(page, 'covered-mobile-e2e');
+  const title = `covered-start-${testInfo.project.name}-${testInfo.repeatEachIndex}`;
+  // 最後の行を、折り返して背の高い行にする。ctrl + e はこの行から編集を始める。
+  const tall = '折り返した長い行の上の方が検索欄の下にあるときに編集を始める本文です。'.repeat(6);
+  const body = [...Array.from({ length: 20 }, (_, index) => `line ${index + 1}`), tall];
+  await createE2ePage(page, title, body);
+  // このページへリンクするページを作り、本文の下に関連ページを並べる。最後の行を画面の上の方まで scroll できる。
+  for (let index = 0; index < 6; index += 1) await createE2ePage(page, `${title}-from-${index}`, [`[${title}]`]);
+  const tallRow = page.locator('#editor-root .line-row').nth(body.length);
+
+  // 閲覧表示を開き直し、検索欄を開いて focus だけ外し、背の高い行の上端を y = top に置く。
+  // 返すのは、本文を覆う下端（検索欄の下端）と、その行の上端と、その行の本文の先頭の字の箱の上端。
+  const showTallRowAt = async (top: number): Promise<{ covered: number; rowTop: number; firstChar: number }> => {
+    await page.goto(`/e2e/${title}`);
+    await page.locator('.nav-search-toggle').tap();
+    await expect(page.locator('.nav-search-input')).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.nav-search-input')).not.toBeFocused();
+    await scrollRowTo(page, body.length, top);
+    const rowTop = (await tallRow.boundingBox())!.y;
+    expect(Math.round(rowTop)).toBe(top);
+    const covered = await page.evaluate(() => Number.parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop));
+    expect(covered).toBe(88);
+    return { covered, rowTop, firstChar: await firstCharTop(tallRow) };
+  };
+  // 編集を始めた後も検索欄は開いたままで、本文を覆う下端は変わらない。
+  const started = async (): Promise<EditorCaret> => {
+    await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+    await expect(page.locator('.nav-search')).toBeVisible();
+    return editorCaret(page);
+  };
+  // 行頭の caret が検索欄に隠れていたときは、隠れていた分と、CodeMirror が caret を画面へ入れるときの
+  // 余白（5px）だけ scroll する。scroll 位置は整数の px なので、動かす量は 1px 未満だけ切り上がる。
+  // 行全体を見せる量は動かさない（#333）。
+  const expectRevealedJustEnough = (caret: EditorCaret, start: { covered: number; rowTop: number; firstChar: number }): void => {
+    expect.soft(caret).toMatchObject({ text: tall, offset: 0 });
+    expect.soft(caret.top).toBeGreaterThanOrEqual(start.covered + 5);
+    expect.soft(caret.top).toBeLessThan(start.covered + 6);
+    const overshoot = caret.lineTop - start.rowTop - (start.covered + 5 - start.firstChar);
+    expect.soft(overshoot).toBeGreaterThanOrEqual(0);
+    expect.soft(overshoot).toBeLessThan(1);
+  };
+
+  // 見えている下の方の字を tap すると、その字に caret を置く。caret は見えているので、行は動かない。
+  await showTallRowAt(54);
+  const pressed = await charPoint(tallRow, '本', 5, 0.25);
+  await page.touchscreen.tap(pressed.x, pressed.y);
+  const atPressed = await started();
+  expect.soft(atPressed).toMatchObject({ text: tall, offset: tall.length - '本文です。'.length });
+  expect.soft(atPressed.top).toBeGreaterThanOrEqual(88);
+  expect.soft(Math.round(atPressed.lineTop)).toBe(54);
+
+  // 同じ行のテロメアの見えている部分を tap すると、行頭に caret を置く（#319）。行頭は検索欄に隠れている。
+  const hidden = await showTallRowAt(54);
+  expect(hidden.firstChar).toBeLessThan(hidden.covered);
+  const telomere = (await tallRow.locator('.telomere').boundingBox())!;
+  const row = (await tallRow.boundingBox())!;
+  await page.touchscreen.tap(telomere.x + telomere.width / 2, row.y + row.height - 10);
+  expectRevealedJustEnough(await started(), hidden);
+
+  // ctrl + e で最後の行から始めるときも、行頭の caret が隠れるときだけ同じく scroll する。
+  const keyboardHidden = await showTallRowAt(54);
+  await page.keyboard.press('Control+e');
+  expectRevealedJustEnough(await started(), keyboardHidden);
+  await showTallRowAt(150);
+  await page.keyboard.press('Control+e');
+  const atVisibleStart = await started();
+  expect.soft(atVisibleStart).toMatchObject({ text: tall, offset: 0 });
+  expect.soft(atVisibleStart.top).toBeGreaterThanOrEqual(88);
+  expect.soft(Math.round(atVisibleStart.lineTop)).toBe(150);
+});
+
+test('mobile browser で検索欄を閉じた後は、閉じる前の入力に対するタイトルの一覧の応答が遅れて届いても、候補を出し直さない', async (
+  { page },
+  testInfo,
+) => {
+  await loginE2eAccount(page, 'search-mobile-e2e');
+  const title = `qzx-late-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, ['閉じた後に届いた応答']);
+  // タイトルの一覧の応答を止めておき、検索欄を閉じてから返す（#329）。
+  const requested = deferred();
+  const held = deferred();
+  await page.route('**/api/pages/e2e/search/titles', async (route) => {
+    requested.resolve();
+    await held.promise;
+    await route.continue();
+  });
+  await page.goto(`/e2e/${title}`);
+  const toggle = page.locator('.nav-search-toggle');
+  const input = page.locator('.nav-search-input');
+  await toggle.tap();
+  await expect(input).toBeFocused();
+  await input.pressSequentially(title);
+  await requested.promise;
+  await toggle.tap();
+  await expect(input).toBeHidden();
+
+  const delivered = page.waitForResponse('**/api/pages/e2e/search/titles');
+  held.resolve();
+  await delivered;
+  // 応答の本文を読んで候補を出すまでより十分に長く待つ。閉じた検索欄の中にも候補を作らない。
+  await new Promise((resolve) => {
+    setTimeout(resolve, 300);
+  });
+  await expect(page.locator('.nav-search-candidates a')).toHaveCount(0);
+  // 開き直しても候補は出ない。tap では外を押したときと同じく候補を閉じてから開くので、キーボードで開く。
+  await toggle.focus();
+  await page.keyboard.press('Enter');
+  await expect(input).toBeFocused();
+  await expect(page.locator('.nav-search-candidates')).toBeHidden();
+});
+
+test('mobile browser でも関連ページを、Links の札と共有するリンク先ごとの 2 列の行に並べる', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'cards-mobile-e2e');
+
+  const suffix = `${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  const hub = `mgroup-hub-${suffix}`;
+  const title = `mgroup-page-${suffix}`;
+  await createE2ePage(page, hub, ['リンク先のページ']);
+  await createE2ePage(page, `mgroup-other-${suffix}`, [`[${hub}] を共有するページ`]);
+  await createE2ePage(page, title, [`[${hub}] へのリンク`]);
+
+  await page.goto(`/e2e/${title}`);
+  const groups = await page.locator('.related-group').evaluateAll((lists) => lists.map((list) => {
+    const items = Array.from(list.children, (item) => item.getBoundingClientRect());
+    const box = list.getBoundingClientRect();
+    return {
+      label: list.querySelector('.relation-label-card')?.textContent?.trim() ?? '',
+      columns: items.map((item) => Math.round(item.x * 10) / 10),
+      width: Math.round(items[0]!.width * 10) / 10,
+      top: box.top,
+      bottom: box.bottom,
+    };
+  }));
+  // 紙面の幅に 2 列（間隔 8px）。行の先頭が見出しの札で、行の間は 32px（#249）。
+  const width = Math.round(((expectedWidth - 16 - 8) / 2) * 10) / 10;
+  expect(groups.map(({ label, columns, width: cardWidth }) => ({ label, columns, width: cardWidth }))).toEqual([
+    { label: 'Links', columns: [8, Math.round((8 + width + 8) * 10) / 10], width },
+    { label: hub, columns: [8, Math.round((8 + width + 8) * 10) / 10], width },
+  ]);
+  expect(Math.round(groups[1]!.top - groups[0]!.bottom)).toBe(32);
+  await expectMobileLayout(page, expectedWidth);
+});
+
+test('mobile browser では関連ページの並び替えを上の行に、絞り込み欄をその下に置き、tap で並び替えられる', async (
+  { page },
+  testInfo,
+) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'related-mobile-e2e');
+
+  // ページは e2e/server.ts が e2e-related に用意する（#281）。
+  await page.goto('/e2e-related/rel-base');
+  const paper = (await page.locator('.page').boundingBox())!;
+  const toolbar = (await page.locator('.related-toolbar').boundingBox())!;
+  const sort = (await page.locator('.related-sort').boundingBox())!;
+  const filter = (await page.locator('.related-filter').boundingBox())!;
+  // Cosense と同じく、並び替えは右端の 42px の行、絞り込み欄はその下で紙面の幅いっぱい。
+  expect({ x: toolbar.x, width: toolbar.width, height: toolbar.height }).toEqual({ x: paper.x, width: paper.width, height: 74 });
+  expect({ right: sort.x + sort.width, y: sort.y, height: sort.height })
+    .toEqual({ right: paper.x + paper.width, y: toolbar.y, height: 42 });
+  expect(filter).toEqual({ x: paper.x, y: toolbar.y + 42, width: paper.width, height: 32 });
+  await expect(page.locator('.related-sort-tab:visible')).toHaveCount(0);
+  await expect(page.locator('.related-sort-menu .sort-menu-current')).toHaveText('関連度');
+
+  await page.locator('.related-sort-menu .sort-menu-toggle').tap();
+  await expect(page.locator('.related-sort-menu .sort-menu-options button:visible'))
+    .toHaveText(['関連度', '更新日時', '作成日時', '最終アクセス', '被リンク数', 'タイトル']);
+  await page.locator('.related-sort-menu .sort-menu-options button', { hasText: 'タイトル' }).tap();
+  await expect(page.locator('.related-sort-menu')).not.toHaveAttribute('open');
+  await expect(page.locator('.related-sort-menu .sort-menu-current')).toHaveText('タイトル');
+  await expect(page.locator('.related-group[aria-label="Links"] h3')).toHaveText(['rel-alpha', 'rel-bravo', 'rel-charlie']);
+  await expectMobileLayout(page, expectedWidth);
+});
+
+test('mobile browser でも、ページの無いタイトルを空のページで描き、タイトルの行の tap で編集を始める', async (
+  { page },
+  testInfo,
+) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'related-mobile-e2e');
+
+  // rel-nowhere-two は e2e/server.ts の rel-new だけがリンクしている、ページの無いタイトル（#289）。
+  await page.goto('/e2e-related/rel-nowhere-two');
+  const paper = (await page.locator('.page').boundingBox())!;
+  expect({ x: paper.x, width: paper.width }).toEqual({ x: 8, width: expectedWidth - 16 });
+  await expect(page.locator('#editor-root h1.line-title')).toHaveText('rel-nowhere-two');
+  await expect(page.locator('.related-group[aria-label="Links"] h3')).toHaveText(['rel-new']);
+  await expectMobileLayout(page, expectedWidth);
+
+  // tap で編集を始めても、字を書かなければページは作られない。
+  await page.locator('#editor-root .line-row').first().tap({ position: { x: 30, y: 8 } });
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expect(page.locator('#editor-root .cm-line')).toHaveText(['rel-nowhere-two']);
+});
+
+test('mobile browser でもプロジェクトのトップの新規作成とページ数を画面の中で使える', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'cards-mobile-e2e');
+
+  await page.goto('/e2e');
+  // 並び替えの展開ボタンは札の並びの右端（#291）で、新規作成はその左。ページ数は画面の右下（#253）。
+  const toggle = (await page.locator('.page-sort-menu .sort-menu-toggle').boundingBox())!;
+  expect(Math.round(toggle.x + toggle.width)).toBe(expectedWidth - 8);
+  const button = (await page.locator('#create-page-button').boundingBox())!;
+  expect(Math.round(button.x + button.width)).toBe(Math.round(toggle.x));
+  const status = (await page.locator('.page-list-status').boundingBox())!;
+  const viewport = page.viewportSize()!;
+  expect({ right: Math.round(status.x + status.width), bottom: Math.round(status.y + status.height) })
+    .toEqual({ right: viewport.width, bottom: viewport.height });
+  await expect(page.locator('.page-list-status')).toHaveText(/^\d+ pages$/);
+
+  await page.locator('#create-page-button').tap();
+  await expect(page.locator('#create-page-dialog')).toBeVisible();
+  await expectMobileLayout(page, expectedWidth);
+});
+
+test('mobile browser でもプロジェクトのトップの並び替えを tap で選べる', async ({ page }, testInfo) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'cards-mobile-e2e');
+
+  // e2e-related のページは e2e/server.ts が用意する（#291）。
+  await page.goto('/e2e-related');
+  await page.locator('.page-sort-menu .sort-menu-toggle').tap();
+  const menu = (await page.locator('.page-sort-menu .sort-menu-options').boundingBox())!;
+  expect(Math.round(menu.x + menu.width)).toBe(expectedWidth - 8);
+  await expectMobileLayout(page, expectedWidth);
+  await page.locator('.page-sort-menu .sort-menu-options a', { hasText: 'タイトル' }).tap();
+  await expect(page).toHaveURL('/e2e-related?sort=title');
+  await expect(page.locator('main > .card-grid .card h2').first()).toHaveText('rel-alpha');
+  await expect(page.locator('.page-sort-menu .sort-menu-current')).toHaveText('タイトル');
+});
+
+test('mobile browser では閲覧表示のテロメアの tap で行の編集を始め、更新日時と行へのリンクのメニューには編集中の gutter から届く', async (
+  { page },
+  testInfo,
+) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'telomere-mobile-e2e');
+  const title = `telomere-mobile-${testInfo.project.name}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, ['first body', 'second body', 'third body', 'fourth body']);
+  await page.goto(`/e2e/${title}`);
+
+  // touch では本文の先頭を tap したときにテロメアへ吸い寄せられないよう、押せる幅は線の最大の太さの
+  // 10px に留め、高さは行と同じにする（#173）。
+  const row = page.locator('#editor-root .line-row').nth(1);
+  const telomere = row.locator('.telomere');
+  const telomereBox = (await telomere.boundingBox())!;
+  expect([telomereBox.width, telomereBox.height].map(Math.round))
+    .toEqual([10, Math.round((await row.boundingBox())!.height)]);
+
+  // Cosense の mobile と同じく、閲覧表示のテロメアの tap では、メニューを出さずにその行の編集を始める（#319）。
+  // caret は本文の先頭に置き、行へのリンクにはしない。
+  const updated = /^\d{4}\/\d{1,2}\/\d{1,2} \d{1,2}:\d{2}:\d{2}に更新$/;
+  const menu = page.locator('.telomere-info');
+  await telomere.tap();
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expect(menu).toBeHidden();
+  expect(new URL(page.url()).hash).toBe('');
+  expect(await page.evaluate(() => {
+    const anchor = window.getSelection()?.anchorNode;
+    const line = (anchor instanceof Element ? anchor : anchor?.parentElement)?.closest('.cm-line');
+    return { line: line?.textContent, offset: window.getSelection()?.anchorOffset };
+  })).toEqual({ line: 'first body', offset: 0 });
+
+  // 更新日時と行へのリンクのメニューへは、編集中の gutter のテロメアの tap で届く（#195）。
+  await page.locator('#editor-root .cm-telomere-gutter .telomere').nth(2).tap();
+  await expect(menu.locator('> *')).toHaveText([updated, 'リンクをコピー', 'リーダブルリンクをコピー']);
+  await expect(page.locator('#editor-root .cm-line.highlight')).toHaveText('second body');
+  const menuBox = (await menu.boundingBox())!;
+  expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(expectedWidth);
+  await expectMobileLayout(page, expectedWidth);
+});
+
+test('mobile browser でも、テロメアには閲覧表示でも編集を始めた後もキーボードの Tab で届き、Enter と Space でメニューを開く', async ({ page }, testInfo) => {
+  await loginE2eAccount(page, 'telomere-mobile-e2e');
+  const title = `telomere-mobile-keyboard-${testInfo.project.name}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, ['first body', 'second body']);
+  await page.goto(`/e2e/${title}`);
+
+  // 行のテロメアは 1 つの tab stop で、Tab で先頭の行のテロメアに届く（#173）。
+  const buttons = page.locator('#editor-root .line-row > .telomere');
+  for (let count = 0; count < 20; count += 1) {
+    if (await buttons.first().evaluate((element) => element === document.activeElement)) break;
+    await page.keyboard.press('Tab');
+  }
+  await expect(buttons.first()).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(buttons.nth(1)).toBeFocused();
+
+  // touch の端末でも、キーボードで押したときは編集を始めず、メニューを出してその最初の項目へ移る（#319）。
+  const copyLink = page.getByRole('button', { name: 'リンクをコピー', exact: true });
+  await page.keyboard.press('Enter');
+  await expect(copyLink).toBeFocused();
+  // 先頭のテロメアはタイトルの行のもので、ArrowDown で移ったのは本文の 1 行目。
+  await expect(page.locator('#editor-root .line-row').nth(1)).toHaveClass(/\bhighlight\b/);
+  await expect(page.locator('#editor-root .cm-editor')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.telomere-info')).toBeHidden();
+  await expect(buttons.nth(1)).toBeFocused();
+  await page.keyboard.press('Space');
+  await expect(copyLink).toBeFocused();
+  await expect(page.locator('#editor-root .cm-editor')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
+  // 編集を始めた後も、カーソル行のテロメアを指す button にキーボードで届く（#327）。指で押すのは、これまで
+  // どおり gutter のテロメアで、押せる幅は閲覧表示と同じ 10px、高さは行と同じ。
+  const text = await charPoint(page.locator('#editor-root .line-row').nth(2), 's', 0, 0.5);
+  await page.touchscreen.tap(text.x, text.y);
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  const button = page.getByRole('button', { name: /^\d{4}\/\d{1,2}\/\d{1,2} \d{1,2}:\d{2}:\d{2}に更新$/ });
+  await expect(button).toHaveCount(1);
+  expect(await button.evaluate((element) => element.closest('[aria-hidden="true"]'))).toBeNull();
+  const gutterTelomere = page.locator('#editor-root .cm-telomere-gutter .telomere').nth(2);
+  const gutterBox = (await gutterTelomere.boundingBox())!;
+  const lineBox = (await page.locator('#editor-root .cm-line').nth(2).boundingBox())!;
+  expect([gutterBox.width, gutterBox.height].map(Math.round)).toEqual([10, Math.round(lineBox.height)]);
+  expect(await gutterTelomere.evaluate((element, { x, y }) => document.elementFromPoint(x, y) === element, {
+    x: gutterBox.x + gutterBox.width / 2,
+    y: gutterBox.y + gutterBox.height / 2,
+  })).toBe(true);
+
+  await page.keyboard.press('Escape');
+  for (let count = 0; count < 30; count += 1) {
+    if (await button.evaluate((element) => element === document.activeElement)) break;
+    await page.keyboard.press('Tab');
+  }
+  await expect(button).toBeFocused();
+  expect(Object.values((await button.boundingBox())!).map(Math.round)).toEqual(Object.values(gutterBox).map(Math.round));
+  await page.keyboard.press('Enter');
+  await expect(copyLink).toBeFocused();
+  await expect(page.locator('#editor-root .cm-line.highlight')).toHaveText('second body');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.telomere-info')).toBeHidden();
+  await expect(button).toBeFocused();
+});
+
+test('mobile browser でも、本文の画像を tap すると画像を大きく出す dialog を開き、紙面の左の余白の tap で編集を始める', async (
+  { page },
+  testInfo,
+) => {
+  const expectedWidth = expectedViewportWidths[testInfo.project.name];
+  if (expectedWidth === undefined) throw new Error(`unexpected mobile project: ${testInfo.project.name}`);
+  await loginE2eAccount(page, 'image-mobile-e2e');
+  // 画像は外部ホストなので、本文の幅より広い SVG で代える（#319）。
+  await page.context().route('https://i.gyazo.com/**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'image/svg+xml',
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="400"><rect width="100%" height="100%" fill="#89a"/></svg>',
+  }));
+  const title = `mobile-image-${testInfo.project.name.replace('mobile-', '')}-${testInfo.repeatEachIndex}`;
+  await createE2ePage(page, title, ['[https://i.gyazo.com/wide.png]', 'last body']);
+  const open = async (): Promise<void> => {
+    await page.goto(`/e2e/${title}`);
+    await page.waitForFunction(() => Array.from(
+      document.querySelectorAll<HTMLImageElement>('#editor-root img'),
+      (image) => image.complete && image.naturalWidth > 0,
+    ).every(Boolean));
+  };
+  await open();
+  const row = page.locator('#editor-root .line-row').nth(1);
+  const bodyImage = row.locator('img');
+  // 画像は Cosense と同じく本文の幅（紙面の幅から左右の余白 21px を引いた幅）いっぱいに描き、右に余白を残さない。
+  expect((await bodyImage.boundingBox())!.width).toBe(expectedWidth - 16 - 42);
+
+  const dialog = page.locator('dialog.image-modal');
+  await bodyImage.tap();
+  await expect(dialog).toBeVisible();
+  const shown = (await dialog.locator('img').boundingBox())!;
+  expect(shown.width).toBeCloseTo(expectedWidth * 0.95 - 30, 0);
+  await expect(page.locator('#editor-root .cm-editor')).toHaveCount(0);
+  // 背景を tap すると閉じる。
+  await page.touchscreen.tap(2, 10);
+  await expect(dialog).toBeHidden();
+
+  // Cosense の mobile と同じく、行の左の余白（テロメアの右から本文の左まで）を tap すると、テロメアのメニューは
+  // 出さずに、その行の編集を始める。指で押した点はブラウザが近くのテロメアへ寄せるので、テロメアの tap と同じに扱う。
+  const telomere = (await row.locator('> .telomere').boundingBox())!;
+  const rowBox = (await row.boundingBox())!;
+  const imageBox = (await bodyImage.boundingBox())!;
+  const gap = { from: telomere.x + telomere.width, to: imageBox.x };
+  expect(gap.to - gap.from).toBeGreaterThan(5);
+  await page.touchscreen.tap((gap.from + gap.to) / 2, rowBox.y + 10);
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expect(page.locator('#editor-root .cm-line').nth(1)).toHaveText('[https://i.gyazo.com/wide.png]');
+  await expect(page.locator('.telomere-info')).toBeHidden();
+  await expect(dialog).toBeHidden();
+  await expectMobileLayout(page, expectedWidth);
+  // テロメアそのものを tap しても同じ。
+  await open();
+  await page.touchscreen.tap(telomere.x + telomere.width / 2, rowBox.y + 10);
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+  await expect(page.locator('#editor-root .cm-line').nth(1)).toHaveText('[https://i.gyazo.com/wide.png]');
+  await expect(page.locator('.telomere-info')).toBeHidden();
 });

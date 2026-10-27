@@ -1,8 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
 import {
+  charPoint,
   createE2ePage as createPage,
+  editorCaret,
   expectSameTextBox,
   deferred,
+  firstCharTop,
   lineRowClickPosition,
   firstVisualLineLength,
   lineTextBoxes,
@@ -10,6 +13,7 @@ import {
   loginDirectEditE2e,
   loginE2eAccount,
   loginTitleE2e,
+  scrollRowTo,
   textStyleOf,
   visibleTitleCount,
   type LinkRowTarget,
@@ -120,20 +124,21 @@ test('本文がまだない既存ページにも直接編集の click target が
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
 });
 
-test('telomere click は更新情報表示だけを行い Editor を起動しない', async ({ page }, testInfo) => {
+test('telomere click は更新情報とメニューを出すだけで Editor を起動しない', async ({ page }, testInfo) => {
   await loginDirectEditE2e(page);
   const title = `direct-edit-telomere-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
   await createPage(page, title, ['body']);
 
   await page.goto(`/e2e/${title}`);
-  const dialogHandled = new Promise<void>((resolve) => {
-    page.once('dialog', (dialog) => {
-      void dialog.dismiss().then(resolve);
-    });
-  });
-  await page.locator('#editor-root .line-row').nth(1).locator('.telomere').click();
-  await dialogHandled;
+  // hover で出る帯がテロメアに重なるので、人と同じく帯ごと押す（帯を押すとテロメアを押したことになる）。
+  const telomere = (await page.locator('#editor-root .line-row').nth(1).locator('.telomere').boundingBox())!;
+  await page.mouse.click(telomere.x + telomere.width / 2, telomere.y + telomere.height / 2);
+  await expect(page.locator('.telomere-menu-item')).toHaveText(['リンクをコピー', 'リーダブルリンクをコピー']);
   await expect(page.locator('#editor-root .cm-editor')).toHaveCount(0);
+  // メニューと帯は行の先頭に重なるので、閉じてテロメアから離れてから行を押す。
+  await page.keyboard.press('Escape');
+  await page.mouse.move(0, 0);
+  await expect(page.locator('.telomere-info')).toBeHidden();
 
   await page.locator('#editor-root .line-row').nth(1).click({ position: lineRowClickPosition });
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
@@ -246,6 +251,68 @@ test('click せずキーボードだけで編集を開始し、Escape で抜け�
     title,
     'keyboard body edited',
   ]);
+});
+
+// Escape で本文から抜け、Tab で本文へ戻った直後の入力（#334）。Tab の途中で上部のバーの検索欄を通ると、DOM の選択範囲は
+// 本文の外へ出る。本文へ戻ると、ブラウザは DOM の caret を本文の先頭（タイトルの行）に置く。IME の変換の確定は keydown を
+// 伴わずに届くので、CodeMirror が caret を元の位置へ戻す前に届くと、字がタイトルの行に入ってページがリネームされていた。
+test('Escape で本文から抜けて Tab で戻ると、すぐに確定した字も少し待って確定した字も抜ける前の caret の位置に入り、タイトルは変わらない', async (
+  { page },
+  testInfo,
+) => {
+  await loginE2eAccount(page, 'keyboard-e2e');
+  const title = `direct-edit-tab-return-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+  await createPage(page, title, ['first body', 'second body']);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/e2e/${title}`);
+  const documentTitle = await page.title();
+  const editor = page.locator('#editor-root .cm-content');
+  await page.locator('#editor-root .line-row').nth(2).click({ position: lineRowClickPosition });
+  await expect(editor).toBeFocused();
+  await page.keyboard.press('End');
+  // OS の IME は再現できないので、Chromium の IME 入力（変換中の文字列と確定）を CDP で送る。
+  const cdp = await page.context().newCDPSession(page);
+  const commitIme = async (texts: string[]) => {
+    for (const text of texts) {
+      await cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
+    }
+    await cdp.send('Input.insertText', { text: texts.at(-1)! });
+  };
+  // 本文の前の tab stop（カーソル行のテロメア、#327）まで Tab で進む。途中で検索欄を通り、DOM の選択範囲が本文の外へ出る。
+  const tabToEditor = async () => {
+    await page.keyboard.press('Escape');
+    await expect(editor).not.toBeFocused();
+    const telomere = page.locator('#editor-root .telomere-keyboard');
+    for (let count = 0; count < 20; count += 1) {
+      if (await telomere.evaluate((element) => element === document.activeElement)) break;
+      await page.keyboard.press('Tab');
+    }
+    await expect(telomere).toBeFocused();
+    expect(await editor.evaluate((element) => element.contains(window.getSelection()?.anchorNode ?? null))).toBe(false);
+    await page.keyboard.press('Tab');
+  };
+  const expectSavedWithTitle = async (body: string) => {
+    await expect(page.locator('#editor-root .cm-line')).toHaveText([title, 'first body', body]);
+    await expect(page.locator('#save-status')).toHaveText('保存済み');
+    await expect(page).toHaveURL(`/e2e/${title}`);
+    expect(await page.title()).toBe(documentTitle);
+    const persisted = await page.request.get(`/api/pages/e2e/${title}`);
+    expect((await persisted.json()).lines.map((line: { text: string }) => line.text)).toEqual([title, 'first body', body]);
+  };
+
+  // 待たずに確定する。
+  await tabToEditor();
+  await commitIme(['と', 'とて']);
+  await expectSavedWithTitle('second bodyとて');
+
+  // caret が抜ける前の位置に戻っているのを見てから確定する。
+  await tabToEditor();
+  await expect.poll(async () => {
+    const { text, offset } = await editorCaret(page);
+    return { text, offset };
+  }).toEqual({ text: 'second bodyとて', offset: 'second bodyとて'.length });
+  await commitIme(['も']);
+  await expectSavedWithTitle('second bodyとても');
 });
 
 test('編集開始の前に行が増えても、click した行の内容に caret が入る', async ({ page }, testInfo) => {
@@ -427,7 +494,7 @@ test('分割できない長い行も、原文表示のまま折り返す', async
   expect(layout.activeHeight).toBeGreaterThan(layout.shortHeight * 1.5);
 });
 
-test('折り返さない code 行があっても他の行の折り返しは止まらない', async ({ page }, testInfo) => {
+test('長い code 行があっても他の行の折り返しは止まらない', async ({ page }, testInfo) => {
   await loginE2eAccount(page, 'wrap-e2e');
   const title = `editor-wrap-code-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
   await createPage(page, title, [
@@ -441,8 +508,7 @@ test('折り返さない code 行があっても他の行の折り返しは止�
   await page.locator('#editor-root .line-row').nth(4).click({ position: lineRowClickPosition });
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
 
-  // code 行は閲覧表示でも折り返さない（.code-line は white-space: pre）。
-  // そのはみ出しがその行だけに収まり、他の行の折り返しを止めないことを見る。
+  // 長い code 行（Cosense と同じく折り返す）があっても、他の行の折り返しを止めないことを見る。
   const layout = await page.evaluate(() => {
     const scroller = document.querySelector('#editor-root .cm-scroller');
     if (scroller === null) throw new Error('editor scroller is missing');
@@ -592,8 +658,9 @@ test('画像を含む行も編集開始で行の高さと画像の大きさが�
     const box = image.getBoundingClientRect();
     return { width: box.width, height: box.height };
   }));
-  // 本文の画像は CSS が大きさを決めないので、読み込んだ画像の大きさで描かれる。
-  expect(loaded[0]).toEqual({ width: 300, height: 500 });
+  // 本文の画像は読み込んだ画像の縦横比で描かれる（閲覧時の 600x400 の属性が残っていない）。
+  // 高さは Cosense と同じく 300px までに縮める（#235）。
+  expect(loaded[0]).toEqual({ width: 180, height: 300 });
   // アイコンは CSS が高さを決めるので、縦横比だけを見る。
   expect(loaded[1]!.width / loaded[1]!.height).toBeCloseTo(300 / 500, 2);
 });
@@ -610,7 +677,7 @@ test('引用行も編集開始の前後で同じ位置・同じ字で描かれ�
   const beforeStyle = await textStyleOf(page, ' quoted line');
   const beforeBoxes = await lineTextBoxes(page);
   for (const box of beforeBoxes) expect(box.width).toBeGreaterThan(0);
-  // 閲覧表示の blockquote は左に字下げがあり、行の高さも本文行より高い。
+  // 引用の字は、帯の左の線と見えない > のぶん本文行より右から始まる。
   expect(beforeBoxes[1]!.x).toBeGreaterThan(beforeBoxes[4]!.x);
   await expect(page.locator('#editor-root .line-row').nth(3).locator('a')).toHaveCount(1);
 
@@ -671,7 +738,7 @@ test('長いページの途中から編集を始めても scroll 位置と触っ
   await createPage(page, title, longBody(100));
 
   await page.goto(`/e2e/${title}`);
-  await page.evaluate(() => window.scrollTo(0, 1200));
+  await scrollRowTo(page, 70, 300);
   const before = await rowViewportTop(page, 'body line 69');
   expectInViewport(before);
 
@@ -735,36 +802,60 @@ test('編集開始に失敗しても scroll 位置を保って再試行できる
   expect(Math.abs(after.top - before.top)).toBeLessThan(22);
 });
 
-test('上端が画面の外に出ている行から編集を始めてもページが飛ばない', async ({ page }, testInfo) => {
+test('上端が画面の外に出ている行は、見えている字を押して編集を始めてもページが飛ばず、余白を押して行頭から始めると caret が見えるところまでだけ動く', async ({ page }, testInfo) => {
   await loginE2eAccount(page, 'scroll-e2e');
   const title = `editor-scroll-partial-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
   // 折り返して背の高い行を 1 本挟む。上端だけ画面の外に出した状態で、その行を押す。
   const tall = '上端が画面の外へ出た行から編集を始めてもページが飛ばないことを確かめる本文です。'.repeat(12);
   const after = Array.from({ length: 40 }, (_, index) => `after line ${index}`);
   await createPage(page, title, [...longBody(40), tall, ...after]);
-
-  await page.goto(`/e2e/${title}`);
   const tallRow = page.locator('#editor-root .line-row').nth(41);
-  const tallBox = (await tallRow.boundingBox())!;
-  // 折り返しの本数は font で変わるので、はみ出させる量は行の高さから決める。
-  // 固定値にすると、行がそれより低い環境で直後の行まで画面の外に出てしまう。
-  expect(tallBox.height).toBeGreaterThan(60);
-  const offScreen = Math.round(tallBox.height / 2);
-  const tallTopInDocument = await tallRow.evaluate((row) => row.getBoundingClientRect().top + window.scrollY);
-  await page.evaluate((top) => window.scrollTo(0, top), tallTopInDocument + offScreen);
-  expect(await tallRow.evaluate((row) => Math.round(row.getBoundingClientRect().top))).toBe(-offScreen);
 
+  // 閲覧表示を開き直し、背の高い行の上半分を画面の外に出す。
+  const showLowerHalf = async (): Promise<void> => {
+    await page.goto(`/e2e/${title}`);
+    const tallBox = (await tallRow.boundingBox())!;
+    // 折り返しの本数は font で変わるので、はみ出させる量は行の高さから決める。
+    // 固定値にすると、行がそれより低い環境で直後の行まで画面の外に出てしまう。
+    expect(tallBox.height).toBeGreaterThan(60);
+    const offScreen = Math.round(tallBox.height / 2);
+    const tallTopInDocument = await tallRow.evaluate((row) => row.getBoundingClientRect().top + window.scrollY);
+    await page.evaluate((top) => window.scrollTo(0, top), tallTopInDocument + offScreen);
+    expect(await tallRow.evaluate((row) => Math.round(row.getBoundingClientRect().top))).toBe(-offScreen);
+  };
+
+  // 画面に残っている下側の字を押す。caret はその字に置かれて見えているので、ページは動かない。
+  await showLowerHalf();
   const before = await rowViewportTop(page, 'after line 0');
   expectInViewport(before);
-
-  // 画面に残っている下側を押す。
-  const visible = (await tallRow.boundingBox())!;
-  await page.mouse.click(visible.x + 20, visible.y + visible.height - 6);
+  const pressed = await charPoint(tallRow, '本', 11, 0.25);
+  await page.mouse.click(pressed.x, pressed.y);
   await expect(page.locator('#editor-root .cm-content')).toBeFocused();
 
   const settled = await rowViewportTop(page, 'after line 0');
   expectInViewport(settled);
   expect(Math.abs(settled.top - before.top)).toBeLessThan(22);
+  expect(await editorCaret(page)).toMatchObject({ text: tall, offset: tall.length - '本文です。'.length });
+
+  // 画面に残っている下側の、行の左の余白を押す。caret は押した位置ではなく行頭に置かれ、行頭は画面の上の外に
+  // ある。上部のバーの下端（scroll-padding-top）と CodeMirror が caret を画面へ入れるときの余白（5px）の下まで、
+  // caret を入れる分だけ動かす。scroll 位置は整数の px なので、動かす量は 1px 未満だけ切り上がる。
+  // 行全体を見せる量は動かさない（#333）。
+  await showLowerHalf();
+  const covered = await page.evaluate(() => Number.parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop));
+  const visible = (await tallRow.boundingBox())!;
+  const firstChar = await firstCharTop(tallRow);
+  expect(firstChar).toBeLessThan(0);
+  await page.mouse.click(visible.x + 20, visible.y + visible.height - 6);
+  await expect(page.locator('#editor-root .cm-content')).toBeFocused();
+
+  const atLineStart = await editorCaret(page);
+  expect(atLineStart).toMatchObject({ text: tall, offset: 0 });
+  expect(atLineStart.top).toBeGreaterThanOrEqual(covered + 5);
+  expect(atLineStart.top).toBeLessThan(covered + 6);
+  const overshoot = atLineStart.lineTop - visible.y - (covered + 5 - firstChar);
+  expect(overshoot).toBeGreaterThanOrEqual(0);
+  expect(overshoot).toBeLessThan(1);
 });
 
 // 行末ぴったりで終わるラベルを作る。折り返し位置は font と幅で決まるので、

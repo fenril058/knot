@@ -1,5 +1,6 @@
 import { ulid } from '../../core/id.ts';
 import { encodeTitleForUrl, pageHref } from '../../core/title.ts';
+import { requestSettledPage, type SettledPage } from '../editSession.ts';
 import { duplicateOps } from './ops.ts';
 
 type DialogElements = { dialog: HTMLDialogElement; form: HTMLFormElement; error: HTMLElement };
@@ -67,12 +68,81 @@ async function showConflict(
 }
 
 const root = requireElement('#page-menu-root', HTMLElement);
-const { project, title, pageId, version: versionText } = root.dataset;
-if (project === undefined || title === undefined || pageId === undefined || pageId === '' || versionText === undefined) {
+const { project, title: titleText, pageId, version: versionText } = root.dataset;
+if (project === undefined || titleText === undefined || pageId === undefined || pageId === '' || versionText === undefined) {
   throw new Error('page menu data attributes are missing');
 }
+const pageTitle = titleText;
 const version = Number(versionText);
 if (!Number.isInteger(version)) throw new Error('page version is invalid');
+
+// 767px 以下でページメニューをたたむつまみ（#299）。押すと 3 つのボタンの帯に広げ、もう一度押すとたたむ。
+// 768px 以上ではつまみを描かず、ボタンを常に並べる（CSS）。
+const drawer = root.parentElement;
+const drawerToggle = drawer?.querySelector('.page-menu-toggle');
+if (drawer !== null && drawerToggle instanceof HTMLButtonElement) {
+  drawerToggle.addEventListener('click', () => {
+    const open = !drawer.classList.contains('open');
+    drawer.classList.toggle('open', open);
+    drawerToggle.setAttribute('aria-expanded', String(open));
+  });
+}
+
+// ページ情報の作成・更新の日時を、相対の日時（「8 年前」）にする。正確な日時は、閲覧者の時間帯で
+// title（tooltip）に置く（Cosense と同じ）。単位は、差が 1 以上になる最も大きい単位を選び、端数は切り捨てる。
+const relativeFormat = new Intl.RelativeTimeFormat('ja', { numeric: 'always' });
+const exactFormat = new Intl.DateTimeFormat('ja-JP', { dateStyle: 'medium', timeStyle: 'medium' });
+const relativeUnits: [Intl.RelativeTimeFormatUnit, number][] = [
+  ['year', 365 * 86_400],
+  ['month', 30 * 86_400],
+  ['day', 86_400],
+  ['hour', 3600],
+  ['minute', 60],
+];
+
+function relativeTime(date: Date): string {
+  const seconds = (date.getTime() - Date.now()) / 1000;
+  const [unit, size] = relativeUnits.find(([, length]) => Math.abs(seconds) >= length) ?? ['second', 1];
+  return relativeFormat.format(Math.trunc(seconds / size), unit);
+}
+
+for (const time of root.querySelectorAll<HTMLTimeElement>('.page-info-menu time')) {
+  const date = new Date(time.dateTime);
+  if (Number.isNaN(date.getTime())) continue;
+  time.textContent = relativeTime(date);
+  time.title = exactFormat.format(date);
+}
+
+// ダイアログで始めたページ操作は、そのダイアログを閉じたら（キャンセル・Escape）やめる。保存し終えるのを
+// 待つあいだや複製元を読むあいだに閉じたら、その後のどの await の先でも server へ書き込みを送らない。
+// 閉じた後の編集は自動保存が保存し、やめた操作がその版を使うことはない（#323）。
+function operationSignal(dialog: HTMLDialogElement): AbortSignal {
+  const controller = new AbortController();
+  dialog.addEventListener('close', () => controller.abort(), { once: true });
+  return controller.signal;
+}
+
+// close イベントは閉じた後の task で届くので、まだ届いていなくても、ダイアログが閉じていればやめたものとする。
+function abandoned(elements: DialogElements, signal: AbortSignal): boolean {
+  return signal.aborted || !elements.dialog.open;
+}
+
+// 操作するページの版とタイトル。編集中なら、手元の編集を保存し終えるのを待ち、その版とタイトルを
+// 使う（#192）。保存できない状態なら、理由の文で reject する。編集していなければ閲覧表示の値を使う。
+async function currentPage(signal: AbortSignal): Promise<SettledPage> {
+  return requestSettledPage(signal) ?? { version, title: pageTitle };
+}
+
+// 操作をやめていたら、理由を出さずに undefined を返す。
+async function settledOrShowError(elements: DialogElements, signal: AbortSignal): Promise<SettledPage | undefined> {
+  try {
+    const current = await currentPage(signal);
+    return abandoned(elements, signal) ? undefined : current;
+  } catch (error) {
+    if (!abandoned(elements, signal)) showError(elements, error instanceof Error ? error.message : String(error));
+    return undefined;
+  }
+}
 
 const duplicate = dialogElements('duplicate');
 const rename = dialogElements('rename');
@@ -92,14 +162,18 @@ duplicate.form.addEventListener('submit', (event) => {
   event.preventDefault();
   duplicate.error.hidden = true;
   const newTitle = duplicateTitle.value.trim();
+  const signal = operationSignal(duplicate.dialog);
   void (async () => {
+    const current = await settledOrShowError(duplicate, signal);
+    if (current === undefined) return;
     try {
-      const sourceResponse = await fetch(`/api/pages/${encodeURIComponent(project)}/${encodeTitleForUrl(title)}`, {
+      const sourceResponse = await fetch(`/api/pages/${encodeURIComponent(project)}/${encodeTitleForUrl(current.title)}`, {
         headers: { 'X-Knot-Client': 'page-menu' },
       });
       if (!sourceResponse.ok) return showError(duplicate, await errorMessage(sourceResponse));
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       const source = await sourceResponse.json() as { lines: { text: string }[] };
+      if (abandoned(duplicate, signal)) return;
       const response = await fetch(`/api/knot/pages/${encodeURIComponent(project)}/${encodeTitleForUrl(newTitle)}/commits`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Knot-Client': 'page-menu' },
@@ -117,15 +191,18 @@ rename.form.addEventListener('submit', (event) => {
   event.preventDefault();
   rename.error.hidden = true;
   const newTitle = renameTitle.value.trim();
+  const signal = operationSignal(rename.dialog);
   void (async () => {
+    const current = await settledOrShowError(rename, signal);
+    if (current === undefined) return;
     try {
-      const response = await fetch(`/api/knot/pages/${encodeURIComponent(project)}/${encodeTitleForUrl(title)}/rename`, {
+      const response = await fetch(`/api/knot/pages/${encodeURIComponent(project)}/${encodeTitleForUrl(current.title)}/rename`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Knot-Client': 'page-menu' },
-        body: JSON.stringify({ pageId, newTitle, baseVersion: version, rewriteLinks: rewriteLinks.checked }),
+        body: JSON.stringify({ pageId, newTitle, baseVersion: current.version, rewriteLinks: rewriteLinks.checked }),
       });
       if (!response.ok) {
-        if (response.status === 409) return showConflict(rename, response, project, pageId, title);
+        if (response.status === 409) return showConflict(rename, response, project, pageId, current.title);
         return showError(rename, await errorMessage(response));
       }
       window.location.assign(pageHref(project, newTitle));
@@ -138,15 +215,18 @@ rename.form.addEventListener('submit', (event) => {
 remove.form.addEventListener('submit', (event) => {
   event.preventDefault();
   remove.error.hidden = true;
+  const signal = operationSignal(remove.dialog);
   void (async () => {
+    const current = await settledOrShowError(remove, signal);
+    if (current === undefined) return;
     try {
-      const response = await fetch(`/api/knot/pages/${encodeURIComponent(project)}/${encodeTitleForUrl(title)}`, {
+      const response = await fetch(`/api/knot/pages/${encodeURIComponent(project)}/${encodeTitleForUrl(current.title)}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json', 'X-Knot-Client': 'page-menu' },
-        body: JSON.stringify({ pageId, baseVersion: version }),
+        body: JSON.stringify({ pageId, baseVersion: current.version }),
       });
       if (!response.ok) {
-        if (response.status === 409) return showConflict(remove, response, project, pageId, title);
+        if (response.status === 409) return showConflict(remove, response, project, pageId, current.title);
         return showError(remove, await errorMessage(response));
       }
       window.location.assign(`/${encodeURIComponent(project)}`);
