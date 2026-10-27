@@ -35,6 +35,7 @@ const accountNames = [
   'scroll-mobile-e2e',
   'link-e2e',
   'link-mobile-e2e',
+  'icons-e2e',
   'geometry-e2e',
   'geometry-mobile-e2e',
   'line-e2e',
