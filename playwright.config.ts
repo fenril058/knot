@@ -13,12 +13,12 @@ export default defineConfig({
     },
     {
       name: 'mobile-chromium',
-      testMatch: /mobile\.spec\.ts/,
+      testMatch: [/mobile\.spec\.ts/, /repeated-icons\.spec\.ts/],
       use: { ...devices['Galaxy S24'], browserName: 'chromium' },
     },
     {
       name: 'mobile-webkit',
-      testMatch: /mobile\.spec\.ts/,
+      testMatch: [/mobile\.spec\.ts/, /repeated-icons\.spec\.ts/],
       use: { ...devices['iPhone 16'], browserName: 'webkit' },
     },
   ],

@@ -130,3 +130,12 @@ void test('繰り返しでない同じアイコンが続くときは、それぞ
   assert.ok(line?.type === 'line');
   assert.deepEqual(line.nodes.map((node) => node.range), [{ from: 6, to: 14 }, { from: 14, to: 22 }]);
 });
+
+void test('同じ繰り返し記法が連続しても、記法ごとに範囲を分ける', () => {
+  const line = parsePageSyntax('Title\n[a.icon*2][a.icon*2]', { hasTitle: true })[1];
+  assert.ok(line?.type === 'line');
+  assert.deepEqual(line.nodes.map((node) => node.range), [
+    { from: 6, to: 16 }, { from: 6, to: 16 },
+    { from: 16, to: 26 }, { from: 16, to: 26 },
+  ]);
+});
