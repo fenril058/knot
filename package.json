@@ -36,21 +36,21 @@
     "@codemirror/view": "^6.43.15",
     "@hono/node-server": "^2.1.5",
     "@progfay/scrapbox-parser": "^10.1.1",
-    "hono": "^4.13.14",
-    "jose": "6.2.13"
+    "hono": "^4.13.16",
+    "jose": "6.2.15"
   },
   "devDependencies": {
-    "@helpfeel/cosense-cli": "^1.17.1",
+    "@helpfeel/cosense-cli": "^1.18.0",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@playwright/test": "^1.64.1",
-    "@types/node": "^26.6.5",
-    "knip": "^6.43.0",
-    "oxlint": "^1.89.0",
+    "@types/node": "^26.6.6",
+    "knip": "^6.44.1",
+    "oxlint": "^1.90.0",
     "oxlint-tsgolint": "^7.0.2005",
-    "rolldown": "^1.2.15",
+    "rolldown": "^1.2.16",
     "scrapbox-cosense-mcp": "^0.13.0",
     "typescript": "^7.0.2",
-    "wrangler": "4.152.0"
+    "wrangler": "4.156.1"
   },
   "overrides": {
     "@modelcontextprotocol/sdk": "$@modelcontextprotocol/sdk",
