@@ -33,6 +33,21 @@ jobs:
         env:
           PINACT_GITHUB_TOKEN: ${{ github.token }}
 
+  # default の devShell を使う job は無いので、全 devShell を評価だけして、
+  # nixpkgs の更新でパッケージが削除・改名されたときに開発環境に入れなくなるのを検出する。
+  # ビルドはしないので、cache.nixos.org に無いパッケージがあっても時間はかからない。
+  flake-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
+      - run: nix flake check --no-build
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
