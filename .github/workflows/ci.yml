@@ -75,9 +75,11 @@ jobs:
         with:
           primary-key: nix-${{ runner.os }}-${{ runner.arch }}-e2e-${{ hashFiles('flake.nix', 'flake.lock', 'package.json', 'package-lock.json') }}
           save: ${{ github.ref == 'refs/heads/main' }}
-      - run: nix develop . --command node -e 'if (process.versions.node.split(".")[0] !== "26") process.exit(1)'
+      # default の devShell には開発用ツールも入っていて、cache.nixos.org に無いとソースからのビルドになる。
+      # e2e に要るものだけの .#e2e を使う。
+      - run: nix develop .#e2e --command node -e 'if (process.versions.node.split(".")[0] !== "26") process.exit(1)'
       - id: e2e
-        run: nix develop . --command npm run test:e2e
+        run: nix develop .#e2e --command npm run test:e2e
       # Playwright 自体が失敗したときだけ test-results/ を残す。
       # failure() だけだと前の step の失敗でも走り、test-results/ が無いので upload も失敗する。
       - if: failure() && steps.e2e.outcome == 'failure'
