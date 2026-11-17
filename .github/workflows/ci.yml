@@ -33,9 +33,10 @@ jobs:
         env:
           PINACT_GITHUB_TOKEN: ${{ github.token }}
 
-  # default の devShell を使う job は無いので、全 devShell を評価だけして、
+  # default の devShell を使う job は無いので、devShell を評価だけして、
   # nixpkgs の更新でパッケージが削除・改名されたときに開発環境に入れなくなるのを検出する。
-  # ビルドはしないので、cache.nixos.org に無いパッケージがあっても時間はかからない。
+  # 評価するのは runner と同じ x86_64-linux の出力だけで、他の system の devShell は検査しない。
+  # ビルドはしないので、cache.nixos.org に無いパッケージがあってもソースからのビルドは起きない。
   flake-check:
     runs-on: ubuntu-latest
     timeout-minutes: 5

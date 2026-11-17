@@ -17,8 +17,7 @@
           withWebkit = true;
         };
         # e2e を動かすのに要る分だけの shell。CI の e2e job はこれを使う。
-        # nixpkgs-unstable の channel は、全パッケージが cache.nixos.org に揃う前に進むことがある。
-        # 開発用ツールまで入れると、それがソースからのビルドになり、CI の時間制限を超える。
+        # 開発用ツールが cache.nixos.org に無いと、CI ではソースからのビルドになり、時間制限を超えることがある。
         e2eShell = {
           packages = [
             nodejs
