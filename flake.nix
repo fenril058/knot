@@ -16,23 +16,15 @@
           withFirefox = false;
           withWebkit = true;
         };
-      in
-      {
-        devShells.default = pkgs.mkShell {
-          packages =
-            (with pkgs; [
-              jdk
-              just
-              zizmor
-              actionlint
-              typescript-language-server
-              biome
-              npm-check-updates
-              nodejs
-              importNpmLock.hooks.linkNodeModulesHook
-            ])
-            # WebKit/WPE needs an EGL vendor even on GPU-less CI runners.
-            ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.mesa.llvmpipeHook ];
+        # e2e を動かすのに要る分だけの shell。CI の e2e job はこれを使う。
+        # 開発用ツールが cache.nixos.org に無いと、CI ではソースからのビルドになり、時間制限を超えることがある。
+        e2eShell = {
+          packages = [
+            nodejs
+            importNpmLock.hooks.linkNodeModulesHook
+          ]
+          # WebKit/WPE needs an EGL vendor even on GPU-less CI runners.
+          ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.mesa.llvmpipeHook ];
 
           npmDeps = importNpmLock.buildNodeModules {
             npmRoot = ./.;
@@ -51,6 +43,26 @@
           PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "1";
           PLAYWRIGHT_BROWSERS_PATH = "${playwrightBrowsers}";
         };
+      in
+      {
+        devShells.default = pkgs.mkShell (
+          e2eShell
+          // {
+            packages =
+              (with pkgs; [
+                jdk
+                just
+                zizmor
+                actionlint
+                typescript-language-server
+                biome
+                npm-check-updates
+              ])
+              ++ e2eShell.packages;
+          }
+        );
+
+        devShells.e2e = pkgs.mkShell e2eShell;
 
         devShells.workflow = pkgs.mkShell {
           packages = with pkgs; [
